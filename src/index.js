@@ -42,14 +42,20 @@ const getServer = () => {
     title: 'Render Video',
     description: `Render an HTML+GSAP composition to MP4 video via Hyperframes.
 
-REQUIREMENTS:
+⚠️ IMPORTANT: Before authoring HTML, load the skill 'hyperframes-video-generation' for design systems, composition rules, typography, transitions, and craft. Also read official docs at https://hyperframes.mintlify.app/llms.txt for the full reference index.
+
+QUICK RULES (broken compositions = bad video):
 - HTML must be base64-encoded.
-- Must include <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080"> for aspect ratio detection.
-- All elements must use position:absolute with top/left (never bottom — causes clipping).
+- Must include <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">.
+- GSAP: always use gsap.timeline({ paused: true }), register on window.__timelines["main"].
+- class="clip" + data-start + data-duration + data-track-index on ALL timed elements.
+- No Math.random() — use seeded PRNG. No async/await during timeline setup. No fetch().
+- Animate wrapper divs around <video>, never <video> directly. Never call .play()/.pause().
+- All elements: position:absolute with top/left (never bottom — causes clipping).
 - Canvas: 1920×1080 for landscape (1080p), 1080×1920 for portrait.
-- GSAP animations: use gsap.timeline() or gsap.to() with delays.
-- Audio: pass as base64 WAV/MP3 in 'audio' param — injected as <audio data-start="0" data-duration="N" data-volume="0.8" src="assets/audio.wav"> automatically.
-- data-width/data-height on #root determines orientation. Must match --resolution: 1080p/landscape needs 1920×1080, portrait needs 1080×1920.
+- Audio: pass as base64 WAV/MP3 in 'audio' param — injected as <audio data-start="0" data-duration="N" data-volume="0.8" src="assets/audio.wav">.
+- data-width/data-height on #root determines orientation. Must match --resolution.
+- Timeline duration = composition duration. Extend with tl.set({}, {}, DURATION) if needed.
 
 Returns a URL to the rendered MP4 file.`,
     annotations: {
