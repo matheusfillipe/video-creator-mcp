@@ -562,6 +562,193 @@ Best thumbnail under the specified max width is selected. Cached — repeated ca
     }
   });
 
+  // ─── Tool: render_timeline ────────────────────────────────────────
+  // Multi-segment render: each segment gets its own Hyperframes pass,
+  // then ffmpeg concat + audio overlay produces the final MP4.
+  server.registerTool('render_timeline', {
+    title: 'Render Timeline',
+    description: `Render a multi-segment video timeline in a single call. Each segment is rendered individually (Hyperframes can only handle one <video> per composition), then all segments are concatenated and audio is overlaid at specified offsets.
+
+This is the recommended way to create videos with multiple video clips (e.g., tier lists, compilations, montages). The alternative — putting multiple <video> elements in a single render_video call — causes them to stack on top of each other.
+
+WORKFLOW:
+1. Use download_media to get media_ids for all clips
+2. Call render_timeline with segments (HTML compositions) + audio offsets
+3. Get back a single final MP4
+
+Each segment should be a self-contained HTML+GSAP composition (same format as render_video). Keep segments short (3-15s each) for best performance.
+
+PROGRESS: Reports segment-by-segment progress via progressToken. A video with 20 segments will report 20 progress updates.`,
+    inputSchema: {
+      segments: z.array(z.object({
+        html: z.string().describe('Base64-encoded HTML+GSAP composition for this segment.'),
+        duration: z.number().describe('Duration of this segment in seconds.'),
+        media: z.array(z.object({
+          media_id: z.string().describe('Media ID from download_media.'),
+        })).optional().describe('Media files needed by this segment.'),
+      })).min(1).describe('Ordered list of segments. Each rendered independently then concatenated.'),
+      audio: z.array(z.object({
+        media_id: z.string().describe('Media ID of the audio/video to extract audio from.'),
+        offset_ms: z.number().describe('When to start playing this audio, in milliseconds from the beginning of the final video.'),
+        volume: z.number().min(0).max(1).default(0.6).describe('Volume for this audio track (0-1).'),
+        fade_ms: z.number().default(1000).describe('Fade out duration in milliseconds (default: 1000).'),
+      })).optional().describe('Audio tracks to overlay at specific offsets. Each entry extracts audio from a cached media file.'),
+      fps: z.number().int().min(1).max(60).default(30).describe('Frames per second.'),
+      resolution: z.enum(['1080p', '4k', 'uhd', 'landscape', 'portrait', 'square']).default('1080p').describe('Output resolution.'),
+    },
+  }, async ({ segments, audio, fps, resolution }, extra) => {
+    const jobId = randomUUID().slice(0, 8);
+    const timelineDir = `/tmp/timeline-${jobId}`;
+    const segDir = join(timelineDir, 'segments');
+    await mkdir(timelineDir, { recursive: true });
+    await mkdir(segDir, { recursive: true });
+
+    const reportProgress = (msg) => {
+      if (extra._meta?.progressToken) {
+        extra.sendNotification({
+          method: 'notifications/progress',
+          params: {
+            progressToken: extra._meta.progressToken,
+            progress: 0,
+            total: segments.length,
+            message: msg,
+          },
+        }).catch(() => {});
+      }
+    };
+
+    try {
+      // ── Phase 1: Render each segment ──
+      const segFiles = [];
+      let totalFrames = 0;
+
+      for (let i = 0; i < segments.length; i++) {
+        const seg = segments[i];
+        reportProgress(`Rendering segment ${i + 1}/${segments.length} (${seg.duration}s)`);
+
+        const segResult = await new Promise((resolve, reject) => {
+          queue.enqueue({
+            run: async () => {
+              try {
+                const res = await renderVideo(
+                  { html: seg.html, fps, resolution, media: seg.media },
+                  () => {} // suppress per-frame progress for individual segments
+                );
+                resolve(res);
+              } catch (err) {
+                reject(err);
+              }
+            },
+          });
+        });
+
+        // Write segment file
+        const segPath = join(segDir, `seg_${String(i).padStart(3, '0')}.mp4`);
+        await writeFile(segPath, segResult.buffer);
+        segFiles.push(segPath);
+        console.log(`[timeline] Segment ${i + 1}/${segments.length} done: ${(segResult.size / 1024).toFixed(0)} KB`);
+      }
+
+      // ── Phase 2: Concatenate segments ──
+      reportProgress('Concatenating segments...');
+      const concatList = join(timelineDir, 'concat.txt');
+      await writeFile(concatList, segFiles.map(f => `file '${f}'`).join('\n') + '\n');
+
+      const concatOut = join(timelineDir, 'concat.mp4');
+      await run('ffmpeg', [
+        '-y', '-f', 'concat', '-safe', '0',
+        '-i', concatList,
+        '-an', '-c:v', 'copy',
+        concatOut,
+      ], 60);
+
+      // ── Phase 3: Overlay audio ──
+      let finalOut = concatOut;
+
+      if (audio && audio.length > 0) {
+        reportProgress('Overlaying audio tracks...');
+
+        // Build ffmpeg command with input files and filter complex
+        const ffmpegArgs = ['-y', '-i', concatOut];
+        const filterParts = ['[0:v]copy[v]'];
+        let audioIdx = 0; // actual audio input index (some media may lack audio)
+
+        for (let i = 0; i < audio.length; i++) {
+          const a = audio[i];
+          const meta = await loadMeta(a.media_id);
+          if (!meta) {
+            console.warn(`[timeline] Audio media ${a.media_id} not found, skipping`);
+            continue;
+          }
+
+          // Check if media actually has audio
+          if (!meta.hasAudio) {
+            console.warn(`[timeline] Media ${a.media_id} has no audio, skipping`);
+            continue;
+          }
+
+          ffmpegArgs.push('-i', meta.path);
+          const vol = (a.volume ?? 0.6).toFixed(2);
+          const fadeS = (a.fade_ms / 1000).toFixed(3);
+          const segEnd = a.offset_ms / 1000 + 10; // rough segment duration
+
+          filterParts.push(
+            `[${audioIdx + 1}:a]adelay=${Math.round(a.offset_ms)}|${Math.round(a.offset_ms)},` +
+            `afade=t=out:st=${segEnd - parseFloat(fadeS)}:d=${fadeS},` +
+            `volume=${vol}[a${audioIdx}]`
+          );
+          audioIdx++;
+        }
+
+        // Mix all audio tracks (only if we have any)
+        const aLabels = [];
+        for (let i = 0; i < audioIdx; i++) aLabels.push(`[a${i}]`);
+        if (aLabels.length > 0) {
+          filterParts.push(
+            `${aLabels.join('')}amix=inputs=${aLabels.length}:duration=first:dropout_transition=0[outa]`
+          );
+
+          ffmpegArgs.push(
+            '-filter_complex', filterParts.join(';'),
+            '-map', '[v]', '-map', '[outa]',
+            '-c:v', 'libx264', '-crf', '23', '-preset', 'fast',
+            '-c:a', 'aac', '-b:a', '192k',
+            '-movflags', '+faststart',
+            join(timelineDir, 'final.mp4')
+          );
+
+          await run('ffmpeg', ffmpegArgs, 300);
+          finalOut = join(timelineDir, 'final.mp4');
+        } else {
+          console.log('[timeline] No audio tracks to overlay');
+        }
+      }
+
+      // ── Phase 4: Read final file and store ──
+      reportProgress('Finalizing...');
+      const finalBuf = await readFile(finalOut);
+      const filename = `timeline-${jobId}.mp4`;
+      const url = await storage.save(finalBuf, filename);
+
+      // Cleanup timeline dir
+      await rm(timelineDir, { recursive: true, force: true }).catch(() => {});
+
+      return {
+        content: [{
+          type: 'text',
+          text: `Timeline render complete: ${url} (${finalBuf.length} bytes, ${segments.length} segments)`,
+        }],
+      };
+    } catch (err) {
+      // Cleanup on failure
+      await rm(timelineDir, { recursive: true, force: true }).catch(() => {});
+      return {
+        content: [{ type: 'text', text: `Timeline render failed: ${err.message}` }],
+        isError: true,
+      };
+    }
+  });
+
   return server;
 };
 
