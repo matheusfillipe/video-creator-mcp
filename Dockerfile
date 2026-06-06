@@ -29,6 +29,11 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
 
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+
+# Bake the Hyperframes render engine into the image (its native sharp dep resolves a Linux
+# prebuilt here, unlike on dev machines). System chromium is reused via PUPPETEER_EXECUTABLE_PATH.
+RUN npm install -g hyperframes@0.6.77 && npm cache clean --force
+
 COPY --from=build /app/dist ./dist
 COPY gsap ./gsap
 

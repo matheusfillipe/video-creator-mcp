@@ -1,10 +1,8 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import express, { type NextFunction, type Request, type Response } from "express";
-import { loadConfig } from "./config.js";
+import { config } from "./config.js";
 import { SERVER_NAME, SERVER_VERSION, buildServer } from "./server.js";
-
-const config = loadConfig();
 
 async function runStdio(): Promise<void> {
   const server = buildServer();
