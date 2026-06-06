@@ -1,0 +1,14 @@
+node_modules
+dist
+coverage
+.git
+.github
+.husky
+tests
+output
+*.mp4
+*.wav
+*.webm
+.env
+.DS_Store
+npm-debug.log

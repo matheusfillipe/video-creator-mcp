@@ -1,4 +1,4 @@
-# MCP Video Renderer
+# Video Creator MCP
 
 MCP (Model Context Protocol) server that renders HTML+GSAP compositions to MP4 video via [Hyperframes](https://hyperframes.dev). Includes YouTube/media download, TTS, background removal, analytics, and multi-segment timeline assembly.
 
@@ -119,7 +119,7 @@ npm run dev
 | `STORAGE_PATH` | `./output` | Local output directory |
 | `PUBLIC_URL` | (none) | Base URL for accessing rendered files (no trailing slash) |
 | `WORKDIR` | `/tmp/mcp-render-jobs` | Temp working dir for render jobs |
-| `MEDIA_CACHE_DIR` | `~/.cache/mcp-video-renderer/media` | Downloaded media cache |
+| `MEDIA_CACHE_DIR` | `~/.cache/video-creator-mcp/media` | Downloaded media cache |
 | `YTDLP_PATH` | `yt-dlp` | Path to yt-dlp binary |
 | `YTDLP_COOKIES` | (none) | Path to Netscape cookies.txt for authenticated downloads |
 | `YTDLP_FORMAT` | `best[height<=720][ext=mp4]/best[height<=720]/best` | yt-dlp format selector |
@@ -133,9 +133,9 @@ npm run dev
 
 ```bash
 # Install service
-sudo cp mcp-video-renderer.service /etc/systemd/system/
+sudo cp video-creator-mcp.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now mcp-video-renderer
+sudo systemctl enable --now video-creator-mcp
 
 # Quick restart
 ./deploy.sh

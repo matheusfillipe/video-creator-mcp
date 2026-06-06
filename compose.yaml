@@ -1,0 +1,21 @@
+services:
+  video-creator-mcp:
+    build: .
+    image: video-creator-mcp:latest
+    ports:
+      - "3100:3100"
+    environment:
+      TRANSPORT: http
+      PORT: "3100"
+      STORAGE_TYPE: local
+      STORAGE_PATH: /data/output
+      MEDIA_CACHE_DIR: /data/cache
+      WORKDIR: /tmp/video-creator-jobs
+    volumes:
+      - output:/data/output
+      - cache:/data/cache
+    restart: unless-stopped
+
+volumes:
+  output:
+  cache:
