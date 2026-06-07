@@ -16,7 +16,7 @@ WORKDIR /app
 # JavaScript runtime and the yt-dlp[default] extra bundles the EJS challenge-solver scripts
 # so YouTube's n-signature challenges resolve offline, without a runtime fetch from GitHub.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg python3 python3-pip curl ca-certificates chromium unzip \
+      ffmpeg python3 python3-pip curl ca-certificates chromium unzip fonts-liberation \
     && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" \
     && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
     && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod +x /usr/local/bin/deno \
@@ -24,6 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PRODUCER_HEADLESS_SHELL_PATH=/usr/local/bin/chrome-headless-shell \
     TRANSPORT=http \
     PORT=3100 \
     STORAGE_TYPE=local \
@@ -41,6 +42,16 @@ RUN npm install -g hyperframes@0.6.77 && npm cache clean --force \
     # CLI's loader resolves its core at <prefix>/lib/core/dist — bridge them.
     && mkdir -p /usr/local/lib/core \
     && ln -sfn /usr/local/lib/node_modules/hyperframes/dist /usr/local/lib/core/dist
+
+# chrome-headless-shell unlocks BeginFrame-based deterministic capture, which is far
+# faster than the screenshot fallback Hyperframes uses with a regular Chrome build.
+# The binary ships linux64-only; the build platform here is amd64. Symlink it to a
+# stable path so PRODUCER_HEADLESS_SHELL_PATH (set above) resolves regardless of the
+# versioned install directory.
+RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable --path /opt/puppeteer \
+    && shell_path="$(find /opt/puppeteer/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" \
+    && test -n "$shell_path" \
+    && ln -sfn "$shell_path" /usr/local/bin/chrome-headless-shell
 
 COPY --from=build /app/dist ./dist
 COPY gsap ./gsap
