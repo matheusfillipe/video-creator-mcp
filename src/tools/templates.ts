@@ -8,7 +8,7 @@ import {
   type TimelineSegment,
   assembleTimeline,
 } from "../services/timeline.js";
-import { rankClipHtml, titleCardHtml } from "../templates/tierlist.js";
+import { titleCardHtml } from "../templates/tierlist.js";
 import type { Resolution } from "../types.js";
 import { registerTool } from "./defineTool.js";
 
@@ -90,16 +90,12 @@ export function registerTemplateTools(server: McpServer): void {
           duration: args.card_seconds,
         });
         segments.push({
-          html: encode(
-            rankClipHtml({
-              rank: entry.rank,
-              name: entry.name,
-              mediaFilename: meta.filename,
-              durationSeconds: entry.clip_seconds,
-            }),
-          ),
           duration: entry.clip_seconds,
-          media: [{ media_id: entry.media_id, muted: true }],
+          clipOverlay: {
+            media_id: entry.media_id,
+            rankText: `#${entry.rank}`,
+            nameText: entry.name,
+          },
         });
       }
 

@@ -39,21 +39,6 @@ export function titleCardHtml(options: TitleCardOptions): string {
   return document(options.durationSeconds, body, timeline);
 }
 
-export interface RankClipOptions {
-  rank: number;
-  name: string;
-  mediaFilename: string;
-  durationSeconds: number;
-  accentColor?: string;
-}
-
-export function rankClipHtml(options: RankClipOptions): string {
-  const name = escapeHtml(options.name);
-  const accent = options.accentColor ?? "#ffd24a";
-  const hold = Math.max(0.1, options.durationSeconds - 0.6).toFixed(2);
-  const body = `<div class="clip" data-start="0" data-duration="${options.durationSeconds}" data-track-index="0" style="position:absolute;top:0;left:0;width:1920px;height:1080px;"><video src="assets/${options.mediaFilename}" muted style="width:100%;height:100%;object-fit:cover;"></video></div>
-<div class="clip" data-start="0" data-duration="${options.durationSeconds}" data-track-index="1" style="position:absolute;top:48px;left:1560px;width:320px;text-align:center;background:rgba(0,0,0,0.55);color:${accent};font-size:104px;font-weight:900;padding:6px 0;border-radius:18px;">#${options.rank}</div>
-<div class="clip" data-start="0" data-duration="${options.durationSeconds}" data-track-index="2" style="position:absolute;left:60px;top:900px;max-width:1400px;background:rgba(0,0,0,0.62);color:#ffffff;font-size:58px;font-weight:700;padding:16px 30px;border-radius:14px;">${name}</div>`;
-  const timeline = `tl.fromTo(".clip[data-track-index='1']",{opacity:0,scale:0.6},{opacity:1,scale:1,duration:0.5,ease:"back.out(2)"});tl.fromTo(".clip[data-track-index='2']",{opacity:0,x:-40},{opacity:1,x:0,duration:0.5},"<0.1");tl.to(".clip",{opacity:1,duration:${hold}});`;
-  return document(options.durationSeconds, body, timeline);
-}
+// Clip segments (the ranked video with its rank badge + name lower-third) are composited
+// directly with ffmpeg in the timeline assembler — see services/timeline.ts. Only the
+// animated title/rank cards are authored here as html compositions.

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { cumulativeOffsetsMs } from "../../src/services/timeline.js";
+import {
+  buildClipOverlayFilter,
+  cumulativeOffsetsMs,
+  dimsFor,
+} from "../../src/services/timeline.js";
 
 describe("cumulativeOffsetsMs", () => {
   it("returns the start offset (ms) of each segment", () => {
@@ -12,5 +16,42 @@ describe("cumulativeOffsetsMs", () => {
 
   it("returns an empty list for no segments", () => {
     expect(cumulativeOffsetsMs([])).toEqual([]);
+  });
+});
+
+describe("dimsFor", () => {
+  it("maps landscape resolutions to 1920x1080", () => {
+    expect(dimsFor("1080p")).toEqual({ width: 1920, height: 1080 });
+    expect(dimsFor("landscape")).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it("maps 4k/uhd to 3840x2160 and portrait to 1080x1920", () => {
+    expect(dimsFor("4k")).toEqual({ width: 3840, height: 2160 });
+    expect(dimsFor("uhd")).toEqual({ width: 3840, height: 2160 });
+    expect(dimsFor("portrait")).toEqual({ width: 1080, height: 1920 });
+  });
+});
+
+describe("buildClipOverlayFilter", () => {
+  const filter = buildClipOverlayFilter({
+    width: 1920,
+    height: 1080,
+    rankTextFile: "/tmp/rank.txt",
+    nameTextFile: "/tmp/name.txt",
+    fontFile: "/font.ttf",
+    accentColor: "#ffd24a",
+  });
+
+  it("cover-fits the clip to the canvas and outputs yuv420p", () => {
+    expect(filter).toContain("scale=1920:1080:force_original_aspect_ratio=increase");
+    expect(filter).toContain("crop=1920:1080");
+    expect(filter).toContain("format=yuv420p");
+  });
+
+  it("draws rank and name from text files and converts the accent to 0x form", () => {
+    expect(filter).toContain("textfile=/tmp/rank.txt");
+    expect(filter).toContain("textfile=/tmp/name.txt");
+    expect(filter).toContain("fontcolor=0xffd24a");
+    expect(filter).not.toContain("#ffd24a");
   });
 });
