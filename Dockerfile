@@ -12,10 +12,12 @@ WORKDIR /app
 
 # Render/scavenge toolchain: ffmpeg (encode/concat), chromium (Hyperframes headless render),
 # yt-dlp (media download), python3 (TTS/STT models). chromium is provided by the OS so
-# Hyperframes/puppeteer reuse it instead of downloading a second copy.
+# Hyperframes/puppeteer reuse it instead of downloading a second copy. deno is yt-dlp's
+# JavaScript runtime and the yt-dlp[default] extra bundles the EJS challenge-solver scripts
+# so YouTube's n-signature challenges resolve offline, without a runtime fetch from GitHub.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg python3 python3-pip curl ca-certificates chromium unzip \
-    && pip3 install --no-cache-dir --break-system-packages yt-dlp \
+    && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" \
     && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
     && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod +x /usr/local/bin/deno \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
