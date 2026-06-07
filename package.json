@@ -13,9 +13,10 @@
     "start": "node dist/index.js",
     "clean": "rm -rf dist coverage",
     "typecheck": "tsc --noEmit",
-    "lint": "biome check src tests",
-    "format": "biome format --write src tests",
-    "check": "biome check --write src tests",
+    "lint": "biome check src tests scripts",
+    "format": "biome format --write src tests scripts",
+    "check": "biome check --write src tests scripts",
+    "docs:tools": "tsx scripts/gen-tools-doc.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "husky || true"
