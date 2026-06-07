@@ -1,4 +1,10 @@
 node_modules/
+dist/
+coverage/
 output/
 .env
 *.mp4
+*.wav
+*.webm
+.DS_Store
+*.log

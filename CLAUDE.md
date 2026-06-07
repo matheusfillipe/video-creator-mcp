@@ -1,4 +1,4 @@
-# MCP Video Renderer
+# Video Creator MCP
 
 Node.js MCP server that renders HTML+GSAP → MP4 via Hyperframes CLI.
 
@@ -18,4 +18,4 @@ Edit `src/index.js` in `getServer()`. Use `server.registerTool()` with zod schem
 5. Output MP4 read, saved to storage, URL returned
 
 ## Deploy
-`./deploy.sh` restarts systemd service. Service file at `mcp-video-renderer.service`.
+`./deploy.sh` restarts systemd service. Service file at `video-creator-mcp.service`.
