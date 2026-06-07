@@ -3,6 +3,7 @@ import { registerAudioTools } from "./audio.js";
 import { registerEffectsTools } from "./effects.js";
 import { registerMediaTools } from "./media.js";
 import { registerRenderTools } from "./render.js";
+import { registerTemplateTools } from "./templates.js";
 import { registerYoutubeTools } from "./youtube.js";
 
 export function registerAllTools(server: McpServer): void {
@@ -11,4 +12,5 @@ export function registerAllTools(server: McpServer): void {
   registerYoutubeTools(server);
   registerAudioTools(server);
   registerEffectsTools(server);
+  registerTemplateTools(server);
 }

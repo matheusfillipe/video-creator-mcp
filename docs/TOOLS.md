@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 13 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 14 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_download_media`
 
@@ -93,6 +93,22 @@ Check a render/timeline job. When state is 'done', result holds the rendered vid
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `job_id` | string | yes |  | job_id returned by video_render / video_render_timeline. |
+
+## `video_render_tierlist`
+
+Build a countdown/tier-list video from ranked entries. Layout: an intro title card, then for each entry a black '#rank — name' card followed by that entry's video clip with a rank badge (top-right) and a name lower-third. Each clip is a media_id from video_download_media — trim it to the best moment first using video_get_info's heatmap peaks. Clips are muted; pass music_media_id for background music. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `title` | string | yes |  | Intro title, e.g. 'Top 10 Most Awaited Games of 2026'. |
+| `subtitle` | string | no |  | Intro subtitle line. |
+| `entries` | array | yes |  | Ranked entries, in display order (e.g. #10 first … #1 last). |
+| `intro_seconds` | number | no | `3.5` | Intro card duration. |
+| `card_seconds` | number | no | `2.5` | Per-entry text-card duration. |
+| `music_media_id` | string | no |  | Optional background-music media_id. |
+| `music_volume` | number | no | `0.25` | Background-music volume. |
+| `fps` | integer | no | `30` |  |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
 
 ## `video_render_timeline`
 
