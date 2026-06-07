@@ -19,6 +19,8 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+      - run: npm run docs:tools
+      - run: git diff --exit-code -- docs/TOOLS.md  # fail if tool docs are out of date
 
   docker:
     runs-on: ubuntu-latest
