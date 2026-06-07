@@ -14,6 +14,15 @@ const EnvSchema = z.object({
   S3_REGION: z.string().default("us-east-1"),
   S3_ACCESS_KEY: z.string().default(""),
   S3_SECRET_KEY: z.string().default(""),
+  // MinIO-convention vars (as injected by the homelab minio/infra secret). When
+  // MINIO_BUCKET is present these take precedence and storage is forced to s3.
+  MINIO_ENDPOINT: z.string().optional(),
+  MINIO_USE_SSL: z.string().optional(),
+  MINIO_REGION: z.string().optional(),
+  MINIO_BUCKET: z.string().optional(),
+  MINIO_ACCESS_KEY: z.string().optional(),
+  MINIO_SECRET_KEY: z.string().optional(),
+  MINIO_PUBLIC_BASE: z.string().optional(),
   MEDIA_CACHE_DIR: z.string().optional(),
   WORKDIR: z.string().default("/tmp/video-creator-jobs"),
   RENDER_CONCURRENCY: z.coerce.number().int().positive().default(1),
@@ -59,24 +68,45 @@ export interface Config {
   allowPrivateNetwork: boolean;
 }
 
+type ParsedEnv = z.infer<typeof EnvSchema>;
+
+function buildStorage(env: ParsedEnv): StorageConfig {
+  if (env.MINIO_BUCKET) {
+    const scheme = env.MINIO_USE_SSL === "false" ? "http" : "https";
+    return {
+      type: "s3",
+      path: env.STORAGE_PATH,
+      publicUrl: (env.MINIO_PUBLIC_BASE ?? "").replace(/\/+$/, ""),
+      s3: {
+        endpoint: `${scheme}://${env.MINIO_ENDPOINT ?? ""}`,
+        bucket: env.MINIO_BUCKET,
+        region: env.MINIO_REGION ?? "us-east-1",
+        accessKey: env.MINIO_ACCESS_KEY ?? "",
+        secretKey: env.MINIO_SECRET_KEY ?? "",
+      },
+    };
+  }
+  return {
+    type: env.STORAGE_TYPE,
+    path: env.STORAGE_PATH,
+    publicUrl: env.PUBLIC_URL.replace(/\/+$/, ""),
+    s3: {
+      endpoint: env.S3_ENDPOINT,
+      bucket: env.S3_BUCKET,
+      region: env.S3_REGION,
+      accessKey: env.S3_ACCESS_KEY,
+      secretKey: env.S3_SECRET_KEY,
+    },
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const parsed = EnvSchema.parse(env);
   return {
     transport: parsed.TRANSPORT,
     port: parsed.PORT,
     apiKey: parsed.MCP_API_KEY,
-    storage: {
-      type: parsed.STORAGE_TYPE,
-      path: parsed.STORAGE_PATH,
-      publicUrl: parsed.PUBLIC_URL.replace(/\/+$/, ""),
-      s3: {
-        endpoint: parsed.S3_ENDPOINT,
-        bucket: parsed.S3_BUCKET,
-        region: parsed.S3_REGION,
-        accessKey: parsed.S3_ACCESS_KEY,
-        secretKey: parsed.S3_SECRET_KEY,
-      },
-    },
+    storage: buildStorage(parsed),
     mediaCacheDir:
       parsed.MEDIA_CACHE_DIR ?? join(homedir(), ".cache", "video-creator-mcp", "media"),
     workDir: parsed.WORKDIR,
