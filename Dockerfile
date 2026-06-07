@@ -34,7 +34,11 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Bake the Hyperframes render engine into the image (its native sharp dep resolves a Linux
 # prebuilt here, unlike on dev machines). System chromium is reused via PUPPETEER_EXECUTABLE_PATH.
-RUN npm install -g hyperframes@0.6.77 && npm cache clean --force
+RUN npm install -g hyperframes@0.6.77 && npm cache clean --force \
+    # The global install puts the runtime at node_modules/hyperframes/dist, but the
+    # CLI's loader resolves its core at <prefix>/lib/core/dist — bridge them.
+    && mkdir -p /usr/local/lib/core \
+    && ln -sfn /usr/local/lib/node_modules/hyperframes/dist /usr/local/lib/core/dist
 
 COPY --from=build /app/dist ./dist
 COPY gsap ./gsap
