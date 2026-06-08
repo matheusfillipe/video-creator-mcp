@@ -156,7 +156,10 @@ async function ytdlpDownload(
     "--concurrent-fragments",
     "4",
   ];
-  if (options.section) args.push("--download-sections", options.section);
+  // --force-keyframes-at-cuts re-encodes the boundary GOPs so the section is exactly the
+  // requested window; without it yt-dlp snaps to keyframes and clips come out short.
+  if (options.section)
+    args.push("--download-sections", options.section, "--force-keyframes-at-cuts");
   if (config.ytdlp.cookies) {
     try {
       await stat(config.ytdlp.cookies);
