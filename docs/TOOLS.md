@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 14 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 16 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_download_media`
 
@@ -81,6 +81,21 @@ Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll 
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
 | `media` | array | no |  | Pre-downloaded media to include. |
 
+## `video_render_chart`
+
+Render an animated line chart: the line plots left-to-right while a marker + value label track its leading edge and the axis labels reveal as the line reaches them. Pass the data as a points array — no HTML. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `title` | string | no |  | Chart title shown top-left. |
+| `points` | array | yes |  | Ordered data points; the line is drawn through them left-to-right. |
+| `x_label` | string | no |  | x-axis caption. |
+| `y_label` | string | no |  | y-axis caption. |
+| `accent_color` | string | no | `"#7fd1ff"` | Line/marker color (CSS color). |
+| `value_suffix` | string | no | `""` | Appended to value labels, e.g. '%' or 'k'. |
+| `duration_seconds` | number | no | `8` | Total video length. |
+| `fps` | integer | no | `30` |  |
+
 ## `video_render_queue`
 
 Show the render engine concurrency state and all known jobs.
@@ -94,6 +109,18 @@ Check a render/timeline job. When state is 'done', result holds the rendered vid
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `job_id` | string | yes |  | job_id returned by video_render / video_render_timeline. |
+
+## `video_render_terminal`
+
+Render an animated macOS terminal (Hyperframes apple-terminal look): the command types out character-by-character, then the output lines reveal in sequence and the cursor blinks. Pass the command and output as data — no HTML. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `command` | string | yes |  | Command that types out, e.g. 'brew install ffmpeg'. |
+| `output` | array | no | `[]` | Output lines shown after the command runs, in order. |
+| `prompt` | string | no | `"user@Mac ~ % "` | Shell prompt before the command. |
+| `duration_seconds` | number | no | `8` | Total video length. |
+| `fps` | integer | no | `30` |  |
 
 ## `video_render_tierlist`
 

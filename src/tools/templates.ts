@@ -2,12 +2,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { submitJob } from "../services/jobs.js";
 import { loadMeta } from "../services/media.js";
+import { renderComposition } from "../services/renderer.js";
 import { storage } from "../services/storage.js";
 import {
   type TimelineParams,
   type TimelineSegment,
   assembleTimeline,
 } from "../services/timeline.js";
+import { lineChartHtml } from "../templates/chart.js";
+import { terminalHtml } from "../templates/terminal.js";
 import { titleCardHtml } from "../templates/tierlist.js";
 import type { Resolution } from "../types.js";
 import { registerTool } from "./defineTool.js";
@@ -117,6 +120,90 @@ export function registerTemplateTools(server: McpServer): void {
         job_id: jobId,
         state: "queued",
         entries: args.entries.length,
+        poll_with: `video_render_status with job_id "${jobId}"`,
+      };
+    },
+  });
+
+  registerTool(server, {
+    name: "video_render_terminal",
+    title: "Render a Terminal Animation",
+    description:
+      "Render an animated macOS terminal (Hyperframes apple-terminal look): the command types out character-by-character, then the output lines reveal in sequence and the cursor blinks. Pass the command and output as data — no HTML. Asynchronous: returns a job_id to poll with video_render_status.",
+    inputSchema: {
+      command: z.string().min(1).describe("Command that types out, e.g. 'brew install ffmpeg'."),
+      output: z
+        .array(z.string())
+        .default([])
+        .describe("Output lines shown after the command runs, in order."),
+      prompt: z.string().default("user@Mac ~ % ").describe("Shell prompt before the command."),
+      duration_seconds: z.number().positive().max(60).default(8).describe("Total video length."),
+      fps: z.number().int().min(1).max(60).default(30),
+    },
+    handler: async ({ command, output, prompt, duration_seconds, fps }) => {
+      const jobId = submitJob("terminal", async () => {
+        const html = terminalHtml({ command, output, prompt, durationSeconds: duration_seconds });
+        const { buffer, filename } = await renderComposition({
+          htmlBase64: encode(html),
+          fps,
+          resolution: "1080p",
+        });
+        const url = await storage().save(buffer, filename);
+        return { url, filename, size_bytes: buffer.byteLength };
+      });
+      return {
+        job_id: jobId,
+        state: "queued",
+        poll_with: `video_render_status with job_id "${jobId}"`,
+      };
+    },
+  });
+
+  registerTool(server, {
+    name: "video_render_chart",
+    title: "Render an Animated Line Chart",
+    description:
+      "Render an animated line chart: the line plots left-to-right while a marker + value label track its leading edge and the axis labels reveal as the line reaches them. Pass the data as a points array — no HTML. Asynchronous: returns a job_id to poll with video_render_status.",
+    inputSchema: {
+      title: z.string().optional().describe("Chart title shown top-left."),
+      points: z
+        .array(
+          z.object({
+            label: z.string().optional().describe("x-axis label for this point."),
+            value: z.number().describe("y value."),
+          }),
+        )
+        .min(2)
+        .describe("Ordered data points; the line is drawn through them left-to-right."),
+      x_label: z.string().optional().describe("x-axis caption."),
+      y_label: z.string().optional().describe("y-axis caption."),
+      accent_color: z.string().default("#7fd1ff").describe("Line/marker color (CSS color)."),
+      value_suffix: z.string().default("").describe("Appended to value labels, e.g. '%' or 'k'."),
+      duration_seconds: z.number().positive().max(60).default(8).describe("Total video length."),
+      fps: z.number().int().min(1).max(60).default(30),
+    },
+    handler: async (args) => {
+      const jobId = submitJob("chart", async () => {
+        const html = lineChartHtml({
+          title: args.title,
+          points: args.points,
+          xLabel: args.x_label,
+          yLabel: args.y_label,
+          accentColor: args.accent_color,
+          valueSuffix: args.value_suffix,
+          durationSeconds: args.duration_seconds,
+        });
+        const { buffer, filename } = await renderComposition({
+          htmlBase64: encode(html),
+          fps: args.fps,
+          resolution: "1080p",
+        });
+        const url = await storage().save(buffer, filename);
+        return { url, filename, size_bytes: buffer.byteLength };
+      });
+      return {
+        job_id: jobId,
+        state: "queued",
         poll_with: `video_render_status with job_id "${jobId}"`,
       };
     },

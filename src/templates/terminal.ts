@@ -1,0 +1,227 @@
+// Animated macOS-terminal composition. The visual + GSAP timeline are vendored from
+// HeyGen's Hyperframes catalog block "code-snippet-apple-terminal-homebrew" (frozen here so
+// the injection points never drift), adapted to: load GSAP from the bundled asset instead of
+// a CDN (renders run with no external egress), carry its own data-duration, and accept the
+// command / output / prompt as data so an agent drives it without touching markup.
+
+import { escapeHtml } from "./html.js";
+
+export interface TerminalOptions {
+  command: string;
+  output: string[];
+  prompt?: string;
+  durationSeconds: number;
+}
+
+export function buildOutputLines(output: string[]): string {
+  return output
+    .map((line) => `<span class="output-line">${escapeHtml(line)}</span>`)
+    .join("\n            ");
+}
+
+export function terminalHtml(options: TerminalOptions): string {
+  const prompt = escapeHtml(options.prompt ?? "user@Mac ~ % ");
+  const outputLines = buildOutputLines(options.output);
+  const command = JSON.stringify(options.command);
+  const promptJson = JSON.stringify(prompt);
+
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <title>Terminal</title>
+    <script src="assets/gsap.min.js"></script>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: #000000;
+        font-family: "SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace;
+      }
+      #scene {
+        width: 1920px;
+        height: 1080px;
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: radial-gradient(ellipse at center, #0d1a0d 0%, #000000 70%);
+      }
+      .terminal-window {
+        width: 1400px;
+        height: 700px;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow:
+          0 30px 80px rgba(0, 207, 0, 0.18),
+          0 10px 30px rgba(0, 0, 0, 0.85);
+        display: flex;
+        flex-direction: column;
+      }
+      .titlebar {
+        height: 38px;
+        background: #1c1c1c;
+        display: flex;
+        align-items: center;
+        padding: 0 14px;
+        flex-shrink: 0;
+        border-bottom: 1px solid #006900;
+        position: relative;
+      }
+      .traffic-lights {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+      }
+      .traffic-lights span {
+        width: 13px;
+        height: 13px;
+        border-radius: 50%;
+        display: inline-block;
+      }
+      .traffic-lights .close {
+        background: #ff5f57;
+        border: 1px solid #e0443e;
+      }
+      .traffic-lights .minimize {
+        background: #ffbd2e;
+        border: 1px solid #dfa123;
+      }
+      .traffic-lights .fullscreen {
+        background: #28c840;
+        border: 1px solid #1aab29;
+      }
+      .window-title {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 13px;
+        color: #00cf00;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
+        font-weight: 500;
+        letter-spacing: -0.1px;
+      }
+      .terminal-canvas {
+        flex: 1;
+        background: #000000;
+        padding: 18px 20px;
+        overflow: hidden;
+        font-size: 14px;
+        line-height: 1.6;
+        color: #00cf00;
+      }
+      .output-lines {
+        margin-bottom: 4px;
+      }
+      .output-line {
+        display: block;
+        white-space: pre;
+        opacity: 0;
+        color: #00cf00;
+      }
+      .input-line {
+        display: flex;
+        align-items: center;
+        white-space: pre;
+      }
+      .prompt {
+        color: #48f800;
+        font-weight: bold;
+        user-select: none;
+      }
+      .typed-command {
+        color: #00cf00;
+      }
+      .cursor-block {
+        display: inline-block;
+        width: 9px;
+        height: 16px;
+        background: #48f800;
+        vertical-align: text-bottom;
+        margin-left: 1px;
+      }
+    </style>
+  </head>
+  <body>
+    <div
+      id="scene"
+      data-composition-id="main"
+      data-start="0"
+      data-duration="${options.durationSeconds}"
+      data-width="1920"
+      data-height="1080"
+    >
+      <div class="terminal-window">
+        <div class="titlebar">
+          <div class="traffic-lights">
+            <span class="close"></span>
+            <span class="minimize"></span>
+            <span class="fullscreen"></span>
+          </div>
+          <span class="window-title">bash — 80×24</span>
+        </div>
+        <div class="terminal-canvas">
+          <div class="output-lines">
+            ${outputLines}
+          </div>
+          <div class="input-line">
+            <span class="prompt">${prompt}</span><span class="typed-command"></span><span class="cursor-block"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script>
+      window.__timelines = window.__timelines || {};
+      const command = ${command};
+      const promptHtml = ${promptJson};
+      const typedEl = document.querySelector(".typed-command");
+      const cursorEl = document.querySelector(".cursor-block");
+      const outputLines = document.querySelectorAll(".output-line");
+
+      const tl = gsap.timeline({ paused: true });
+      tl.set(typedEl, { text: "" }, 0);
+
+      const charDuration = command.length ? 1.5 / command.length : 0.1;
+      command.split("").forEach((char, i) => {
+        tl.add(() => {
+          typedEl.textContent = command.slice(0, i + 1);
+        }, 0.5 + i * charDuration);
+      });
+
+      tl.set(cursorEl, { opacity: 0 }, 2.2);
+      outputLines.forEach((line, i) => {
+        tl.set(line, { opacity: 1 }, 2.3 + i * 0.1);
+      });
+
+      tl.add(() => {
+        const inputLine = document.querySelector(".input-line");
+        const newPrompt = document.createElement("div");
+        newPrompt.className = "input-line";
+        newPrompt.innerHTML =
+          '<span class="prompt">' + promptHtml + '</span><span class="typed-command"></span><span class="cursor-block" id="final-cursor"></span>';
+        inputLine.style.display = "none";
+        inputLine.parentNode.appendChild(newPrompt);
+      }, 2.8 + outputLines.length * 0.1 + 0.3);
+
+      const blinkStart = 2.8 + outputLines.length * 0.1 + 0.5;
+      [0, 1, 2, 3, 4, 5].forEach((i) => {
+        tl.add(() => {
+          const fc = document.getElementById("final-cursor");
+          if (fc) fc.style.opacity = i % 2 === 0 ? "0" : "1";
+        }, blinkStart + i * 0.4);
+      });
+      tl.add(() => {
+        const fc = document.getElementById("final-cursor");
+        if (fc) fc.style.opacity = "1";
+      }, blinkStart + 2.6);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>`;
+}

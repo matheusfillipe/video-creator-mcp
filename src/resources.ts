@@ -44,6 +44,48 @@ Then call \`video_render_tierlist\` once with all entries.
 \`\`\`
 Clips are muted (so 10 trailers don't clash); pass \`music_media_id\` for a single background track. Returns a \`job_id\` — poll \`video_render_status\`.`;
 
+const TERMINAL_TEMPLATE = `# Terminal template (\`video_render_terminal\`)
+
+Animated macOS terminal: the \`command\` types out character-by-character, then each \`output\` line reveals in sequence and the cursor blinks. Pass data, not HTML.
+
+## Example
+\`\`\`json
+{
+  "command": "brew install ffmpeg",
+  "output": [
+    "==> Downloading ffmpeg 7.0.0",
+    "==> Pouring ffmpeg--7.0.0.arm64_sonoma.bottle.tar.gz",
+    "🍺  /opt/homebrew/Cellar/ffmpeg/7.0.0: 1,800 files, 50MB"
+  ],
+  "prompt": "user@Mac ~ % ",
+  "duration_seconds": 8
+}
+\`\`\`
+Returns a \`job_id\` — poll \`video_render_status\`.`;
+
+const CHART_TEMPLATE = `# Animated line-chart template (\`video_render_chart\`)
+
+The line plots left-to-right while a marker + value label track the leading edge and the x-axis labels reveal as the line reaches them. Pass a \`points\` array (each \`{ label?, value }\`).
+
+## Example
+\`\`\`json
+{
+  "title": "Monthly active users",
+  "points": [
+    { "label": "Jan", "value": 12 },
+    { "label": "Feb", "value": 19 },
+    { "label": "Mar", "value": 31 },
+    { "label": "Apr", "value": 28 },
+    { "label": "May", "value": 47 }
+  ],
+  "y_label": "users",
+  "value_suffix": "k",
+  "accent_color": "#7fd1ff",
+  "duration_seconds": 8
+}
+\`\`\`
+Returns a \`job_id\` — poll \`video_render_status\`.`;
+
 export function registerResources(server: McpServer): void {
   server.registerResource(
     "authoring-guide",
@@ -69,6 +111,33 @@ export function registerResources(server: McpServer): void {
     },
     async (uri) => ({
       contents: [{ uri: uri.href, mimeType: "text/markdown", text: TIERLIST_TEMPLATE }],
+    }),
+  );
+
+  server.registerResource(
+    "terminal-template",
+    "template://terminal",
+    {
+      title: "Terminal animation template",
+      description:
+        "How to render an animated terminal with video_render_terminal (command + output).",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: TERMINAL_TEMPLATE }],
+    }),
+  );
+
+  server.registerResource(
+    "chart-template",
+    "template://chart",
+    {
+      title: "Animated line-chart template",
+      description: "How to render an animated line chart with video_render_chart (points array).",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: CHART_TEMPLATE }],
     }),
   );
 }
