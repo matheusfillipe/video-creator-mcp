@@ -312,6 +312,13 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
     const buffer = await readFile(finalOut);
     return { buffer, filename: `timeline-${jobId}.mp4` };
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    // Best-effort cleanup of the scratch tree. Parallel renders churn many inodes, so a
+    // recursive rmdir can transiently hit ENOTEMPTY — retry, and never let a teardown
+    // hiccup discard an already-rendered video.
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(
+      (error: NodeJS.ErrnoException) => {
+        console.error(`[timeline] cleanup of ${dir} failed: ${error.code ?? error.message}`);
+      },
+    );
   }
 }

@@ -119,6 +119,10 @@ export async function renderComposition(
     const buffer = await readFile(outputFile);
     return { buffer, filename: `render-${jobId}.mp4` };
   } finally {
-    await rm(workDir, { recursive: true, force: true });
+    await rm(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(
+      (error: NodeJS.ErrnoException) => {
+        console.error(`[renderer] cleanup of ${workDir} failed: ${error.code ?? error.message}`);
+      },
+    );
   }
 }
