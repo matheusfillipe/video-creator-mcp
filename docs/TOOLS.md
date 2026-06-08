@@ -6,13 +6,14 @@ The agent drives these 14 MCP tools. Auto-generated from the live server's `tool
 
 ## `video_download_media`
 
-Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X, Reddit, Vimeo, direct media links) into the cache, optionally trimming to a [start, end] window. Returns a media_id to reference in video_render / video_render_timeline. Re-downloading the same URL+trim is served from cache.
+Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X, Reddit, Vimeo, direct media links) into the cache. When start/end are given it fetches ONLY that window via range requests (no full download), falling back to a full download + trim if the source rejects ranges. Set audio=false for clips you'll render muted (e.g. tier-list segments) to skip the audio stream — smaller and faster. Independent URLs can be downloaded concurrently. Returns a media_id to reference in video_render / video_render_timeline. Re-downloading the same URL+window+audio is served from cache.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `url` | string | yes |  | Source URL (any yt-dlp source or direct media link). |
-| `start` | number | no |  | Trim start, seconds. |
-| `end` | number | no |  | Trim end, seconds. |
+| `start` | number | no |  | Window start, seconds. |
+| `end` | number | no |  | Window end, seconds. |
+| `audio` | boolean | no | `true` | Include the audio stream. Set false for clips rendered muted (faster). |
 
 ## `video_get_info`
 

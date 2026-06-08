@@ -11,7 +11,7 @@ import {
 import { basename, extname, join } from "node:path";
 import { config } from "../config.js";
 import { cacheId } from "../lib/cacheId.js";
-import { run } from "../lib/exec.js";
+import { ExecError, run } from "../lib/exec.js";
 import { unlinkIfExists } from "../lib/fs.js";
 import { withLock } from "../lib/lock.js";
 import { assertSafeUrl } from "../lib/net.js";
@@ -115,28 +115,48 @@ async function getCached(mediaId: string): Promise<MediaMeta | null> {
   }
 }
 
-async function fetchRaw(url: string, mediaId: string, rawId: string): Promise<string> {
-  if (DIRECT_MEDIA_RE.test(url) && !TWITTER_RE.test(url)) {
-    const ext = extname(url.split("?")[0] ?? "").toLowerCase() || ".mp4";
-    const rawFile = join(config.mediaCacheDir, `raw_${mediaId}${ext}`);
-    await run("curl", ["-sL", "--max-redirs", "5", "-o", rawFile, "--max-time", "300", url]);
-    return rawFile;
-  }
+// yt-dlp `--download-sections` value for a [start, end] window, or null for the whole file.
+export function sectionArg(start: number | undefined, end: number | undefined): string | null {
+  if (start === undefined && end === undefined) return null;
+  const from = start ?? 0;
+  return end !== undefined ? `*${from}-${end}` : `*${from}-inf`;
+}
 
-  const rawFile = join(config.mediaCacheDir, `raw_${rawId}.mp4`);
+// Muted clips (e.g. tier-list segments) skip the audio stream entirely — smaller, faster.
+export function ytdlpFormat(audio: boolean): string {
+  return audio
+    ? config.ytdlp.format
+    : "bestvideo[height<=720][ext=mp4]/bestvideo[height<=720]/bestvideo/best[height<=720]/best";
+}
+
+async function removeRaw(mediaId: string): Promise<void> {
+  const files = await readdir(config.mediaCacheDir);
+  for (const name of files) {
+    if (name.startsWith(`raw_${mediaId}`)) {
+      await unlinkIfExists(join(config.mediaCacheDir, name));
+    }
+  }
+}
+
+async function ytdlpDownload(
+  url: string,
+  outFile: string,
+  options: { section: string | null; audio: boolean },
+): Promise<void> {
   const args = [
     "-f",
-    config.ytdlp.format,
+    ytdlpFormat(options.audio),
     "--merge-output-format",
     "mp4",
     "-o",
-    rawFile,
+    outFile,
     "--max-filesize",
     "500M",
     "--no-playlist",
     "--concurrent-fragments",
     "4",
   ];
+  if (options.section) args.push("--download-sections", options.section);
   if (config.ytdlp.cookies) {
     try {
       await stat(config.ytdlp.cookies);
@@ -150,18 +170,49 @@ async function fetchRaw(url: string, mediaId: string, rawId: string): Promise<st
     args.push("--extractor-args", "twitter:api=syndication");
   }
   args.push(url);
-  try {
-    await run(config.ytdlp.path, args, { timeoutMs: 600_000 });
-  } catch (error) {
-    const files = await readdir(config.mediaCacheDir);
-    for (const name of files) {
-      if (name.startsWith(`raw_${rawId}`)) {
-        await unlinkIfExists(join(config.mediaCacheDir, name));
-      }
+  await run(config.ytdlp.path, args, { timeoutMs: 600_000 });
+}
+
+interface RawFetch {
+  file: string;
+  preTrimmed: boolean;
+}
+
+async function fetchRaw(
+  url: string,
+  mediaId: string,
+  spec: { start?: number; end?: number; audio: boolean },
+): Promise<RawFetch> {
+  if (DIRECT_MEDIA_RE.test(url) && !TWITTER_RE.test(url)) {
+    const ext = extname(url.split("?")[0] ?? "").toLowerCase() || ".mp4";
+    const rawFile = join(config.mediaCacheDir, `raw_${mediaId}${ext}`);
+    await run("curl", ["-sL", "--max-redirs", "5", "-o", rawFile, "--max-time", "300", url]);
+    return { file: rawFile, preTrimmed: false };
+  }
+
+  const rawFile = join(config.mediaCacheDir, `raw_${mediaId}.mp4`);
+  const section = sectionArg(spec.start, spec.end);
+
+  // Fast path: fetch only the requested window via range requests — no full download and
+  // no separate trim. Some sources/formats reject sections, so fall back to full + trim.
+  if (section) {
+    try {
+      await ytdlpDownload(url, rawFile, { section, audio: spec.audio });
+      return { file: rawFile, preTrimmed: true };
+    } catch (error) {
+      if (!(error instanceof ExecError)) throw error;
+      await removeRaw(mediaId);
+      console.error(`[media] range download failed for ${url}, falling back to full+trim`);
     }
+  }
+
+  try {
+    await ytdlpDownload(url, rawFile, { section: null, audio: spec.audio });
+  } catch (error) {
+    await removeRaw(mediaId);
     throw error;
   }
-  return rawFile;
+  return { file: rawFile, preTrimmed: false };
 }
 
 async function trimMedia(
@@ -186,18 +237,19 @@ export async function downloadMedia(params: {
   url: string;
   start?: number;
   end?: number;
+  audio?: boolean;
 }): Promise<MediaMeta> {
   const { url, start, end } = params;
+  const audio = params.audio ?? true;
   await assertSafeUrl(url);
-  const mediaId = cacheId(url, start ?? null, end ?? null);
-  const rawId = cacheId(url);
+  const mediaId = cacheId(url, start ?? null, end ?? null, audio ? "a" : "v");
 
-  return withLock(rawId, async () => {
+  return withLock(mediaId, async () => {
     const cached = await getCached(mediaId);
     if (cached) return cached;
 
     await mkdir(config.mediaCacheDir, { recursive: true });
-    const rawFile = await fetchRaw(url, mediaId, rawId);
+    const { file: rawFile, preTrimmed } = await fetchRaw(url, mediaId, { start, end, audio });
 
     const rawStat = await stat(rawFile).catch(() => null);
     if (!rawStat) {
@@ -208,7 +260,7 @@ export async function downloadMedia(params: {
       throw new Error(`Download produced an empty file (${rawStat.size} bytes) from ${url}`);
     }
 
-    const needTrim = (start !== undefined && start > 0) || end !== undefined;
+    const needTrim = !preTrimmed && ((start !== undefined && start > 0) || end !== undefined);
     let outFile = rawFile;
     if (needTrim) {
       outFile = await trimMedia(rawFile, mediaId, start, end);

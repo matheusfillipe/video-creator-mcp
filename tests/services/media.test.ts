@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseFrameRate } from "../../src/services/media.js";
+import { parseFrameRate, sectionArg, ytdlpFormat } from "../../src/services/media.js";
 
 describe("parseFrameRate", () => {
   it("parses rational frame rates", () => {
@@ -17,5 +17,28 @@ describe("parseFrameRate", () => {
     expect(parseFrameRate("")).toBe(30);
     expect(parseFrameRate(undefined)).toBe(30);
     expect(parseFrameRate(null)).toBe(30);
+  });
+});
+
+describe("sectionArg", () => {
+  it("returns null when no window is requested", () => {
+    expect(sectionArg(undefined, undefined)).toBeNull();
+  });
+
+  it("builds a closed window", () => {
+    expect(sectionArg(20, 26)).toBe("*20-26");
+  });
+
+  it("defaults a missing start to 0 and a missing end to inf", () => {
+    expect(sectionArg(undefined, 26)).toBe("*0-26");
+    expect(sectionArg(20, undefined)).toBe("*20-inf");
+  });
+});
+
+describe("ytdlpFormat", () => {
+  it("drops the audio stream when audio is false", () => {
+    const videoOnly = ytdlpFormat(false);
+    expect(videoOnly).toContain("bestvideo");
+    expect(videoOnly).not.toBe(ytdlpFormat(true));
   });
 });
