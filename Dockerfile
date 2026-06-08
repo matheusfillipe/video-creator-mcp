@@ -25,6 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
     PRODUCER_HEADLESS_SHELL_PATH=/usr/local/bin/chrome-headless-shell \
+    # Hyperframes self-updates the global install via `npm install -g` at runtime; in an
+    # immutable image that's an anti-pattern, and concurrent renders race on the install
+    # (ENOENT/ENOTEMPTY). Pin the baked version and disable the runtime update.
+    HYPERFRAMES_NO_UPDATE_CHECK=1 \
+    HYPERFRAMES_NO_AUTO_INSTALL=1 \
     TRANSPORT=http \
     PORT=3100 \
     STORAGE_TYPE=local \
@@ -37,7 +42,7 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
 # Bake the Hyperframes render engine into the image (its native sharp dep resolves a Linux
 # prebuilt here, unlike on dev machines). System chromium is reused via PUPPETEER_EXECUTABLE_PATH.
-RUN npm install -g hyperframes@0.6.77 && npm cache clean --force \
+RUN npm install -g hyperframes@0.6.81 && npm cache clean --force \
     # The global install puts the runtime at node_modules/hyperframes/dist, but the
     # CLI's loader resolves its core at <prefix>/lib/core/dist — bridge them.
     && mkdir -p /usr/local/lib/core \
