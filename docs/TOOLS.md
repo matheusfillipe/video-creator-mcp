@@ -2,7 +2,17 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 16 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 18 MCP tools. Auto-generated from the live server's `tools/list`.
+
+## `video_catalog`
+
+List/search the Hyperframes catalog of prebuilt blocks and components (terminals, charts, maps, captions, transitions, device showcases, …). Returns each item's name, type, description and tags. Render a single-composition block as-is with video_render_block; for the dedicated templates use video_render_terminal / video_render_chart / video_render_tierlist.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `query` | string | no |  | Case-insensitive filter over name/title/description/tags. |
+| `type` | `"block"` \| `"component"` | no |  | Filter by item type. |
+| `tag` | string | no |  | Filter by catalog tag, e.g. 'data', 'captions', 'map'. |
 
 ## `video_download_media`
 
@@ -80,6 +90,16 @@ Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll 
 | `fps` | integer | no | `30` | Frames per second. |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
 | `media` | array | no |  | Pre-downloaded media to include. |
+
+## `video_render_block`
+
+Render a Hyperframes catalog block by name (from video_catalog) to MP4 as-is, with its built-in sample content. Best for self-contained GSAP/SVG blocks; blocks that ship extra asset files (3D, html-in-canvas) are not supported. To customize content, use the dedicated templates or author HTML with video_render. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `name` | string | yes |  | Catalog block slug, e.g. 'data-chart' (see video_catalog). |
+| `duration_seconds` | number | no |  | Override the block's built-in duration. |
+| `fps` | integer | no | `30` |  |
 
 ## `video_render_chart`
 

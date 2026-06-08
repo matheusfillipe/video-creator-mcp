@@ -86,6 +86,23 @@ The line plots left-to-right while a marker + value label track the leading edge
 \`\`\`
 Returns a \`job_id\` — poll \`video_render_status\`.`;
 
+const HYPERFRAMES_GUIDE = `# Hyperframes block catalog
+
+Beyond the dedicated templates, this server can render any block from HeyGen's Hyperframes catalog (80+ blocks: terminals, charts, maps/globe, captions, transitions, device showcases, …).
+
+## Workflow
+1. \`video_catalog({ query?, type?, tag? })\` — discover blocks (returns name, type, description, tags).
+2. \`video_render_block({ name, duration_seconds? })\` — render a block as-is to MP4. Best for self-contained GSAP/SVG blocks; blocks shipping extra asset files (3D, html-in-canvas) aren't supported by render_block.
+
+## When to use what
+- Countdown/ranking → \`video_render_tierlist\`
+- Terminal → \`video_render_terminal\` (command + output)
+- Line chart → \`video_render_chart\` (points array)
+- Anything else in the catalog → \`video_render_block\`
+- Fully custom → author HTML and call \`video_render\`
+
+Full Hyperframes reference: <https://hyperframes.mintlify.app/llms.txt>`;
+
 export function registerResources(server: McpServer): void {
   server.registerResource(
     "authoring-guide",
@@ -138,6 +155,19 @@ export function registerResources(server: McpServer): void {
     },
     async (uri) => ({
       contents: [{ uri: uri.href, mimeType: "text/markdown", text: CHART_TEMPLATE }],
+    }),
+  );
+
+  server.registerResource(
+    "hyperframes-catalog",
+    "guide://hyperframes",
+    {
+      title: "Hyperframes block catalog guide",
+      description: "Discover + render any catalog block via video_catalog / video_render_block.",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: HYPERFRAMES_GUIDE }],
     }),
   );
 }

@@ -16,7 +16,8 @@ WORKDIR /app
 # JavaScript runtime and the yt-dlp[default] extra bundles the EJS challenge-solver scripts
 # so YouTube's n-signature challenges resolve offline, without a runtime fetch from GitHub.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg python3 python3-pip curl ca-certificates chromium unzip fonts-liberation \
+      ffmpeg python3 python3-pip curl ca-certificates chromium unzip \
+      fonts-liberation fonts-noto-color-emoji fonts-noto-core \
     && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" \
     && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
     && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod +x /usr/local/bin/deno \
