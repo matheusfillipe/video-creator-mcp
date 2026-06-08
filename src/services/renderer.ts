@@ -87,7 +87,6 @@ export async function renderComposition(
     await writeFile(join(workDir, "index.html"), html);
 
     const args = [
-      "hyperframes",
       "render",
       workDir,
       "--output",
@@ -98,8 +97,11 @@ export async function renderComposition(
       params.resolution,
     ];
     const producerPort = PRODUCER_PORT_BASE + (producerPortSeq++ % PRODUCER_PORT_WINDOW);
+    // Invoke the globally-installed binary directly rather than via npx: under parallel
+    // renders, concurrent npx invocations race on its cache and one would try to fetch a
+    // newer hyperframes from the registry instead of using the baked version.
     await spawnStreaming(
-      "npx",
+      "hyperframes",
       args,
       (line) => {
         const match = FRAME_RE.exec(line);
