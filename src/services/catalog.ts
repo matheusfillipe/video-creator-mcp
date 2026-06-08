@@ -29,6 +29,18 @@ export function repointGsap(html: string): string {
   return html.replace(/https?:\/\/[^"']*gsap[^"']*?\.js/gi, "assets/gsap.min.js");
 }
 
+// The hyperframes CLI can prepend a one-time banner (runtime-loader / update notice) to
+// stdout before the JSON, so slice from the first opening bracket to its matching close.
+export function extractJson(stdout: string, open: "[" | "{"): string {
+  const close = open === "[" ? "]" : "}";
+  const start = stdout.indexOf(open);
+  const end = stdout.lastIndexOf(close);
+  if (start === -1 || end === -1 || end < start) {
+    throw new Error(`No JSON ${open}${close} found in hyperframes output: ${stdout.slice(0, 200)}`);
+  }
+  return stdout.slice(start, end + 1);
+}
+
 export interface CatalogQuery {
   query?: string;
   type?: "block" | "component";
@@ -40,7 +52,7 @@ export async function listCatalog(opts: CatalogQuery = {}): Promise<CatalogItem[
   if (opts.type) args.push("--type", opts.type);
   if (opts.tag) args.push("--tag", opts.tag);
   const { stdout } = await run("hyperframes", args, { timeoutMs: 60_000 });
-  const items = JSON.parse(stdout) as CatalogItem[];
+  const items = JSON.parse(extractJson(stdout, "[")) as CatalogItem[];
   if (!opts.query) return items;
   const needle = opts.query.toLowerCase();
   return items.filter((item) =>
@@ -68,7 +80,7 @@ export async function fetchBlockComposition(
       cwd: dir,
       timeoutMs: 120_000,
     });
-    const result = JSON.parse(stdout) as AddResult;
+    const result = JSON.parse(extractJson(stdout, "{")) as AddResult;
     const composition = result.written.find((path) => path.endsWith(".html"));
     if (!composition) throw new Error(`Block "${name}" produced no composition file.`);
     if (result.written.length > 1) {

@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { isValidBlockName, repointGsap } from "../../src/services/catalog.js";
+import { extractJson, isValidBlockName, repointGsap } from "../../src/services/catalog.js";
+
+describe("extractJson", () => {
+  it("strips a banner before a JSON array", () => {
+    const out = 'Hyperframes v0.6.81\n[{"name":"data-chart"}]';
+    expect(JSON.parse(extractJson(out, "["))).toEqual([{ name: "data-chart" }]);
+  });
+
+  it("strips a banner before a JSON object", () => {
+    expect(extractJson('noise\n{"ok":true}', "{")).toBe('{"ok":true}');
+  });
+
+  it("throws when no JSON is present", () => {
+    expect(() => extractJson("no json here", "[")).toThrow();
+  });
+});
 
 describe("isValidBlockName", () => {
   it("accepts catalog slugs", () => {
