@@ -12,6 +12,13 @@ const DURATION_RE = /data-duration\s*=\s*["'](\d+(?:\.\d+)?)["']/;
 const here = dirname(fileURLToPath(import.meta.url));
 const GSAP_SOURCE = join(here, "..", "..", "gsap", "gsap.min.js");
 
+// Each `hyperframes render` boots a producer HTTP server (default port 9847) and writes
+// intermediate frames to a shared renders dir. Concurrent renders must not collide on
+// either, so each invocation gets a distinct port and a renders dir inside its work dir.
+const PRODUCER_PORT_BASE = 9847;
+const PRODUCER_PORT_WINDOW = 64;
+let producerPortSeq = 0;
+
 export interface RenderProgress {
   current: number;
   total: number;
@@ -90,12 +97,24 @@ export async function renderComposition(
       "--resolution",
       params.resolution,
     ];
-    await spawnStreaming("npx", args, (line) => {
-      const match = FRAME_RE.exec(line);
-      if (match?.[1] && match[2]) {
-        onProgress?.({ current: Number(match[1]), total: Number(match[2]) });
-      }
-    });
+    const producerPort = PRODUCER_PORT_BASE + (producerPortSeq++ % PRODUCER_PORT_WINDOW);
+    await spawnStreaming(
+      "npx",
+      args,
+      (line) => {
+        const match = FRAME_RE.exec(line);
+        if (match?.[1] && match[2]) {
+          onProgress?.({ current: Number(match[1]), total: Number(match[2]) });
+        }
+      },
+      {
+        env: {
+          ...process.env,
+          PRODUCER_PORT: String(producerPort),
+          PRODUCER_RENDERS_DIR: join(workDir, "renders"),
+        },
+      },
+    );
 
     const buffer = await readFile(outputFile);
     return { buffer, filename: `render-${jobId}.mp4` };
