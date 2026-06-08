@@ -27,6 +27,7 @@ const EnvSchema = z.object({
   WORKDIR: z.string().default("/tmp/video-creator-jobs"),
   RENDER_CONCURRENCY: z.coerce.number().int().positive().default(1),
   RENDER_SEGMENT_CONCURRENCY: z.coerce.number().int().positive().default(3),
+  DOWNLOAD_CONCURRENCY: z.coerce.number().int().positive().default(4),
   YTDLP_PATH: z.string().default("yt-dlp"),
   YTDLP_COOKIES: z.string().default(""),
   YTDLP_FORMAT: z.string().default("best[height<=720][ext=mp4]/best[height<=720]/best"),
@@ -66,6 +67,7 @@ export interface Config {
   workDir: string;
   renderConcurrency: number;
   renderSegmentConcurrency: number;
+  downloadConcurrency: number;
   ytdlp: YtDlpConfig;
   allowPrivateNetwork: boolean;
 }
@@ -114,6 +116,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     workDir: parsed.WORKDIR,
     renderConcurrency: parsed.RENDER_CONCURRENCY,
     renderSegmentConcurrency: parsed.RENDER_SEGMENT_CONCURRENCY,
+    downloadConcurrency: parsed.DOWNLOAD_CONCURRENCY,
     ytdlp: { path: parsed.YTDLP_PATH, cookies: parsed.YTDLP_COOKIES, format: parsed.YTDLP_FORMAT },
     allowPrivateNetwork: parsed.ALLOW_PRIVATE_NETWORK,
   };

@@ -15,9 +15,14 @@ import { ExecError, run } from "../lib/exec.js";
 import { unlinkIfExists } from "../lib/fs.js";
 import { withLock } from "../lib/lock.js";
 import { assertSafeUrl } from "../lib/net.js";
+import { Limiter } from "../lib/queue.js";
 import type { MediaMeta, MediaSummary, ProbeInfo } from "../types.js";
 
 const MIN_VALID_BYTES = 100;
+
+// Range downloads re-encode their cut boundaries (ffmpeg), so a burst of concurrent
+// downloads from one agent can exhaust the pod's memory. Cap how many run at once.
+const downloadLimiter = new Limiter(config.downloadConcurrency);
 const DIRECT_MEDIA_RE =
   /^(https?:\/\/).+\.(mp4|webm|mov|mkv|avi|mp3|wav|m4a|ogg|flac|jpg|jpeg|png|webp|gif)(\?.*)?$/i;
 const TWITTER_RE = /twitter\.com|x\.com|t\.co/i;
@@ -251,48 +256,50 @@ export async function downloadMedia(params: {
     const cached = await getCached(mediaId);
     if (cached) return cached;
 
-    await mkdir(config.mediaCacheDir, { recursive: true });
-    const { file: rawFile, preTrimmed } = await fetchRaw(url, mediaId, { start, end, audio });
+    return downloadLimiter.run(async () => {
+      await mkdir(config.mediaCacheDir, { recursive: true });
+      const { file: rawFile, preTrimmed } = await fetchRaw(url, mediaId, { start, end, audio });
 
-    const rawStat = await stat(rawFile).catch(() => null);
-    if (!rawStat) {
-      throw new Error(`Download failed: no output file at ${rawFile}`);
-    }
-    if (rawStat.size < MIN_VALID_BYTES) {
-      await unlinkIfExists(rawFile);
-      throw new Error(`Download produced an empty file (${rawStat.size} bytes) from ${url}`);
-    }
-
-    const needTrim = !preTrimmed && ((start !== undefined && start > 0) || end !== undefined);
-    let outFile = rawFile;
-    if (needTrim) {
-      outFile = await trimMedia(rawFile, mediaId, start, end);
-    } else {
-      const finalPath = cachePath(mediaId, extname(rawFile) || ".mp4");
-      if (rawFile !== finalPath) {
-        await rename(rawFile, finalPath);
-        outFile = finalPath;
+      const rawStat = await stat(rawFile).catch(() => null);
+      if (!rawStat) {
+        throw new Error(`Download failed: no output file at ${rawFile}`);
       }
-    }
+      if (rawStat.size < MIN_VALID_BYTES) {
+        await unlinkIfExists(rawFile);
+        throw new Error(`Download produced an empty file (${rawStat.size} bytes) from ${url}`);
+      }
 
-    const info = await probeInfo(outFile);
-    const meta: MediaMeta = {
-      media_id: mediaId,
-      filename: basename(outFile),
-      path: outFile,
-      url,
-      start: start ?? null,
-      end: end ?? null,
-      duration: info.duration,
-      width: info.width,
-      height: info.height,
-      codec: info.codec,
-      fps: info.fps,
-      hasAudio: info.hasAudio,
-      size: info.size,
-    };
-    await saveMeta(mediaId, meta);
-    return meta;
+      const needTrim = !preTrimmed && ((start !== undefined && start > 0) || end !== undefined);
+      let outFile = rawFile;
+      if (needTrim) {
+        outFile = await trimMedia(rawFile, mediaId, start, end);
+      } else {
+        const finalPath = cachePath(mediaId, extname(rawFile) || ".mp4");
+        if (rawFile !== finalPath) {
+          await rename(rawFile, finalPath);
+          outFile = finalPath;
+        }
+      }
+
+      const info = await probeInfo(outFile);
+      const meta: MediaMeta = {
+        media_id: mediaId,
+        filename: basename(outFile),
+        path: outFile,
+        url,
+        start: start ?? null,
+        end: end ?? null,
+        duration: info.duration,
+        width: info.width,
+        height: info.height,
+        codec: info.codec,
+        fps: info.fps,
+        hasAudio: info.hasAudio,
+        size: info.size,
+      };
+      await saveMeta(mediaId, meta);
+      return meta;
+    });
   });
 }
 
