@@ -233,16 +233,19 @@ async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]):
   return out;
 }
 
-function resolveTracks(params: TimelineParams): MixTrack[] {
-  const offsets = cumulativeOffsetsMs(params.segments.map((segment) => segment.duration));
-  const tracks: MixTrack[] = (params.audio ?? []).map((track) => ({
+function resolveTracks(
+  segments: TimelineSegment[],
+  audio: TimelineAudioTrack[] | undefined,
+): MixTrack[] {
+  const offsets = cumulativeOffsetsMs(segments.map((segment) => segment.duration));
+  const tracks: MixTrack[] = (audio ?? []).map((track) => ({
     media_id: track.media_id,
     offset_ms: track.offset_ms,
     volume: track.volume ?? DEFAULT_OVERLAY_VOLUME,
     fade_ms: track.fade_ms ?? DEFAULT_FADE_MS,
   }));
 
-  for (const [index, segment] of params.segments.entries()) {
+  for (const [index, segment] of segments.entries()) {
     for (const ref of segment.media ?? []) {
       if (ref.muted || ref.volume === 0) continue;
       tracks.push({
@@ -257,6 +260,10 @@ function resolveTracks(params: TimelineParams): MixTrack[] {
   return tracks;
 }
 
+type SegmentResult =
+  | { index: number; segment: TimelineSegment; path: string }
+  | { index: number; warning: string };
+
 export async function assembleTimeline(params: TimelineParams): Promise<RenderOutput> {
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `timeline-${jobId}`);
@@ -264,42 +271,59 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
   await mkdir(segDir, { recursive: true });
 
   try {
-    // Segments are independent, so render them concurrently (bounded) and keep input
-    // order for the concat list. Clip overlays go through ffmpeg; html cards through
-    // the headless-browser renderer.
+    // Segments are independent and rendered concurrently (bounded). A segment that fails to
+    // render is dropped — not fatal — so the rest of the video still ships; the failure is
+    // reported back as a warning rather than killing the whole job.
     const limiter = new Limiter(config.renderSegmentConcurrency);
-    const segFiles = await Promise.all(
+    const results = await Promise.all(
       params.segments.map((segment, index) =>
-        limiter.run(async () => {
+        limiter.run(async (): Promise<SegmentResult> => {
           const segPath = join(segDir, `seg_${String(index).padStart(3, "0")}.mp4`);
-          if (segment.clipOverlay) {
-            await renderClipOverlay(
-              segment.clipOverlay,
-              segment.duration,
-              params.fps,
-              params.resolution,
-              segPath,
-              segDir,
-              index,
-            );
-          } else if (segment.html) {
-            const { buffer } = await renderComposition({
-              htmlBase64: segment.html,
-              fps: params.fps,
-              resolution: params.resolution,
-              ...(segment.media ? { media: segment.media } : {}),
-            });
-            await writeFile(segPath, buffer);
-          } else {
-            throw new Error(`Segment ${index} has neither html nor clipOverlay`);
+          try {
+            if (segment.clipOverlay) {
+              await renderClipOverlay(
+                segment.clipOverlay,
+                segment.duration,
+                params.fps,
+                params.resolution,
+                segPath,
+                segDir,
+                index,
+              );
+            } else if (segment.html) {
+              const { buffer } = await renderComposition({
+                htmlBase64: segment.html,
+                fps: params.fps,
+                resolution: params.resolution,
+                ...(segment.media ? { media: segment.media } : {}),
+              });
+              await writeFile(segPath, buffer);
+            } else {
+              throw new Error("segment has neither html nor clipOverlay");
+            }
+            return { index, segment, path: segPath };
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            return { index, warning: `segment ${index} skipped: ${detail}` };
           }
-          return segPath;
         }),
       ),
     );
 
+    const ok = results
+      .filter((r): r is { index: number; segment: TimelineSegment; path: string } => "path" in r)
+      .sort((a, b) => a.index - b.index);
+    const warnings = results
+      .filter((r): r is { index: number; warning: string } => "warning" in r)
+      .map((r) => r.warning);
+    if (ok.length === 0) {
+      throw new Error(
+        `all ${params.segments.length} segments failed to render: ${warnings.join("; ")}`,
+      );
+    }
+
     const concatList = join(dir, "concat.txt");
-    await writeFile(concatList, `${segFiles.map((file) => `file '${file}'`).join("\n")}\n`);
+    await writeFile(concatList, `${ok.map((r) => `file '${r.path}'`).join("\n")}\n`);
     const concatOut = join(dir, "concat.mp4");
     await run(
       "ffmpeg",
@@ -307,10 +331,11 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
       { timeoutMs: 120_000 },
     );
 
-    const tracks = resolveTracks(params);
+    const okSegments = ok.map((r) => r.segment);
+    const tracks = resolveTracks(okSegments, params.audio);
     const finalOut = tracks.length ? await overlayAudio(dir, concatOut, tracks) : concatOut;
     const buffer = await readFile(finalOut);
-    return { buffer, filename: `timeline-${jobId}.mp4` };
+    return { buffer, filename: `timeline-${jobId}.mp4`, warnings };
   } finally {
     // Best-effort cleanup of the scratch tree. Parallel renders churn many inodes, so a
     // recursive rmdir can transiently hit ENOTEMPTY — retry, and never let a teardown

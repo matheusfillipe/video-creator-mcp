@@ -36,6 +36,7 @@ export interface RenderParams {
 export interface RenderOutput {
   buffer: Buffer;
   filename: string;
+  warnings?: string[];
 }
 
 function ensureDocument(html: string): string {

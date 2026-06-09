@@ -103,9 +103,20 @@ export function registerRenderTools(server: McpServer): void {
     },
     handler: ({ segments, audio, fps, resolution }) => {
       const jobId = submitJob("timeline", async () => {
-        const { buffer, filename } = await assembleTimeline({ segments, audio, fps, resolution });
+        const { buffer, filename, warnings } = await assembleTimeline({
+          segments,
+          audio,
+          fps,
+          resolution,
+        });
         const url = await storage().save(buffer, filename);
-        return { url, filename, size_bytes: buffer.byteLength, segments: segments.length };
+        return {
+          url,
+          filename,
+          size_bytes: buffer.byteLength,
+          segments: segments.length,
+          warnings: warnings ?? [],
+        };
       });
       return Promise.resolve({
         job_id: jobId,

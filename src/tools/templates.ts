@@ -75,12 +75,14 @@ export function registerTemplateTools(server: McpServer): void {
           duration: args.intro_seconds,
         },
       ];
+      const entryWarnings: string[] = [];
       for (const entry of args.entries) {
         const meta = await loadMeta(entry.media_id);
         if (!meta) {
-          throw new Error(
-            `media_id "${entry.media_id}" not in cache — download it with video_download_media first`,
+          entryWarnings.push(
+            `#${entry.rank} ${entry.name}: media_id "${entry.media_id}" not in cache — skipped`,
           );
+          continue;
         }
         segments.push({
           html: encode(
@@ -102,6 +104,12 @@ export function registerTemplateTools(server: McpServer): void {
         });
       }
 
+      if (segments.length <= 1) {
+        throw new Error(
+          `No entries had cached media — download clips with video_download_media first. ${entryWarnings.join("; ")}`,
+        );
+      }
+
       const params: TimelineParams = {
         segments,
         fps: args.fps,
@@ -112,9 +120,15 @@ export function registerTemplateTools(server: McpServer): void {
       }
 
       const jobId = submitJob("tierlist", async () => {
-        const { buffer, filename } = await assembleTimeline(params);
+        const { buffer, filename, warnings } = await assembleTimeline(params);
         const url = await storage().save(buffer, filename);
-        return { url, filename, size_bytes: buffer.byteLength, segments: segments.length };
+        return {
+          url,
+          filename,
+          size_bytes: buffer.byteLength,
+          segments: segments.length,
+          warnings: [...entryWarnings, ...(warnings ?? [])],
+        };
       });
       return {
         job_id: jobId,
