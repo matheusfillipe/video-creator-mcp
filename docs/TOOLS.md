@@ -2,7 +2,19 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 18 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 19 MCP tools. Auto-generated from the live server's `tools/list`.
+
+## `video_attach_metadata`
+
+Write a publish-ready metadata sidecar next to a rendered video in the bucket: a JSON file with the same base name as the video (e.g. timeline-ab12.mp4 → timeline-ab12.json) holding the YouTube title, description and tags. mp4 can't carry tags, so this JSON is the portable metadata package an agent uses at upload time. Returns the sidecar's public URL.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `filename` | string | yes |  | The rendered video's filename from a render result, e.g. 'timeline-ab12cd34.mp4'. |
+| `title` | string | yes |  | Video title. |
+| `description` | string | no | `""` | Video description; may include chapter timestamps. |
+| `tags` | array | no | `[]` | YouTube tags / keywords. |
+| `category` | string | no |  | Optional YouTube category, e.g. 'Gaming'. |
 
 ## `video_catalog`
 
