@@ -2,7 +2,17 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 18 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 19 MCP tools. Auto-generated from the live server's `tools/list`.
+
+## `video_analyze_static`
+
+Profile any video URL for static, structured regions — baked logos, watermarks, and on-screen text/banners that an overlay should NOT cover. Returns a grid where each cell scores staticness (unchanging over time), clutter (edge/detail density), and avoid (static AND structured = a baked graphic), plus bounding boxes of the avoid regions and the overall static_pct — all in the source video's pixel coordinates. Pick low-avoid, low-clutter cells to place text/graphics. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | string | yes |  | Video URL (any yt-dlp source or direct media link). |
+| `fps` | number | no | `2` | Frames sampled per second for the analysis. |
+| `grid` | integer | no | `4` | Grid resolution (NxN cells). |
 
 ## `video_catalog`
 

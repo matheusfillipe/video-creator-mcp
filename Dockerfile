@@ -17,8 +17,8 @@ WORKDIR /app
 # so YouTube's n-signature challenges resolve offline, without a runtime fetch from GitHub.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg python3 python3-pip curl ca-certificates chromium unzip \
-      fonts-liberation fonts-noto-color-emoji fonts-noto-core \
-    && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" \
+      fonts-liberation fonts-noto-color-emoji fonts-noto-core libglib2.0-0 \
+    && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" opencv-python-headless numpy \
     && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
     && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod +x /usr/local/bin/deno \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -61,6 +61,7 @@ RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable --path /o
 
 COPY --from=build /app/dist ./dist
 COPY gsap ./gsap
+COPY python ./python
 
 EXPOSE 3100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
