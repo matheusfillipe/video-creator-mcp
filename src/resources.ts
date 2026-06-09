@@ -45,6 +45,10 @@ Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines,
 4. Compose with \`video_render_timeline\`, or a ready template (\`video_render_tierlist\` / \`video_render_terminal\` / \`video_render_chart\`), or a catalog block (\`video_catalog\` → \`video_render_block\`).
 5. Poll \`video_render_status\`; the result \`url\` is a public link to the MP4.
 
+**Find a spoken moment:** to clip/loop "the part where he says X", call \`video_search_subtitles\` with \`query: "X"\` — it returns the matching caption lines with \`start\`/\`end\` seconds (or \`available:false\` if the video has no captions). Use those timestamps as the \`start\`/\`end\` for \`video_download_media\`. Omit \`query\` to dump the whole timed transcript.
+
+**Loop/repeat a clip:** to play a clip N times (e.g. "loop this 10×"), \`video_download_media\` the range once, then \`video_loop\` with \`media_id\` + \`count\` — it stream-copies (keeps original audio, near-instant). Never build an N-segment timeline just to repeat the same clip.
+
 ## Overlaying text/graphics on real footage
 Before placing captions, titles, or logos over downloaded footage, call \`video_analyze_static\` on that media. It returns the source's static, structured regions — baked-in subtitles, watermarks, channel logos — as pixel boxes, plus a per-cell avoid/clutter grid. Put overlays in low-avoid, low-clutter cells (usually the upper third or a corner clear of the avoid boxes) and never cover an avoid region. Skip this for solid-background templates (terminal/chart) — there is nothing underneath to clash with.
 

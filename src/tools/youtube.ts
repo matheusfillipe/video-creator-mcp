@@ -5,6 +5,7 @@ import {
   getSubtitles,
   getThumbnail,
   getVideoInfo,
+  searchSubtitles,
   searchYouTube,
 } from "../services/youtube.js";
 import { registerTool } from "./defineTool.js";
@@ -47,6 +48,26 @@ export function registerYoutubeTools(server: McpServer): void {
     },
     annotations: { readOnlyHint: true },
     handler: ({ url, lang, auto }) => getSubtitles(url, lang, auto),
+  });
+
+  registerTool(server, {
+    name: "video_search_subtitles",
+    title: "Search Subtitles for a Spoken Phrase",
+    description:
+      "Fetch a video's timed captions and find WHERE something is said. Pass a `query` to get the matching lines with start/end timestamps — feed those to video_download_media to clip/loop that exact moment (e.g. 'loop the part where he says X'). Omit `query` to dump the timed transcript. Returns available=false (no error) when the video has no captions, so you can just try. Read-only.",
+    inputSchema: {
+      url: z.string().min(1).describe("YouTube URL or video id."),
+      query: z
+        .string()
+        .optional()
+        .describe("Phrase to locate; omit to return the whole timed transcript."),
+      lang: z
+        .string()
+        .default("en.*,en")
+        .describe("Subtitle language(s) in yt-dlp --sub-langs syntax (e.g. 'en.*,en')."),
+    },
+    annotations: { readOnlyHint: true },
+    handler: ({ url, query, lang }) => searchSubtitles(url, query ?? "", lang),
   });
 
   registerTool(server, {

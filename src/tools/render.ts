@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
+import { loopMedia } from "../services/media.js";
 import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
 import { assembleTimeline } from "../services/timeline.js";
@@ -113,6 +114,34 @@ export function registerRenderTools(server: McpServer): void {
         });
         const saved = await saveRender(buffer, filename, metadata);
         return { ...saved, segments: segments.length, warnings: warnings ?? [] };
+      });
+      return Promise.resolve({
+        job_id: jobId,
+        state: "queued",
+        poll_with: `video_render_status with job_id "${jobId}"`,
+      });
+    },
+  });
+
+  registerTool(server, {
+    name: "video_loop",
+    title: "Loop a Clip",
+    description:
+      "Repeat a downloaded clip N times into one MP4, keeping its original audio. Uses ffmpeg stream-copy (no re-render), so it's near-instant — use this for any 'loop/repeat this N times' request instead of building an N-segment timeline. Asynchronous: returns a job_id to poll with video_render_status.",
+    inputSchema: {
+      media_id: z
+        .string()
+        .min(1)
+        .describe("media_id from video_download_media (the clip/range to loop)."),
+      count: z.number().int().min(2).max(200).describe("Total times to play the clip."),
+      audio: z.boolean().default(true).describe("Keep the clip's original audio."),
+      metadata: metadataArg,
+    },
+    handler: ({ media_id, count, audio, metadata }) => {
+      const jobId = submitJob("loop", async () => {
+        const { buffer, filename } = await loopMedia(media_id, count, audio);
+        const saved = await saveRender(buffer, filename, metadata);
+        return { ...saved, looped: count };
       });
       return Promise.resolve({
         job_id: jobId,

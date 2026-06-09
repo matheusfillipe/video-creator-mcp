@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 20 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 22 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_analyze_static`
 
@@ -69,6 +69,17 @@ Validate a base64 HTML+GSAP composition for common authoring mistakes before ren
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `html` | string | yes |  | Base64-encoded HTML composition. |
+
+## `video_loop`
+
+Repeat a downloaded clip N times into one MP4, keeping its original audio. Uses ffmpeg stream-copy (no re-render), so it's near-instant — use this for any 'loop/repeat this N times' request instead of building an N-segment timeline. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `media_id` | string | yes |  | media_id from video_download_media (the clip/range to loop). |
+| `count` | integer | yes |  | Total times to play the clip. |
+| `audio` | boolean | no | `true` | Keep the clip's original audio. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_media_cache`
 
@@ -186,6 +197,16 @@ Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP 
 | `fps` | integer | no | `30` | Frames per second. |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
+
+## `video_search_subtitles`
+
+Fetch a video's timed captions and find WHERE something is said. Pass a `query` to get the matching lines with start/end timestamps — feed those to video_download_media to clip/loop that exact moment (e.g. 'loop the part where he says X'). Omit `query` to dump the timed transcript. Returns available=false (no error) when the video has no captions, so you can just try. Read-only.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | string | yes |  | YouTube URL or video id. |
+| `query` | string | no |  | Phrase to locate; omit to return the whole timed transcript. |
+| `lang` | string | no | `"en.*,en"` | Subtitle language(s) in yt-dlp --sub-langs syntax (e.g. 'en.*,en'). |
 
 ## `video_search_youtube`
 

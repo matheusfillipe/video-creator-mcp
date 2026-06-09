@@ -121,6 +121,28 @@ async function getCached(mediaId: string): Promise<MediaMeta | null> {
   }
 }
 
+// Repeat a cached clip `count` times with ffmpeg stream-copy — no re-render, keeps the
+// original audio. Turns an N-times loop from N headless-chrome renders into one ~instant copy.
+export async function loopMedia(
+  mediaId: string,
+  count: number,
+  audio: boolean,
+): Promise<{ buffer: Buffer; filename: string }> {
+  const meta = await loadMeta(mediaId);
+  if (!meta) {
+    throw new Error(`Unknown media_id "${mediaId}" — download it first with video_download_media.`);
+  }
+  const filename = `loop-${mediaId}-${count}x.mp4`;
+  const outFile = join(config.mediaCacheDir, filename);
+  const args = ["-y", "-stream_loop", String(count - 1), "-i", meta.path, "-c", "copy"];
+  if (!audio) args.push("-an");
+  args.push("-movflags", "+faststart", outFile);
+  await run("ffmpeg", args, { timeoutMs: 120_000 });
+  const buffer = await readFile(outFile);
+  await unlinkIfExists(outFile);
+  return { buffer, filename };
+}
+
 // yt-dlp `--download-sections` value for a [start, end] window, or null for the whole file.
 export function sectionArg(start: number | undefined, end: number | undefined): string | null {
   if (start === undefined && end === undefined) return null;

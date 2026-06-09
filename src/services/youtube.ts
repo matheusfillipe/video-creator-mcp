@@ -223,6 +223,108 @@ export async function getSubtitles(
   return { language: lang, auto, format: extname(subtitleFile).slice(1) || "srt", content };
 }
 
+export interface SubtitleCue {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface SubtitleSearch {
+  available: boolean;
+  language?: string;
+  total_cues?: number;
+  matches?: SubtitleCue[];
+  cues?: SubtitleCue[];
+  note?: string;
+}
+
+function srtTimeToSeconds(stamp: string): number {
+  const m = stamp.match(/(\d+):(\d+):(\d+)[,.](\d+)/);
+  if (!m) return 0;
+  const [, h = "0", mi = "0", s = "0", ms = "0"] = m;
+  return Number(h) * 3600 + Number(mi) * 60 + Number(s) + Number(ms) / 1000;
+}
+
+function parseSrt(content: string): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  for (const block of content.split(/\r?\n\r?\n/)) {
+    const lines = block.split(/\r?\n/).filter((line) => line.trim());
+    const timing = lines.find((line) => line.includes("-->"));
+    if (!timing) continue;
+    const [from, to] = timing.split("-->");
+    if (!from || !to) continue;
+    const text = lines
+      .filter((line) => line !== timing && !/^\d+$/.test(line.trim()))
+      .join(" ")
+      .replace(/<[^>]+>/g, "")
+      .trim();
+    if (!text) continue;
+    // Auto-captions repeat the rolling line across cues; collapse exact consecutive dups,
+    // extending the previous cue's end so a phrase keeps one continuous [start, end].
+    const last = cues[cues.length - 1];
+    if (last && last.text === text) {
+      last.end = srtTimeToSeconds(to);
+    } else {
+      cues.push({ start: srtTimeToSeconds(from), end: srtTimeToSeconds(to), text });
+    }
+  }
+  return cues;
+}
+
+// Fetch a video's timed captions (manual or auto) and optionally find a phrase. Returns
+// available:false instead of throwing when the video has none — so the agent can "just try".
+export async function searchSubtitles(
+  url: string,
+  query: string,
+  lang: string,
+): Promise<SubtitleSearch> {
+  const normalized = normalizeYouTubeUrl(url);
+  await assertSafeUrl(normalized);
+  const dir = await mkdtemp(join(tmpdir(), "vcm-subsearch-"));
+  try {
+    const args = [
+      "--skip-download",
+      "--write-subs",
+      "--write-auto-subs",
+      "--sub-langs",
+      lang,
+      "--convert-subs",
+      "srt",
+      ...(await cookieArgs()),
+      "-o",
+      join(dir, "sub"),
+      normalized,
+    ];
+    await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
+    const files = (await readdir(dir)).filter((name) => name.endsWith(".srt"));
+    const file = files[0];
+    if (!file) return { available: false };
+    const content = await readFile(join(dir, file), "utf-8");
+    const cues = parseSrt(content);
+    const language = file.match(/sub\.([\w-]+)\.srt$/)?.[1] ?? lang;
+    if (query.trim()) {
+      const needle = query.toLowerCase();
+      const matches = cues.filter((cue) => cue.text.toLowerCase().includes(needle)).slice(0, 25);
+      return { available: true, language, total_cues: cues.length, matches };
+    }
+    const CAP = 400;
+    const result: SubtitleSearch = {
+      available: true,
+      language,
+      total_cues: cues.length,
+      cues: cues.slice(0, CAP),
+    };
+    if (cues.length > CAP) {
+      result.note = `Transcript truncated to ${CAP} of ${cues.length} cues; pass a query to find a specific phrase.`;
+    }
+    return result;
+  } finally {
+    for (const name of await readdir(dir)) {
+      await unlinkIfExists(join(dir, name));
+    }
+  }
+}
+
 export async function getThumbnail(url: string, maxWidth: number): Promise<MediaMeta> {
   const normalized = normalizeYouTubeUrl(url);
   const entry = await getVideoInfo(normalized);
