@@ -9,7 +9,14 @@ HTML is the source of truth for video. A composition is HTML with \`data-*\` tim
 ## Structure & data attributes
 - Standalone composition: put the root div directly in \`<body>\` (no \`<template>\`): \`<div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">\` (N = seconds).
 - Tag every timed element with \`data-start\`, \`data-duration\`, and \`data-track-index\` (integer; same-track clips can't overlap; track-index is NOT visual layering — use CSS \`z-index\`).
-- Register the timeline: \`window.__timelines["main"] = gsap.timeline({ paused: true })\`. Duration comes from \`data-duration\`, not the GSAP length. Never create empty tweens to set duration.
+- Register the timeline — init the registry FIRST, then assign (assigning to \`window.__timelines[...]\` without the \`|| {}\` init throws, since it starts undefined):
+\`\`\`js
+window.__timelines = window.__timelines || {};
+const tl = gsap.timeline({ paused: true });
+// ...tweens...
+window.__timelines["main"] = tl;
+\`\`\`
+Duration comes from \`data-duration\`, not the GSAP length. Never create empty tweens to set duration.
 
 ## GSAP loading (this server)
 GSAP is provided by the renderer — reference \`<script src="assets/gsap.min.js"></script>\`, or omit the script tag and it is injected. NEVER load GSAP from a CDN: renders run with no internet.
