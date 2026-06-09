@@ -103,17 +103,19 @@ Render a Hyperframes catalog block by name (from video_catalog) to MP4 as-is, wi
 
 ## `video_render_chart`
 
-Render an animated line chart: the line plots left-to-right while a marker + value label track its leading edge and the axis labels reveal as the line reaches them. Pass the data as a points array — no HTML. Asynchronous: returns a job_id to poll with video_render_status.
+Render a side-scrolling animated line chart: each series plots left-to-right, the view scrolls once the data fills the window so the leading edge stays in view, and every series shows a value label pinned to its tip. Pass one or more `series` (or a single `points` array) — no HTML. Asynchronous: returns a job_id to poll with video_render_status.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `title` | string | no |  | Chart title shown top-left. |
-| `points` | array | yes |  | Ordered data points; the line is drawn through them left-to-right. |
+| `series` | array | no |  | One or more line series plotted together; x-labels come from the first series. |
+| `points` | array | no |  | Convenience for a single line — use `series` for multiple. |
 | `x_label` | string | no |  | x-axis caption. |
 | `y_label` | string | no |  | y-axis caption. |
-| `accent_color` | string | no | `"#7fd1ff"` | Line/marker color (CSS color). |
+| `accent_color` | string | no |  | Line color for the single-series `points` path. |
 | `value_suffix` | string | no | `""` | Appended to value labels, e.g. '%' or 'k'. |
-| `duration_seconds` | number | no | `8` | Total video length. |
+| `window_size` | integer | no | `8` | Points visible at once before the chart scrolls. |
+| `duration_seconds` | number | no | `10` | Total video length. |
 | `fps` | integer | no | `30` |  |
 
 ## `video_render_queue`

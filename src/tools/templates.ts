@@ -163,34 +163,62 @@ export function registerTemplateTools(server: McpServer): void {
     name: "video_render_chart",
     title: "Render an Animated Line Chart",
     description:
-      "Render an animated line chart: the line plots left-to-right while a marker + value label track its leading edge and the axis labels reveal as the line reaches them. Pass the data as a points array — no HTML. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Render a side-scrolling animated line chart: each series plots left-to-right, the view scrolls once the data fills the window so the leading edge stays in view, and every series shows a value label pinned to its tip. Pass one or more `series` (or a single `points` array) — no HTML. Asynchronous: returns a job_id to poll with video_render_status.",
     inputSchema: {
       title: z.string().optional().describe("Chart title shown top-left."),
-      points: z
+      series: z
         .array(
           z.object({
-            label: z.string().optional().describe("x-axis label for this point."),
-            value: z.number().describe("y value."),
+            name: z.string().optional().describe("Series name shown in the legend."),
+            color: z.string().optional().describe("Line color (CSS); auto-assigned if omitted."),
+            points: z
+              .array(z.object({ label: z.string().optional(), value: z.number() }))
+              .min(2)
+              .describe("Ordered points for this series."),
           }),
         )
+        .optional()
+        .describe("One or more line series plotted together; x-labels come from the first series."),
+      points: z
+        .array(z.object({ label: z.string().optional(), value: z.number() }))
         .min(2)
-        .describe("Ordered data points; the line is drawn through them left-to-right."),
+        .optional()
+        .describe("Convenience for a single line — use `series` for multiple."),
       x_label: z.string().optional().describe("x-axis caption."),
       y_label: z.string().optional().describe("y-axis caption."),
-      accent_color: z.string().default("#7fd1ff").describe("Line/marker color (CSS color)."),
+      accent_color: z
+        .string()
+        .optional()
+        .describe("Line color for the single-series `points` path."),
       value_suffix: z.string().default("").describe("Appended to value labels, e.g. '%' or 'k'."),
-      duration_seconds: z.number().positive().max(60).default(8).describe("Total video length."),
+      window_size: z
+        .number()
+        .int()
+        .min(2)
+        .max(60)
+        .default(8)
+        .describe("Points visible at once before the chart scrolls."),
+      duration_seconds: z.number().positive().max(120).default(10).describe("Total video length."),
       fps: z.number().int().min(1).max(60).default(30),
     },
     handler: async (args) => {
+      const series =
+        args.series && args.series.length > 0
+          ? args.series
+          : args.points
+            ? [{ points: args.points, ...(args.accent_color ? { color: args.accent_color } : {}) }]
+            : [];
+      if (series.length === 0) {
+        throw new Error("Provide `series` (one or more lines) or `points` (a single line).");
+      }
       const jobId = submitJob("chart", async () => {
         const html = lineChartHtml({
           title: args.title,
-          points: args.points,
+          series,
           xLabel: args.x_label,
           yLabel: args.y_label,
-          accentColor: args.accent_color,
           valueSuffix: args.value_suffix,
+          windowSize: args.window_size,
           durationSeconds: args.duration_seconds,
         });
         const { buffer, filename } = await renderComposition({

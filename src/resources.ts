@@ -65,26 +65,25 @@ Returns a \`job_id\` — poll \`video_render_status\`.`;
 
 const CHART_TEMPLATE = `# Animated line-chart template (\`video_render_chart\`)
 
-The line plots left-to-right while a marker + value label track the leading edge and the x-axis labels reveal as the line reaches them. Pass a \`points\` array (each \`{ label?, value }\`).
+Side-scrolling multi-line chart: each series plots left-to-right; once the data fills the visible window (\`window_size\` points) the plot scrolls so the leading edge stays in view, and every series shows a value label pinned to its tip. Pass one or more \`series\` (or a single \`points\` array for one line).
 
-## Example
+## Example (two series)
 \`\`\`json
 {
-  "title": "Monthly active users",
-  "points": [
-    { "label": "Jan", "value": 12 },
-    { "label": "Feb", "value": 19 },
-    { "label": "Mar", "value": 31 },
-    { "label": "Apr", "value": 28 },
-    { "label": "May", "value": 47 }
+  "title": "Revenue vs. Cost",
+  "series": [
+    { "name": "Revenue", "color": "#34e3a4",
+      "points": [ { "label": "Jan", "value": 12 }, { "label": "Feb", "value": 19 }, { "label": "Mar", "value": 31 } ] },
+    { "name": "Cost", "color": "#ff7a90",
+      "points": [ { "value": 8 }, { "value": 11 }, { "value": 14 } ] }
   ],
-  "y_label": "users",
+  "y_label": "$ (k)",
   "value_suffix": "k",
-  "accent_color": "#7fd1ff",
-  "duration_seconds": 8
+  "window_size": 8,
+  "duration_seconds": 10
 }
 \`\`\`
-Returns a \`job_id\` — poll \`video_render_status\`.`;
+x-axis labels come from the first series. For lots of points, raise \`duration_seconds\` and keep \`window_size\` small so it scrolls smoothly. Returns a \`job_id\` — poll \`video_render_status\`.`;
 
 const HYPERFRAMES_GUIDE = `# Hyperframes block catalog
 
