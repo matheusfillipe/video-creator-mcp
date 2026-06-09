@@ -62,6 +62,7 @@ RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable --path /o
 COPY --from=build /app/dist ./dist
 COPY gsap ./gsap
 COPY python ./python
+COPY skills ./skills
 
 EXPOSE 3100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \

@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 19 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 20 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_analyze_static`
 
@@ -195,6 +195,14 @@ Search YouTube and return ranked results (title, channel, duration, views, uploa
 |---|---|---|---|---|
 | `query` | string | yes |  | Search query. |
 | `max_results` | integer | no | `5` | Number of results (1-20). |
+
+## `video_skill`
+
+Read the bundled HyperFrames authoring skill — the real HeyGen skill docs: composition rules, GSAP motion principles, visual techniques, scene transitions, typography, color palettes, data-in-motion patterns. Call with no `doc` to list every doc, or with a `doc` path to read it. Use this to author correct video_render / video_render_timeline HTML and to explore deeper technique before building a custom composition.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `doc` | string | no |  | Doc path from the index, e.g. 'hyperframes/references/techniques.md'. Omit to list all docs. |
 
 ## `video_tts`
 

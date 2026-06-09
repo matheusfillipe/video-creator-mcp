@@ -2,29 +2,46 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 const AUTHORING_GUIDE = `# Authoring video compositions
 
-A composition is base64-encoded HTML + [GSAP](https://gsap.com) that the renderer turns into MP4 frames. Run \`video_lint\` before \`video_render\`.
+HTML is the source of truth for video. A composition is HTML with \`data-*\` timing attributes, a GSAP timeline for animation, and CSS for appearance; this server base64-encodes it and renders MP4 frames. Run \`video_lint\` before \`video_render\`.
 
-## Rules
-- Wrap content in \`<div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">\` (N = seconds).
-- Every element uses \`position:absolute\` with \`top\`/\`left\` — never \`bottom\` (it clips).
-- Register the timeline: \`window.__timelines["main"] = gsap.timeline({ paused: true })\`.
-- Tag every timed element with \`class="clip"\` + \`data-start\` + \`data-duration\` + \`data-track-index\`.
-- No \`Math.random()\` (seed it), no \`fetch\`/async during setup. Animate a wrapper div around \`<video>\`; never call \`.play()\`/\`.pause()\`.
-- One \`<video>\` per composition — for multiple clips use \`video_render_timeline\` (or a template).
+**This is the core skill. For depth — motion principles, techniques, transitions, typography, palettes, data-in-motion, GSAP — call \`video_skill\` (no argument lists every doc; pass a \`doc\` path to read one). Read \`video_skill\` references before any non-trivial or multi-scene composition; the rules below are the minimum.**
 
-## Building real videos
+## Structure & data attributes
+- Standalone composition: put the root div directly in \`<body>\` (no \`<template>\`): \`<div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">\` (N = seconds).
+- Tag every timed element with \`data-start\`, \`data-duration\`, and \`data-track-index\` (integer; same-track clips can't overlap; track-index is NOT visual layering — use CSS \`z-index\`).
+- Register the timeline: \`window.__timelines["main"] = gsap.timeline({ paused: true })\`. Duration comes from \`data-duration\`, not the GSAP length. Never create empty tweens to set duration.
+
+## GSAP loading (this server)
+GSAP is provided by the renderer — reference \`<script src="assets/gsap.min.js"></script>\`, or omit the script tag and it is injected. NEVER load GSAP from a CDN: renders run with no internet.
+
+## Non-negotiable rules
+- **Deterministic:** no \`Math.random()\`, \`Date.now()\`, or time-based logic (seed a PRNG if needed).
+- **GSAP animates visual props only** (opacity, x, y, scale, rotation, color, transforms). Never animate \`visibility\`/\`display\`, never call \`video.play()\`/\`audio.play()\` — the framework owns playback.
+- **Synchronous timeline build** — never inside \`async\`/\`setTimeout\`/Promise; the engine reads \`window.__timelines\` right after load.
+- **No \`repeat: -1\`** — compute a finite repeat count from duration.
+- Video must be \`muted playsinline\`; audio is a separate \`<audio>\` element. One \`<video>\` per composition — for multiple clips use \`video_render_timeline\`.
+- For later-scene elements use \`tl.set(selector, vars, time)\` inside the timeline, not \`gsap.set()\` at load (they aren't in the DOM yet).
+
+## Layout before animation
+Position every element at its most-visible frame as static HTML+CSS first (fill the scene with \`width/height:100%\` + padding + flex/gap; reserve \`position:absolute\` for decoratives). Then add entrances with \`gsap.from()\` (animate FROM offscreen/invisible) and exits with \`gsap.to()\`. Building the end-state first surfaces overlaps before rendering.
+
+## Scene transitions (multi-scene)
+Always use transitions between scenes (no jump cuts). Every element animates IN via \`gsap.from()\`. NEVER use exit animations except on the final scene — the transition IS the exit, so the outgoing scene must be fully visible when it fires. (Details + shader options: \`video_skill('hyperframes/references/transitions.md')\`.)
+
+## Animation guardrails
+Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines, 20px+ body, 16px+ labels for rendered video; \`tabular-nums\` on number columns; avoid full-screen linear gradients on dark bg (H.264 banding — use radial/solid + localized glow).
+
+## Building real videos from footage
 1. \`video_search_youtube\` → find sources.
-2. \`video_get_info\` → read the **heatmap peaks** (most-replayed seconds) to pick the best moment.
+2. \`video_get_info\` → read the **heatmap peaks** (most-replayed seconds) to pick the moment.
 3. \`video_download_media\` with \`start\`/\`end\` around that peak → a trimmed \`media_id\`.
-4. Compose with \`video_render_timeline\`, or a ready template like \`video_render_tierlist\`.
+4. Compose with \`video_render_timeline\`, or a ready template (\`video_render_tierlist\` / \`video_render_terminal\` / \`video_render_chart\`), or a catalog block (\`video_catalog\` → \`video_render_block\`).
 5. Poll \`video_render_status\`; the result \`url\` is a public link to the MP4.
 
 ## Overlaying text/graphics on real footage
 Before placing captions, titles, or logos over downloaded footage, call \`video_analyze_static\` on that media. It returns the source's static, structured regions — baked-in subtitles, watermarks, channel logos — as pixel boxes, plus a per-cell avoid/clutter grid. Put overlays in low-avoid, low-clutter cells (usually the upper third or a corner clear of the avoid boxes) and never cover an avoid region. Skip this for solid-background templates (terminal/chart) — there is nothing underneath to clash with.
 
-Pass \`metadata\` (title/description/tags) to any render tool and it also writes a \`<video>.json\` publish sidecar to the bucket, returning \`metadata_url\` — the YouTube package, in the same call.
-
-See <https://hyperframes.mintlify.app/llms.txt> for the full Hyperframes reference.`;
+Pass \`metadata\` (title/description/tags) to any render tool and it also writes a \`<video>.json\` publish sidecar to the bucket, returning \`metadata_url\` — the YouTube package, in the same call.`;
 
 const TIERLIST_TEMPLATE = `# Tier-list / countdown template (\`video_render_tierlist\`)
 
