@@ -17,6 +17,7 @@ import { withLock } from "../lib/lock.js";
 import { assertSafeUrl } from "../lib/net.js";
 import { Limiter } from "../lib/queue.js";
 import type { MediaMeta, MediaSummary, ProbeInfo } from "../types.js";
+import { cookieArgs } from "./cookies.js";
 
 const MIN_VALID_BYTES = 100;
 
@@ -165,15 +166,7 @@ async function ytdlpDownload(
   // requested window; without it yt-dlp snaps to keyframes and clips come out short.
   if (options.section)
     args.push("--download-sections", options.section, "--force-keyframes-at-cuts");
-  if (config.ytdlp.cookies) {
-    try {
-      await stat(config.ytdlp.cookies);
-      args.push("--cookies", config.ytdlp.cookies);
-    } catch (error) {
-      if (!isErrnoException(error) || error.code !== "ENOENT") throw error;
-      console.error(`[media] YTDLP_COOKIES not found at ${config.ytdlp.cookies}, skipping`);
-    }
-  }
+  args.push(...(await cookieArgs()));
   if (TWITTER_RE.test(url)) {
     args.push("--extractor-args", "twitter:api=syndication");
   }

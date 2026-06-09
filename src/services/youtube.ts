@@ -6,6 +6,7 @@ import { run } from "../lib/exec.js";
 import { unlinkIfExists } from "../lib/fs.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
+import { cookieArgs } from "./cookies.js";
 import { writeMediaFromBuffer } from "./media.js";
 
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
@@ -97,16 +98,9 @@ export function normalizeYouTubeUrl(url: string): string {
   return BARE_ID_RE.test(url) ? `https://www.youtube.com/watch?v=${url}` : url;
 }
 
-function dumpArgs(): string[] {
-  const args = ["--no-download", "--dump-json"];
-  if (config.ytdlp.cookies) {
-    args.push("--cookies", config.ytdlp.cookies);
-  }
-  return args;
-}
-
 async function dumpJson(target: string): Promise<YtdlpEntry[]> {
-  const { stdout } = await run(config.ytdlp.path, [...dumpArgs(), target], { timeoutMs: 60_000 });
+  const args = ["--no-download", "--dump-json", ...(await cookieArgs()), target];
+  const { stdout } = await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
   return stdout
     .split("\n")
     .filter((line) => line.trim())
@@ -212,7 +206,7 @@ export async function getSubtitles(
   const dir = await mkdtemp(join(tmpdir(), "vcm-subs-"));
   const args = ["--skip-download", "--sub-lang", lang, "--sub-format", "srt"];
   args.push(auto ? "--write-auto-sub" : "--write-sub");
-  if (config.ytdlp.cookies) args.push("--cookies", config.ytdlp.cookies);
+  args.push(...(await cookieArgs()));
   args.push("-o", join(dir, "sub"), normalized);
   await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
 
