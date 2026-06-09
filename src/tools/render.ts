@@ -2,10 +2,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
+import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
-import { storage } from "../services/storage.js";
 import { assembleTimeline } from "../services/timeline.js";
 import { registerTool } from "./defineTool.js";
+import { metadataArg } from "./shared.js";
 
 const RESOLUTION = z.enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"]);
 const mediaRef = z.object({
@@ -46,8 +47,9 @@ export function registerRenderTools(server: McpServer): void {
       fps: z.number().int().min(1).max(60).default(30).describe("Frames per second."),
       resolution: RESOLUTION.default("1080p").describe("Output resolution/orientation."),
       media: z.array(mediaRef).optional().describe("Pre-downloaded media to include."),
+      metadata: metadataArg,
     },
-    handler: ({ html, audio_base64, audio_volume, fps, resolution, media }) => {
+    handler: ({ html, audio_base64, audio_volume, fps, resolution, media, metadata }) => {
       const jobId = submitJob("render", async () => {
         const { buffer, filename } = await renderComposition({
           htmlBase64: html,
@@ -57,8 +59,7 @@ export function registerRenderTools(server: McpServer): void {
           audioVolume: audio_volume,
           media,
         });
-        const url = await storage().save(buffer, filename);
-        return { url, filename, size_bytes: buffer.byteLength };
+        return saveRender(buffer, filename, metadata);
       });
       return Promise.resolve({
         job_id: jobId,
@@ -100,8 +101,9 @@ export function registerRenderTools(server: McpServer): void {
         .describe("Audio tracks overlaid at offsets."),
       fps: z.number().int().min(1).max(60).default(30).describe("Frames per second."),
       resolution: RESOLUTION.default("1080p").describe("Output resolution/orientation."),
+      metadata: metadataArg,
     },
-    handler: ({ segments, audio, fps, resolution }) => {
+    handler: ({ segments, audio, fps, resolution, metadata }) => {
       const jobId = submitJob("timeline", async () => {
         const { buffer, filename, warnings } = await assembleTimeline({
           segments,
@@ -109,14 +111,8 @@ export function registerRenderTools(server: McpServer): void {
           fps,
           resolution,
         });
-        const url = await storage().save(buffer, filename);
-        return {
-          url,
-          filename,
-          size_bytes: buffer.byteLength,
-          segments: segments.length,
-          warnings: warnings ?? [],
-        };
+        const saved = await saveRender(buffer, filename, metadata);
+        return { ...saved, segments: segments.length, warnings: warnings ?? [] };
       });
       return Promise.resolve({
         job_id: jobId,

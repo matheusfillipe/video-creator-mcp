@@ -2,9 +2,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { fetchBlockComposition, listCatalog } from "../services/catalog.js";
 import { submitJob } from "../services/jobs.js";
+import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
-import { storage } from "../services/storage.js";
 import { registerTool } from "./defineTool.js";
+import { metadataArg } from "./shared.js";
 
 function encode(html: string): string {
   return Buffer.from(html, "utf-8").toString("base64");
@@ -48,8 +49,9 @@ export function registerCatalogTools(server: McpServer): void {
         .optional()
         .describe("Override the block's built-in duration."),
       fps: z.number().int().min(1).max(60).default(30),
+      metadata: metadataArg,
     },
-    handler: async ({ name, duration_seconds, fps }) => {
+    handler: async ({ name, duration_seconds, fps, metadata }) => {
       const jobId = submitJob("block", async () => {
         const html = await fetchBlockComposition(name, duration_seconds);
         const { buffer, filename } = await renderComposition({
@@ -57,8 +59,8 @@ export function registerCatalogTools(server: McpServer): void {
           fps,
           resolution: "1080p",
         });
-        const url = await storage().save(buffer, filename);
-        return { url, filename, size_bytes: buffer.byteLength, block: name };
+        const saved = await saveRender(buffer, filename, metadata);
+        return { ...saved, block: name };
       });
       return {
         job_id: jobId,

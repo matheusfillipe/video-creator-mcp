@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { metadataSidecarName } from "../../src/tools/metadata.js";
+import { metadataSidecarName } from "../../src/services/publish.js";
 
 describe("metadataSidecarName", () => {
   it("swaps the video extension for .json", () => {
@@ -9,11 +9,10 @@ describe("metadataSidecarName", () => {
 
   it("reduces a path to its basename (no key escape)", () => {
     expect(metadataSidecarName("a/b/timeline-1.mp4")).toBe("timeline-1.json");
+    expect(metadataSidecarName("../secret.mp4")).toBe("secret.json");
   });
 
   it("rejects dotfiles and unsafe names", () => {
-    expect(() => metadataSidecarName("../secret.mp4")).not.toThrow(); // basename is secret.mp4
-    expect(metadataSidecarName("../secret.mp4")).toBe("secret.json");
     expect(() => metadataSidecarName(".env")).toThrow();
     expect(() => metadataSidecarName("bad name.mp4")).toThrow();
   });

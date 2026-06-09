@@ -2,19 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 19 MCP tools. Auto-generated from the live server's `tools/list`.
-
-## `video_attach_metadata`
-
-Write a publish-ready metadata sidecar next to a rendered video in the bucket: a JSON file with the same base name as the video (e.g. timeline-ab12.mp4 → timeline-ab12.json) holding the YouTube title, description and tags. mp4 can't carry tags, so this JSON is the portable metadata package an agent uses at upload time. Returns the sidecar's public URL.
-
-| Param | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `filename` | string | yes |  | The rendered video's filename from a render result, e.g. 'timeline-ab12cd34.mp4'. |
-| `title` | string | yes |  | Video title. |
-| `description` | string | no | `""` | Video description; may include chapter timestamps. |
-| `tags` | array | no | `[]` | YouTube tags / keywords. |
-| `category` | string | no |  | Optional YouTube category, e.g. 'Gaming'. |
+The agent drives these 18 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_catalog`
 
@@ -102,6 +90,7 @@ Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll 
 | `fps` | integer | no | `30` | Frames per second. |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
 | `media` | array | no |  | Pre-downloaded media to include. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_block`
 
@@ -112,6 +101,7 @@ Render a Hyperframes catalog block by name (from video_catalog) to MP4 as-is, wi
 | `name` | string | yes |  | Catalog block slug, e.g. 'data-chart' (see video_catalog). |
 | `duration_seconds` | number | no |  | Override the block's built-in duration. |
 | `fps` | integer | no | `30` |  |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_chart`
 
@@ -129,6 +119,7 @@ Render a side-scrolling animated line chart: each series plots left-to-right, th
 | `window_size` | integer | no | `8` | Points visible at once before the chart scrolls. |
 | `duration_seconds` | number | no | `10` | Total video length. |
 | `fps` | integer | no | `30` |  |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_queue`
 
@@ -155,6 +146,7 @@ Render an animated macOS terminal (Hyperframes apple-terminal look): the command
 | `prompt` | string | no | `"user@Mac ~ % "` | Shell prompt before the command. |
 | `duration_seconds` | number | no | `8` | Total video length. |
 | `fps` | integer | no | `30` |  |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_tierlist`
 
@@ -171,6 +163,7 @@ Build a countdown/tier-list video from ranked entries. Layout: an intro title ca
 | `music_volume` | number | no | `0.25` | Background-music volume. |
 | `fps` | integer | no | `30` |  |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_timeline`
 
@@ -182,6 +175,7 @@ Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP 
 | `audio` | array | no |  | Audio tracks overlaid at offsets. |
 | `fps` | integer | no | `30` | Frames per second. |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_search_youtube`
 

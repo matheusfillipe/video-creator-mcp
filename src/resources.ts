@@ -18,7 +18,8 @@ A composition is base64-encoded HTML + [GSAP](https://gsap.com) that the rendere
 3. \`video_download_media\` with \`start\`/\`end\` around that peak → a trimmed \`media_id\`.
 4. Compose with \`video_render_timeline\`, or a ready template like \`video_render_tierlist\`.
 5. Poll \`video_render_status\`; the result \`url\` is a public link to the MP4.
-6. Optionally \`video_attach_metadata\` (pass the result \`filename\`) to write a title/description/tags JSON sidecar next to it in the bucket — the publish package for YouTube.
+
+Pass \`metadata\` (title/description/tags) to any render tool and it also writes a \`<video>.json\` publish sidecar to the bucket, returning \`metadata_url\` — the YouTube package, in the same call.
 
 See <https://hyperframes.mintlify.app/llms.txt> for the full Hyperframes reference.`;
 

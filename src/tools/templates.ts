@@ -2,8 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { submitJob } from "../services/jobs.js";
 import { loadMeta } from "../services/media.js";
+import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
-import { storage } from "../services/storage.js";
 import {
   type TimelineParams,
   type TimelineSegment,
@@ -14,6 +14,7 @@ import { terminalHtml } from "../templates/terminal.js";
 import { titleCardHtml } from "../templates/tierlist.js";
 import type { Resolution } from "../types.js";
 import { registerTool } from "./defineTool.js";
+import { metadataArg } from "./shared.js";
 
 function encode(html: string): string {
   return Buffer.from(html, "utf-8").toString("base64");
@@ -61,6 +62,7 @@ export function registerTemplateTools(server: McpServer): void {
         .enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"])
         .default("1080p")
         .describe("Output resolution/orientation."),
+      metadata: metadataArg,
     },
     handler: async (args) => {
       const segments: TimelineSegment[] = [
@@ -121,11 +123,9 @@ export function registerTemplateTools(server: McpServer): void {
 
       const jobId = submitJob("tierlist", async () => {
         const { buffer, filename, warnings } = await assembleTimeline(params);
-        const url = await storage().save(buffer, filename);
+        const saved = await saveRender(buffer, filename, args.metadata);
         return {
-          url,
-          filename,
-          size_bytes: buffer.byteLength,
+          ...saved,
           segments: segments.length,
           warnings: [...entryWarnings, ...(warnings ?? [])],
         };
@@ -153,8 +153,9 @@ export function registerTemplateTools(server: McpServer): void {
       prompt: z.string().default("user@Mac ~ % ").describe("Shell prompt before the command."),
       duration_seconds: z.number().positive().max(60).default(8).describe("Total video length."),
       fps: z.number().int().min(1).max(60).default(30),
+      metadata: metadataArg,
     },
-    handler: async ({ command, output, prompt, duration_seconds, fps }) => {
+    handler: async ({ command, output, prompt, duration_seconds, fps, metadata }) => {
       const jobId = submitJob("terminal", async () => {
         const html = terminalHtml({ command, output, prompt, durationSeconds: duration_seconds });
         const { buffer, filename } = await renderComposition({
@@ -162,8 +163,7 @@ export function registerTemplateTools(server: McpServer): void {
           fps,
           resolution: "1080p",
         });
-        const url = await storage().save(buffer, filename);
-        return { url, filename, size_bytes: buffer.byteLength };
+        return saveRender(buffer, filename, metadata);
       });
       return {
         job_id: jobId,
@@ -214,6 +214,7 @@ export function registerTemplateTools(server: McpServer): void {
         .describe("Points visible at once before the chart scrolls."),
       duration_seconds: z.number().positive().max(120).default(10).describe("Total video length."),
       fps: z.number().int().min(1).max(60).default(30),
+      metadata: metadataArg,
     },
     handler: async (args) => {
       const series =
@@ -240,8 +241,7 @@ export function registerTemplateTools(server: McpServer): void {
           fps: args.fps,
           resolution: "1080p",
         });
-        const url = await storage().save(buffer, filename);
-        return { url, filename, size_bytes: buffer.byteLength };
+        return saveRender(buffer, filename, args.metadata);
       });
       return {
         job_id: jobId,
