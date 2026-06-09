@@ -16,7 +16,7 @@ WORKDIR /app
 # JavaScript runtime and the yt-dlp[default] extra bundles the EJS challenge-solver scripts
 # so YouTube's n-signature challenges resolve offline, without a runtime fetch from GitHub.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ffmpeg python3 python3-pip curl ca-certificates chromium unzip \
+      ffmpeg python3 python3-pip curl ca-certificates chromium unzip tini \
       fonts-liberation fonts-noto-color-emoji fonts-noto-core libglib2.0-0 \
     && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" opencv-python-headless numpy \
     && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
@@ -67,4 +67,8 @@ COPY skills ./skills
 EXPOSE 3100
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
   CMD curl -fsS "http://localhost:${PORT}/health" || exit 1
+# tini as PID 1 reaps the headless-chrome subprocesses that get orphaned when a
+# render's `hyperframes` CLI exits — node won't wait() them, so without an init
+# they pile up as zombies.
+ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["node", "dist/index.js"]
