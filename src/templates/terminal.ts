@@ -23,7 +23,6 @@ export function terminalHtml(options: TerminalOptions): string {
   const prompt = escapeHtml(options.prompt ?? "user@Mac ~ % ");
   const outputLines = buildOutputLines(options.output);
   const command = JSON.stringify(options.command);
-  const promptJson = JSON.stringify(prompt);
 
   return `<!doctype html>
 <html lang="en">
@@ -54,7 +53,7 @@ export function terminalHtml(options: TerminalOptions): string {
       }
       .terminal-window {
         width: 1400px;
-        height: 700px;
+        height: 600px;
         border-radius: 10px;
         overflow: hidden;
         box-shadow:
@@ -109,10 +108,10 @@ export function terminalHtml(options: TerminalOptions): string {
       .terminal-canvas {
         flex: 1;
         background: #000000;
-        padding: 18px 20px;
+        padding: 22px 26px;
         overflow: hidden;
-        font-size: 14px;
-        line-height: 1.6;
+        font-size: 18px;
+        line-height: 1.55;
         color: #00cf00;
       }
       .output-lines {
@@ -166,11 +165,14 @@ export function terminalHtml(options: TerminalOptions): string {
           <span class="window-title">bash — 80×24</span>
         </div>
         <div class="terminal-canvas">
+          <div class="input-line" id="cmd-line">
+            <span class="prompt">${prompt}</span><span class="typed-command"></span><span class="cursor-block" id="type-cursor"></span>
+          </div>
           <div class="output-lines">
             ${outputLines}
           </div>
-          <div class="input-line">
-            <span class="prompt">${prompt}</span><span class="typed-command"></span><span class="cursor-block"></span>
+          <div class="input-line" id="final-line" style="opacity: 0">
+            <span class="prompt">${prompt}</span><span class="cursor-block" id="final-cursor"></span>
           </div>
         </div>
       </div>
@@ -178,46 +180,44 @@ export function terminalHtml(options: TerminalOptions): string {
     <script>
       window.__timelines = window.__timelines || {};
       const command = ${command};
-      const promptHtml = ${promptJson};
-      const typedEl = document.querySelector(".typed-command");
-      const cursorEl = document.querySelector(".cursor-block");
+      const typedEl = document.querySelector("#cmd-line .typed-command");
+      const typeCursor = document.getElementById("type-cursor");
       const outputLines = document.querySelectorAll(".output-line");
+      const finalLine = document.getElementById("final-line");
+      const finalCursor = document.getElementById("final-cursor");
 
       const tl = gsap.timeline({ paused: true });
-      tl.set(typedEl, { text: "" }, 0);
+      tl.add(() => {
+        typedEl.textContent = "";
+      }, 0);
 
+      // Type the command out; it stays on screen, the way a real terminal keeps
+      // the command above its output.
       const charDuration = command.length ? 1.5 / command.length : 0.1;
       command.split("").forEach((char, i) => {
         tl.add(() => {
           typedEl.textContent = command.slice(0, i + 1);
         }, 0.5 + i * charDuration);
       });
+      const cmdDone = 0.5 + 1.5;
+      tl.set(typeCursor, { opacity: 0 }, cmdDone + 0.1);
 
-      tl.set(cursorEl, { opacity: 0 }, 2.2);
+      // Output reveals line by line below the command.
       outputLines.forEach((line, i) => {
-        tl.set(line, { opacity: 1 }, 2.3 + i * 0.1);
+        tl.set(line, { opacity: 1 }, cmdDone + 0.4 + i * 0.12);
       });
 
-      tl.add(() => {
-        const inputLine = document.querySelector(".input-line");
-        const newPrompt = document.createElement("div");
-        newPrompt.className = "input-line";
-        newPrompt.innerHTML =
-          '<span class="prompt">' + promptHtml + '</span><span class="typed-command"></span><span class="cursor-block" id="final-cursor"></span>';
-        inputLine.style.display = "none";
-        inputLine.parentNode.appendChild(newPrompt);
-      }, 2.8 + outputLines.length * 0.1 + 0.3);
-
-      const blinkStart = 2.8 + outputLines.length * 0.1 + 0.5;
+      // A fresh prompt appears below the output and its cursor blinks.
+      const outDone = cmdDone + 0.4 + outputLines.length * 0.12 + 0.2;
+      tl.set(finalLine, { opacity: 1 }, outDone);
+      const blinkStart = outDone + 0.3;
       [0, 1, 2, 3, 4, 5].forEach((i) => {
         tl.add(() => {
-          const fc = document.getElementById("final-cursor");
-          if (fc) fc.style.opacity = i % 2 === 0 ? "0" : "1";
+          finalCursor.style.opacity = i % 2 === 0 ? "0" : "1";
         }, blinkStart + i * 0.4);
       });
       tl.add(() => {
-        const fc = document.getElementById("final-cursor");
-        if (fc) fc.style.opacity = "1";
+        finalCursor.style.opacity = "1";
       }, blinkStart + 2.6);
 
       window.__timelines["main"] = tl;

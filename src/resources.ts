@@ -19,6 +19,9 @@ A composition is base64-encoded HTML + [GSAP](https://gsap.com) that the rendere
 4. Compose with \`video_render_timeline\`, or a ready template like \`video_render_tierlist\`.
 5. Poll \`video_render_status\`; the result \`url\` is a public link to the MP4.
 
+## Overlaying text/graphics on real footage
+Before placing captions, titles, or logos over downloaded footage, call \`video_analyze_static\` on that media. It returns the source's static, structured regions — baked-in subtitles, watermarks, channel logos — as pixel boxes, plus a per-cell avoid/clutter grid. Put overlays in low-avoid, low-clutter cells (usually the upper third or a corner clear of the avoid boxes) and never cover an avoid region. Skip this for solid-background templates (terminal/chart) — there is nothing underneath to clash with.
+
 Pass \`metadata\` (title/description/tags) to any render tool and it also writes a \`<video>.json\` publish sidecar to the bucket, returning \`metadata_url\` — the YouTube package, in the same call.
 
 See <https://hyperframes.mintlify.app/llms.txt> for the full Hyperframes reference.`;
