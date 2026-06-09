@@ -108,11 +108,16 @@ export function terminalHtml(options: TerminalOptions): string {
       .terminal-canvas {
         flex: 1;
         background: #000000;
-        padding: 22px 26px;
         overflow: hidden;
+        position: relative;
         font-size: 18px;
         line-height: 1.55;
         color: #00cf00;
+      }
+      #term-content {
+        padding: 22px 26px;
+        position: relative;
+        will-change: transform;
       }
       .output-lines {
         margin-bottom: 4px;
@@ -165,14 +170,16 @@ export function terminalHtml(options: TerminalOptions): string {
           <span class="window-title">bash — 80×24</span>
         </div>
         <div class="terminal-canvas">
-          <div class="input-line" id="cmd-line">
-            <span class="prompt">${prompt}</span><span class="typed-command"></span><span class="cursor-block" id="type-cursor"></span>
-          </div>
-          <div class="output-lines">
-            ${outputLines}
-          </div>
-          <div class="input-line" id="final-line" style="opacity: 0">
-            <span class="prompt">${prompt}</span><span class="cursor-block" id="final-cursor"></span>
+          <div id="term-content">
+            <div class="input-line" id="cmd-line">
+              <span class="prompt">${prompt}</span><span class="typed-command"></span><span class="cursor-block" id="type-cursor"></span>
+            </div>
+            <div class="output-lines">
+              ${outputLines}
+            </div>
+            <div class="input-line" id="final-line" style="opacity: 0">
+              <span class="prompt">${prompt}</span><span class="cursor-block" id="final-cursor"></span>
+            </div>
           </div>
         </div>
       </div>
@@ -185,6 +192,17 @@ export function terminalHtml(options: TerminalOptions): string {
       const outputLines = document.querySelectorAll(".output-line");
       const finalLine = document.getElementById("final-line");
       const finalCursor = document.getElementById("final-cursor");
+      const content = document.getElementById("term-content");
+      const canvas = document.querySelector(".terminal-canvas");
+
+      // Scroll the content up so an element stays in view once output overflows
+      // the visible canvas — a real terminal keeps the newest line on screen.
+      function scrollToShow(el, atTime) {
+        const need = el.offsetTop + el.offsetHeight - canvas.clientHeight;
+        if (need > 0) {
+          tl.to(content, { y: -need, duration: 0.2, ease: "power1.out" }, atTime);
+        }
+      }
 
       const tl = gsap.timeline({ paused: true });
       tl.add(() => {
@@ -202,14 +220,23 @@ export function terminalHtml(options: TerminalOptions): string {
       const cmdDone = 0.5 + 1.5;
       tl.set(typeCursor, { opacity: 0 }, cmdDone + 0.1);
 
-      // Output reveals line by line below the command.
+      // Output reveals line by line below the command, scrolling up once it
+      // overflows. Pace so all lines reveal within the composition duration.
+      const duration = ${options.durationSeconds};
+      const revealSpan = Math.max(0.5, duration - cmdDone - 1.6);
+      const step = outputLines.length
+        ? Math.min(0.12, revealSpan / outputLines.length)
+        : 0.12;
       outputLines.forEach((line, i) => {
-        tl.set(line, { opacity: 1 }, cmdDone + 0.4 + i * 0.12);
+        const at = cmdDone + 0.4 + i * step;
+        tl.set(line, { opacity: 1 }, at);
+        scrollToShow(line, at);
       });
 
       // A fresh prompt appears below the output and its cursor blinks.
-      const outDone = cmdDone + 0.4 + outputLines.length * 0.12 + 0.2;
+      const outDone = cmdDone + 0.4 + outputLines.length * step + 0.2;
       tl.set(finalLine, { opacity: 1 }, outDone);
+      scrollToShow(finalLine, outDone);
       const blinkStart = outDone + 0.3;
       [0, 1, 2, 3, 4, 5].forEach((i) => {
         tl.add(() => {
