@@ -63,8 +63,10 @@ export function registerYoutubeTools(server: McpServer): void {
         .describe("Phrase to locate; omit to return the whole timed transcript."),
       lang: z
         .string()
-        .default("en.*,en")
-        .describe("Subtitle language(s) in yt-dlp --sub-langs syntax (e.g. 'en.*,en')."),
+        .default("en,en-orig")
+        .describe(
+          "Subtitle language(s), yt-dlp --sub-langs syntax. Keep it to a couple explicit codes (e.g. 'en,en-orig') — a glob like 'en.*' pulls dozens of auto-translations and gets rate-limited.",
+        ),
     },
     annotations: { readOnlyHint: true },
     handler: ({ url, query, lang }) => searchSubtitles(url, query ?? "", lang),

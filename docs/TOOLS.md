@@ -206,7 +206,7 @@ Fetch a video's timed captions and find WHERE something is said. Pass a `query` 
 |---|---|---|---|---|
 | `url` | string | yes |  | YouTube URL or video id. |
 | `query` | string | no |  | Phrase to locate; omit to return the whole timed transcript. |
-| `lang` | string | no | `"en.*,en"` | Subtitle language(s) in yt-dlp --sub-langs syntax (e.g. 'en.*,en'). |
+| `lang` | string | no | `"en,en-orig"` | Subtitle language(s), yt-dlp --sub-langs syntax. Keep it to a couple explicit codes (e.g. 'en,en-orig') — a glob like 'en.*' pulls dozens of auto-translations and gets rate-limited. |
 
 ## `video_search_youtube`
 

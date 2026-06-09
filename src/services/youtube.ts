@@ -296,12 +296,19 @@ export async function searchSubtitles(
       normalized,
     ];
     await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
-    const files = (await readdir(dir)).filter((name) => name.endsWith(".srt"));
-    const file = files[0];
+    const subs = (await readdir(dir)).filter(
+      (name) => name.endsWith(".srt") || name.endsWith(".vtt"),
+    );
+    // Prefer a converted .srt and the manual `en` track over auto/translated variants.
+    const file =
+      subs.find((name) => /\.en\.srt$/.test(name)) ??
+      subs.find((name) => name.endsWith(".srt")) ??
+      subs.find((name) => /\.en\.vtt$/.test(name)) ??
+      subs[0];
     if (!file) return { available: false };
     const content = await readFile(join(dir, file), "utf-8");
     const cues = parseSrt(content);
-    const language = file.match(/sub\.([\w-]+)\.srt$/)?.[1] ?? lang;
+    const language = file.match(/sub\.([\w-]+)\.(?:srt|vtt)$/)?.[1] ?? lang;
     if (query.trim()) {
       const needle = query.toLowerCase();
       const matches = cues.filter((cue) => cue.text.toLowerCase().includes(needle)).slice(0, 25);
