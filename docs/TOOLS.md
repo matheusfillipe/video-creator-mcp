@@ -2,7 +2,19 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 24 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 25 MCP tools. Auto-generated from the live server's `tools/list`.
+
+## `video_add_audio`
+
+Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. Chain to layer: replace the narration first, then mix in music. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `media_id` | string | yes |  | Video media_id to add audio to. |
+| `audio_media_id` | string | yes |  | Audio media_id — from video_tts (narration) or video_download_media (music/sfx). |
+| `mode` | `"replace"` \| `"mix"` | no | `"replace"` | 'replace' = this becomes the only audio (narration over muted footage); 'mix' = blend under the video's existing audio (needs the video to already have audio). |
+| `volume` | number | no | `1` | Volume of the added track (for 'mix', relative to the existing audio). |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_analyze_audio`
 
@@ -252,7 +264,7 @@ Read the bundled HyperFrames authoring skill — the real HeyGen skill docs: com
 
 ## `video_tts`
 
-Generate narration audio from text (Kokoro voices, e.g. am_adam, af_heart, bf_emma, am_michael). Returns base64 WAV to pass as audio_base64 in video_render, or to mix into a timeline.
+Generate narration audio from text (Kokoro voices, e.g. am_adam, af_heart, bf_emma, am_michael). Returns a media_id (and its duration in seconds) so you can lay the narration over a finished video with video_add_audio, or feed it into a video_render_timeline audio track. Also returns base64 WAV for video_render's audio_base64. To narrate a video: video_tts → video_add_audio(media_id: <video>, audio_media_id: <this>).
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|

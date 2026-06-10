@@ -27,6 +27,77 @@ export interface CaptionParams {
   box: boolean;
 }
 
+export type AudioMixMode = "replace" | "mix";
+
+// Mux an audio track onto a video. "replace" makes it the sole audio (TTS narration over muted
+// footage); "mix" blends it UNDER the video's existing audio (background music/ambient — the
+// video must already have an audio stream). The video keeps its full length; an audio track
+// shorter than the video simply ends. Video is stream-copied, only the audio is re-encoded.
+export async function addAudioTrack(params: {
+  videoId: string;
+  audioId: string;
+  mode: AudioMixMode;
+  volume: number;
+}): Promise<{ buffer: Buffer; meta: MediaMeta }> {
+  const video = await loadMeta(params.videoId);
+  if (!video) {
+    throw new Error(`Unknown video media_id "${params.videoId}" — render or download it first.`);
+  }
+  const audio = await loadMeta(params.audioId);
+  if (!audio) {
+    throw new Error(
+      `Unknown audio media_id "${params.audioId}" — get it from video_tts or video_download_media.`,
+    );
+  }
+  if (params.mode === "mix" && !video.hasAudio) {
+    throw new Error(
+      `Video ${params.videoId} has no audio to mix under — use mode "replace" for the first track.`,
+    );
+  }
+  const dir = await mkdtemp(join(tmpdir(), "vcm-audio-"));
+  try {
+    const filter =
+      params.mode === "mix"
+        ? `[1:a]volume=${params.volume}[b];[0:a][b]amix=inputs=2:duration=first:normalize=0[a]`
+        : `[1:a]volume=${params.volume}[a]`;
+    const outFile = join(dir, "out.mp4");
+    await run(
+      "ffmpeg",
+      [
+        "-y",
+        "-i",
+        video.path,
+        "-i",
+        audio.path,
+        "-filter_complex",
+        filter,
+        "-map",
+        "0:v:0",
+        "-map",
+        "[a]",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-movflags",
+        "+faststart",
+        outFile,
+      ],
+      { timeoutMs: 300_000 },
+    );
+    const buffer = await readFile(outFile);
+    const meta = await writeMediaFromBuffer({
+      idSeed: `addaudio:${params.videoId}:${params.audioId}:${params.mode}:${params.volume}`,
+      buffer,
+      ext: ".mp4",
+      sourceUrl: `addaudio://${params.videoId}`,
+    });
+    return { buffer, meta };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 function yExpression(position: CaptionPosition, margin: number): string {
   if (position === "top") return String(margin);
   if (position === "center") return "(h-text_h)/2";

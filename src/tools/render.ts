@@ -1,6 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { captionMedia } from "../services/effects.js";
+import { addAudioTrack, captionMedia } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
 import { loopMedia, writeMediaFromBuffer } from "../services/media.js";
@@ -221,6 +221,52 @@ export function registerRenderTools(server: McpServer): void {
           duration: meta.duration,
           captions: captions.length,
         };
+      });
+      return Promise.resolve({
+        job_id: jobId,
+        state: "queued",
+        poll_with: `video_render_status with job_id "${jobId}"`,
+      });
+    },
+  });
+
+  registerTool(server, {
+    name: "video_add_audio",
+    title: "Add / Mix Audio onto a Video",
+    description:
+      "Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. Chain to layer: replace the narration first, then mix in music. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id to poll with video_render_status.",
+    inputSchema: {
+      media_id: z.string().min(1).describe("Video media_id to add audio to."),
+      audio_media_id: z
+        .string()
+        .min(1)
+        .describe(
+          "Audio media_id — from video_tts (narration) or video_download_media (music/sfx).",
+        ),
+      mode: z
+        .enum(["replace", "mix"])
+        .default("replace")
+        .describe(
+          "'replace' = this becomes the only audio (narration over muted footage); 'mix' = blend under the video's existing audio (needs the video to already have audio).",
+        ),
+      volume: z
+        .number()
+        .min(0)
+        .max(4)
+        .default(1)
+        .describe("Volume of the added track (for 'mix', relative to the existing audio)."),
+      metadata: metadataArg,
+    },
+    handler: ({ media_id, audio_media_id, mode, volume, metadata }) => {
+      const jobId = submitJob("add-audio", async () => {
+        const { buffer, meta } = await addAudioTrack({
+          videoId: media_id,
+          audioId: audio_media_id,
+          mode,
+          volume,
+        });
+        const saved = await saveRender(buffer, meta.filename, metadata);
+        return { ...saved, media_id: meta.media_id, duration: meta.duration };
       });
       return Promise.resolve({
         job_id: jobId,
