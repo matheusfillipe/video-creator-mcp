@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
-import { loopMedia } from "../services/media.js";
+import { loopMedia, writeMediaFromBuffer } from "../services/media.js";
 import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
 import { assembleTimeline } from "../services/timeline.js";
@@ -139,9 +139,20 @@ export function registerRenderTools(server: McpServer): void {
     },
     handler: ({ media_id, count, audio, metadata }) => {
       const jobId = submitJob("loop", async () => {
-        const { buffer, filename } = await loopMedia(media_id, count, audio);
-        const saved = await saveRender(buffer, filename, metadata);
-        return { ...saved, looped: count };
+        const { buffer } = await loopMedia(media_id, count, audio);
+        const looped = await writeMediaFromBuffer({
+          idSeed: `loop-${media_id}-${count}-${audio}`,
+          buffer,
+          ext: ".mp4",
+          sourceUrl: media_id,
+        });
+        const saved = await saveRender(buffer, looped.filename, metadata);
+        return {
+          ...saved,
+          media_id: looped.media_id,
+          looped: count,
+          compose_hint: `To put text/elements over this loop, render ONE composition: <video src="assets/${looped.filename}" muted playsinline> filling the frame, plus your overlay divs, and pass media:[{media_id:"${looped.media_id}"}]. Do NOT rebuild N segments.`,
+        };
       });
       return Promise.resolve({
         job_id: jobId,
