@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 22 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 23 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_analyze_static`
 
@@ -13,6 +13,20 @@ Profile any video URL for static, structured regions — baked logos, watermarks
 | `url` | string | yes |  | Video URL (any yt-dlp source or direct media link). |
 | `fps` | number | no | `2` | Frames sampled per second for the analysis. |
 | `grid` | integer | no | `4` | Grid resolution (NxN cells). |
+
+## `video_caption`
+
+Burn timed text captions directly onto a clip with ffmpeg — no HTML, no chrome render. Each caption shows only during its own [start, start+duration] window, so this is the right tool for 'loop a clip and show rotating subtitles / talk to the viewer'. Re-encodes once in roughly real time (far faster than a chrome composition). Returns a new media_id (chainable) and a finished MP4 url. Pass the looped clip's media_id (from video_loop) to caption the whole loop in one pass. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `media_id` | string | yes |  | media_id of the clip to caption (e.g. a video_loop output). |
+| `captions` | array | yes |  | Timed captions; overlap is allowed. |
+| `position` | `"top"` \| `"center"` \| `"bottom"` | no | `"bottom"` | Vertical placement of the captions. |
+| `font_size` | integer | no |  | Font size in pixels; defaults to ~1/20 of the video height. |
+| `color` | string | no | `"white"` | Font color (ffmpeg color name or #RRGGBB). |
+| `box` | boolean | no | `true` | Draw a translucent background box behind the text for readability. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_catalog`
 

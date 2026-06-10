@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { captionMedia } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
 import { loopMedia, writeMediaFromBuffer } from "../services/media.js";
@@ -152,6 +153,73 @@ export function registerRenderTools(server: McpServer): void {
           media_id: looped.media_id,
           looped: count,
           compose_hint: `To put text/elements over this loop, render ONE composition: <video src="assets/${looped.filename}" muted playsinline> filling the frame, plus your overlay divs, and pass media:[{media_id:"${looped.media_id}"}]. Do NOT rebuild N segments.`,
+        };
+      });
+      return Promise.resolve({
+        job_id: jobId,
+        state: "queued",
+        poll_with: `video_render_status with job_id "${jobId}"`,
+      });
+    },
+  });
+
+  registerTool(server, {
+    name: "video_caption",
+    title: "Burn Captions onto a Clip",
+    description:
+      "Burn timed text captions directly onto a clip with ffmpeg — no HTML, no chrome render. Each caption shows only during its own [start, start+duration] window, so this is the right tool for 'loop a clip and show rotating subtitles / talk to the viewer'. Re-encodes once in roughly real time (far faster than a chrome composition). Returns a new media_id (chainable) and a finished MP4 url. Pass the looped clip's media_id (from video_loop) to caption the whole loop in one pass. Asynchronous: returns a job_id to poll with video_render_status.",
+    inputSchema: {
+      media_id: z
+        .string()
+        .min(1)
+        .describe("media_id of the clip to caption (e.g. a video_loop output)."),
+      captions: z
+        .array(
+          z.object({
+            text: z.string().min(1).describe("Caption text shown during this window."),
+            start: z.number().min(0).describe("When the caption appears, seconds from clip start."),
+            duration: z
+              .number()
+              .positive()
+              .describe("How long the caption stays on screen, seconds."),
+          }),
+        )
+        .min(1)
+        .describe("Timed captions; overlap is allowed."),
+      position: z
+        .enum(["top", "center", "bottom"])
+        .default("bottom")
+        .describe("Vertical placement of the captions."),
+      font_size: z
+        .number()
+        .int()
+        .min(8)
+        .max(200)
+        .optional()
+        .describe("Font size in pixels; defaults to ~1/20 of the video height."),
+      color: z.string().default("white").describe("Font color (ffmpeg color name or #RRGGBB)."),
+      box: z
+        .boolean()
+        .default(true)
+        .describe("Draw a translucent background box behind the text for readability."),
+      metadata: metadataArg,
+    },
+    handler: ({ media_id, captions, position, font_size, color, box, metadata }) => {
+      const jobId = submitJob("caption", async () => {
+        const { buffer, meta } = await captionMedia({
+          mediaId: media_id,
+          captions,
+          position,
+          fontSize: font_size,
+          color,
+          box,
+        });
+        const saved = await saveRender(buffer, meta.filename, metadata);
+        return {
+          ...saved,
+          media_id: meta.media_id,
+          duration: meta.duration,
+          captions: captions.length,
         };
       });
       return Promise.resolve({

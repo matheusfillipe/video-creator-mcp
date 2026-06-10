@@ -5,8 +5,18 @@ import { z } from "zod";
 // call produces the video + its publish package (title/description/tags) for upload.
 export const metadataArg = z
   .object({
-    title: z.string().min(1).describe("Video title."),
-    description: z.string().optional().describe("Description; may include chapter timestamps."),
+    title: z
+      .string()
+      .min(1)
+      .describe(
+        "A catchy title a real creator would post, written for viewers. NOT a restatement of the brief or a robotic label, and never address the requester by name.",
+      ),
+    description: z
+      .string()
+      .optional()
+      .describe(
+        "1-3 sentences written FOR the audience — natural and inviting, like a creator captioning their own upload. Avoid 'this video shows…' boilerplate and any echo of the prompt. May end with chapter timestamps.",
+      ),
     tags: z.array(z.string()).optional().describe("YouTube tags / keywords."),
     category: z.string().optional().describe("Optional YouTube category, e.g. 'Gaming'."),
   })
