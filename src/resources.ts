@@ -49,8 +49,18 @@ Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines,
 
 **Loop/repeat a clip:** to play a clip N times (e.g. "loop this 10×"), \`video_download_media\` the range once, then \`video_loop\` with \`media_id\` + \`count\` — it stream-copies (keeps original audio, near-instant). Never build an N-segment timeline just to repeat the same clip.
 
-## Overlaying text/graphics on real footage
-Before placing captions, titles, or logos over downloaded footage, call \`video_analyze_static\` on that media. It returns the source's static, structured regions — baked-in subtitles, watermarks, channel logos — as pixel boxes, plus a per-cell avoid/clutter grid. Put overlays in low-avoid, low-clutter cells (usually the upper third or a corner clear of the avoid boxes) and never cover an avoid region. Skip this for solid-background templates (terminal/chart) — there is nothing underneath to clash with.
+## Overlaying text/graphics on footage (captions, titles, logos, lower-thirds)
+**This server IS the compositor — there is no separate "subtitle"/"caption"/"overlay" tool, and you must never pretend one exists or invent a result URL.** To draw text or any element over a clip: reference the clip as a \`<video src="assets/<filename>" muted playsinline ...>\` (pass its \`media_id\` in the \`media\` array) inside a composition, then absolutely-position your text/divs on top — the video and your HTML render composited together. Use \`video_render\` for one overlay over a single clip; use \`video_render_timeline\` when the overlay must CHANGE across the video (e.g. a different caption each loop — one segment per caption, each segment = the same clip + that caption). Each segment's \`media: [{ media_id }]\` keeps the clip's audio.
+
+\`\`\`html
+<!-- one timeline segment: the clip + a caption burned on top -->
+<video src="assets/<filename>" muted playsinline data-start="0" data-duration="3" data-track-index="0"
+       style="position:absolute;top:0;left:0;width:1920px;height:1080px;object-fit:cover"></video>
+<div id="cap" class="clip" data-start="0" data-duration="3" data-track-index="1"
+     style="position:absolute;left:120px;right:120px;top:880px;text-align:center;color:#fff;font:800 72px Arial;text-shadow:0 3px 10px #000;background:rgba(0,0,0,.5);padding:24px 0;border-radius:16px">have you given up yet?</div>
+\`\`\`
+
+Before positioning an overlay over busy footage, call \`video_analyze_static\` on the media — it returns static/structured regions (baked-in subtitles, watermarks, logos) as pixel boxes + a per-cell avoid/clutter grid. Put overlays in low-avoid cells and never cover an avoid region. Skip this for solid-background templates (terminal/chart).
 
 Pass \`metadata\` (title/description/tags) to any render tool and it also writes a \`<video>.json\` publish sidecar to the bucket, returning \`metadata_url\` — the YouTube package, in the same call.`;
 
