@@ -2,7 +2,17 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 23 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 24 MCP tools. Auto-generated from the live server's `tools/list`.
+
+## `video_analyze_audio`
+
+Profile a clip's audio track — the audio analog of video_analyze_static. Returns duration, mean/max volume (dB), integrated loudness (LUFS) + range, the silence regions, and the complementary active_spans (where there is actually sound). Use it to learn how long generated or fetched narration is, time captions/cuts to where there's speech, or trim dead air. Input is a media_id (e.g. from video_download_media) or any audio/video URL. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `input` | string | yes |  | A media_id or an audio/video URL (any yt-dlp source or direct link). |
+| `silence_db` | number | no | `-30` | Silence threshold in dB; audio quieter than this counts as silence. |
+| `min_silence` | number | no | `0.5` | Shortest silence to report, seconds. |
 
 ## `video_analyze_static`
 
