@@ -191,7 +191,7 @@ export async function lintComposition(htmlBase64: string): Promise<string> {
   try {
     const html = Buffer.from(htmlBase64, "base64").toString("utf-8");
     await writeFile(join(dir, "index.html"), html);
-    const { stdout, stderr } = await run("npx", ["hyperframes", "lint", dir], {
+    const { stdout, stderr } = await run("hyperframes", ["lint", dir], {
       timeoutMs: 30_000,
       allowNonZero: true,
     });
@@ -226,7 +226,7 @@ export async function removeBackground(
     }
     const outFormat: BackgroundFormat = isImage ? "png" : format;
     const outputPath = join(dir, `out.${outFormat}`);
-    await run("npx", ["hyperframes", "remove-background", "-o", outputPath, inputFile], {
+    await run("hyperframes", ["remove-background", "-o", outputPath, inputFile], {
       timeoutMs: 300_000,
     });
     const buffer = await readFile(outputPath);

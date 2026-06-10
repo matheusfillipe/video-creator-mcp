@@ -11,13 +11,11 @@ export async function synthesizeSpeech(
   const dir = await mkdtemp(join(tmpdir(), "vcm-tts-"));
   try {
     const outPath = join(dir, "tts.wav");
-    await run(
-      "npx",
-      ["hyperframes", "tts", "-o", outPath, "-v", voice, "-s", String(speed), text],
-      {
-        timeoutMs: 120_000,
-      },
-    );
+    // Invoke the baked global binary directly, not via npx: npx tries to fetch hyperframes
+    // from the registry when its cache misses, which fails in the offline image.
+    await run("hyperframes", ["tts", "-o", outPath, "-v", voice, "-s", String(speed), text], {
+      timeoutMs: 120_000,
+    });
     return await readFile(outPath);
   } finally {
     await rm(dir, { recursive: true, force: true });
