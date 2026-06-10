@@ -51,18 +51,36 @@ Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines,
 
 **Loop + changing text/overlays (do it THIS way — it's ~40× cheaper):** \`video_loop\` → its \`media_id\`, then **ONE** \`video_render\` composition: the looped clip as a full-frame \`<video src="assets/<looped-filename>" muted playsinline>\`, plus a GSAP timeline that reveals caption[i] during its window (e.g. each 3s slot). One composition, one render. **Do NOT emit N near-identical \`video_render_timeline\` segments** — that retypes the whole clip's HTML N times (thousands of output tokens, minutes of latency). Render ONCE; never re-author after a render succeeds.
 
-## Overlaying text/graphics on footage (captions, titles, logos, lower-thirds)
-**This server IS the compositor — there is no separate "subtitle"/"caption"/"overlay" tool, and you must never pretend one exists or invent a result URL.** To draw text or any element over a clip: reference the clip as a \`<video src="assets/<filename>" muted playsinline ...>\` (pass its \`media_id\` in the \`media\` array) inside a composition, then absolutely-position your text/divs on top — the video and your HTML render composited together. Use \`video_render\` for one overlay over a single clip; use \`video_render_timeline\` when the overlay must CHANGE across the video (e.g. a different caption each loop — one segment per caption, each segment = the same clip + that caption). Each segment's \`media: [{ media_id }]\` keeps the clip's audio.
+## Putting text/elements over a clip — write the composition yourself, it's ~25 lines
+This server IS the compositor (your HTML+GSAP renders over the \`<video>\`). There is NO caption/subtitle tool — and never invent a result URL. Overlaying a few labels is one small composition: **copy this COMPLETE, lint-clean example, change the video filename + label text/timings, \`video_lint\` once (it passes as-is), then \`video_render\` with \`media:[{ media_id }]\`.** Don't split a single clip into N \`video_render_timeline\` segments, and don't re-author after lint passes.
 
 \`\`\`html
-<!-- one timeline segment: the clip + a caption burned on top -->
-<video src="assets/<filename>" muted playsinline data-start="0" data-duration="3" data-track-index="0"
-       style="position:absolute;top:0;left:0;width:1920px;height:1080px;object-fit:cover"></video>
-<div id="cap" class="clip" data-start="0" data-duration="3" data-track-index="1"
-     style="position:absolute;left:120px;right:120px;top:880px;text-align:center;color:#fff;font:800 72px Arial;text-shadow:0 3px 10px #000;background:rgba(0,0,0,.5);padding:24px 0;border-radius:16px">have you given up yet?</div>
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><script src="assets/gsap.min.js"></script>
+<style>
+  body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#000;font-family:Arial,sans-serif}
+  #v{position:absolute;top:0;left:0;width:1920px;height:1080px;object-fit:cover}
+  .label{position:absolute;left:120px;right:120px;top:880px;text-align:center;color:#fff;font-size:72px;font-weight:800;text-shadow:0 3px 10px #000}
+</style></head>
+<body>
+<div id="root" data-composition-id="main" data-start="0" data-duration="9" data-width="1920" data-height="1080">
+  <video id="v" src="assets/LOOPED_OR_CLIP_FILENAME.mp4" muted playsinline data-start="0" data-duration="9" data-track-index="0"></video>
+  <div class="label clip" id="l0" data-start="0" data-duration="3" data-track-index="1">have you given up?</div>
+  <div class="label clip" id="l1" data-start="3" data-duration="3" data-track-index="1">still here?</div>
+  <div class="label clip" id="l2" data-start="6" data-duration="3" data-track-index="1">rickrolled.</div>
+  <script>
+    window.__timelines = window.__timelines || {};
+    const tl = gsap.timeline({ paused: true });
+    tl.from("#l0",{opacity:0,duration:0.3},0.05);
+    tl.from("#l1",{opacity:0,duration:0.3},3.05);
+    tl.from("#l2",{opacity:0,duration:0.3},6.05);
+    window.__timelines["main"] = tl;
+  </script>
+</div>
+</body></html>
 \`\`\`
 
-Before positioning an overlay over busy footage, call \`video_analyze_static\` on the media — it returns static/structured regions (baked-in subtitles, watermarks, logos) as pixel boxes + a per-cell avoid/clutter grid. Put overlays in low-avoid cells and never cover an avoid region. Skip this for solid-background templates (terminal/chart).
+Why it passes (keep these): root div \`data-composition-id="main"\` + \`data-duration\`; the \`<video>\` is \`muted playsinline\` with \`data-start/duration/track-index\`; every timed label has \`class="clip"\` + those data attrs; \`window.__timelines = window.__timelines || {}\` BEFORE assigning \`window.__timelines["main"] = tl\`; timeline built synchronously; no \`Math.random\`. For a looped clip: \`video_loop\` first, then use its returned \`media_id\` + filename here. To place overlays clear of baked-in text, \`video_analyze_static\` returns avoid regions.
 
 Pass \`metadata\` (title/description/tags) to any render tool and it also writes a \`<video>.json\` publish sidecar to the bucket, returning \`metadata_url\` — the YouTube package, in the same call.`;
 
