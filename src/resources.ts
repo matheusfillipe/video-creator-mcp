@@ -54,8 +54,10 @@ Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines,
 
 **Loop + changing text/overlays (do it THIS way — it's ~40× cheaper):** \`video_loop\` → its \`media_id\`, then **ONE** \`video_render\` composition: the looped clip as a full-frame \`<video src="assets/<looped-filename>" muted playsinline>\`, plus a GSAP timeline that reveals caption[i] during its window (e.g. each 3s slot). One composition, one render. **Do NOT emit N near-identical \`video_render_timeline\` segments** — that retypes the whole clip's HTML N times (thousands of output tokens, minutes of latency). Render ONCE; never re-author after a render succeeds.
 
-## Putting text/elements over a clip — write the composition yourself, it's ~25 lines
-This server IS the compositor (your HTML+GSAP renders over the \`<video>\`). There is NO caption/subtitle tool — and never invent a result URL. Overlaying a few labels is one small composition: **copy this COMPLETE, lint-clean example, change the video filename + label text/timings, \`video_lint\` once (it passes as-is), then \`video_render\` with \`media:[{ media_id }]\`.** Don't split a single clip into N \`video_render_timeline\` segments, and don't re-author after lint passes.
+## Putting text/elements over a clip — write the composition yourself, it's ~16 lines
+This server IS the compositor (your HTML renders over the \`<video>\`). There is NO caption/subtitle tool — never invent a result URL. Overlaying labels is one small composition: **copy this COMPLETE, lint-clean example, change the video filename + label text/timings, \`video_lint\` once (passes as-is), then \`video_render\` with \`media:[{ media_id }]\`.** Don't split one clip into N segments, don't re-author after lint passes.
+
+**Labels appear/disappear by \`class="clip"\` + \`data-start\`/\`data-duration\` — the framework does that for you. Write NO per-element GSAP for plain labels (that hand-written JS is where compositions break and lint-loop). The one \`<script>\` is fixed boilerplate — copy it verbatim. Add tweens ONLY if you specifically want motion/fades.**
 
 \`\`\`html
 <!DOCTYPE html>
@@ -63,7 +65,7 @@ This server IS the compositor (your HTML+GSAP renders over the \`<video>\`). The
 <style>
   body{margin:0;width:1920px;height:1080px;overflow:hidden;background:#000;font-family:Arial,sans-serif}
   #v{position:absolute;top:0;left:0;width:1920px;height:1080px;object-fit:cover}
-  .label{position:absolute;left:120px;right:120px;top:880px;text-align:center;color:#fff;font-size:72px;font-weight:800;text-shadow:0 3px 10px #000}
+  .label{position:absolute;left:120px;right:120px;top:880px;text-align:center;color:#fff;font-size:72px;font-weight:800;text-shadow:0 3px 10px #000;background:rgba(0,0,0,.5);padding:24px 0;border-radius:16px}
 </style></head>
 <body>
 <div id="root" data-composition-id="main" data-start="0" data-duration="9" data-width="1920" data-height="1080">
@@ -71,14 +73,7 @@ This server IS the compositor (your HTML+GSAP renders over the \`<video>\`). The
   <div class="label clip" id="l0" data-start="0" data-duration="3" data-track-index="1">have you given up?</div>
   <div class="label clip" id="l1" data-start="3" data-duration="3" data-track-index="1">still here?</div>
   <div class="label clip" id="l2" data-start="6" data-duration="3" data-track-index="1">rickrolled.</div>
-  <script>
-    window.__timelines = window.__timelines || {};
-    const tl = gsap.timeline({ paused: true });
-    tl.from("#l0",{opacity:0,duration:0.3},0.05);
-    tl.from("#l1",{opacity:0,duration:0.3},3.05);
-    tl.from("#l2",{opacity:0,duration:0.3},6.05);
-    window.__timelines["main"] = tl;
-  </script>
+  <script>window.__timelines = window.__timelines || {}; window.__timelines["main"] = gsap.timeline({ paused: true });</script>
 </div>
 </body></html>
 \`\`\`
