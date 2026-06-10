@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join } from "node:path";
 import { config } from "../config.js";
-import { run } from "../lib/exec.js";
+import { ExecError, run } from "../lib/exec.js";
 import { unlinkIfExists } from "../lib/fs.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
@@ -229,10 +229,24 @@ export interface SubtitleCue {
   text: string;
 }
 
+export type SubtitlePrecision = "word" | "cue";
+export type SubtitlePrefer = "word" | "text";
+
+export interface WordToken {
+  text: string;
+  start: number;
+  end: number;
+}
+
 export interface SubtitleSearch {
   available: boolean;
   language?: string;
+  // Which track answered: "auto" = ASR (carries word timing), "manual" = uploaded (accurate text).
+  track?: "auto" | "manual";
+  // "word" = tight per-word start/end (auto/ASR only); "cue" = phrase-block timing (~1-6s).
+  precision?: SubtitlePrecision;
   total_cues?: number;
+  total_words?: number;
   matches?: SubtitleCue[];
   cues?: SubtitleCue[];
   note?: string;
@@ -271,60 +285,382 @@ function parseSrt(content: string): SubtitleCue[] {
   return cues;
 }
 
-// Fetch a video's timed captions (manual or auto) and optionally find a phrase. Returns
-// available:false instead of throwing when the video has none — so the agent can "just try".
+interface Json3Seg {
+  utf8?: string;
+  tOffsetMs?: number;
+}
+interface Json3Event {
+  tStartMs?: number;
+  dDurationMs?: number;
+  segs?: Json3Seg[];
+}
+interface Json3Doc {
+  events?: Json3Event[];
+}
+
+function normalizeToken(raw: string): string {
+  return raw.toLowerCase().replace(/[^\p{L}\p{N}']+/gu, "");
+}
+
+// YouTube auto-caption json3: each event has a tStartMs and segs[], each seg a token at
+// tOffsetMs from the event start (the first seg's offset is null = 0). A seg can hold more
+// than one word ("from what"); split those, sharing the seg's start. Words flatten into one
+// sorted timeline with each word's end set to the next word's start, so a phrase match
+// yields a tight [first-word.start, last-word.end] window.
+function parseJson3(content: string): WordToken[] {
+  const doc = JSON.parse(content) as Json3Doc;
+  const raw: Array<{ text: string; start: number }> = [];
+  for (const event of doc.events ?? []) {
+    if (!event.segs) continue;
+    const base = event.tStartMs ?? 0;
+    for (const seg of event.segs) {
+      const start = (base + (seg.tOffsetMs ?? 0)) / 1000;
+      for (const piece of (seg.utf8 ?? "").split(/\s+/)) {
+        if (piece) raw.push({ text: piece, start });
+      }
+    }
+  }
+  raw.sort((a, b) => a.start - b.start);
+  const words: WordToken[] = [];
+  for (const item of raw) {
+    const prev = words[words.length - 1];
+    // The append/rolling caption variant re-emits a word at its original time; drop exact repeats.
+    if (prev && prev.text === item.text && Math.abs(prev.start - item.start) < 0.04) continue;
+    words.push({ text: item.text, start: item.start, end: item.start });
+  }
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    if (!word) continue;
+    const next = words[i + 1];
+    word.end = next ? next.start : word.start + 0.6;
+  }
+  return words;
+}
+
+// Casual contractions ASR and humans spell differently. Expanding both the query and the
+// transcript to the same form lets a "never gonna give you up" query match an ASR track that
+// wrote "never going to give you up".
+const CONTRACTIONS: Record<string, string> = {
+  gonna: "going to",
+  wanna: "want to",
+  gotta: "got to",
+  gimme: "give me",
+  lemme: "let me",
+  kinda: "kind of",
+  sorta: "sort of",
+  tryna: "trying to",
+  outta: "out of",
+  dunno: "dont know",
+  yall: "you all",
+};
+
+function expandToken(norm: string): string[] {
+  const expanded = CONTRACTIONS[norm];
+  return expanded ? expanded.split(" ") : [norm];
+}
+
+interface FlatToken {
+  norm: string;
+  wordIndex: number;
+}
+
+// Flatten words into normalized comparison tokens (contractions expanded). Each token keeps
+// the index of the word it came from, so a match maps back to that word's real start/end for
+// a tight clip window even when one spoken token expanded into several.
+function flattenWords(words: WordToken[]): FlatToken[] {
+  const flat: FlatToken[] = [];
+  words.forEach((word, wordIndex) => {
+    for (const token of expandToken(normalizeToken(word.text))) {
+      if (token) flat.push({ norm: token, wordIndex });
+    }
+  });
+  return flat;
+}
+
+function queryTokens(query: string): string[] {
+  return query
+    .split(/\s+/)
+    .flatMap((token) => expandToken(normalizeToken(token)))
+    .filter(Boolean);
+}
+
+function spanCue(words: WordToken[], startIndex: number, endIndex: number): SubtitleCue | null {
+  const first = words[startIndex];
+  const last = words[endIndex];
+  if (!first || !last) return null;
+  const text = words
+    .slice(startIndex, endIndex + 1)
+    .map((word) => word.text.trim())
+    .join(" ");
+  return { start: first.start, end: last.end, text };
+}
+
+// Exact phrase match on the contraction-normalized token stream → tight per-word spans.
+function matchWordSpans(words: WordToken[], query: string): SubtitleCue[] {
+  const tokens = queryTokens(query);
+  if (tokens.length === 0) return [];
+  const flat = flattenWords(words);
+  const matches: SubtitleCue[] = [];
+  for (let i = 0; i + tokens.length <= flat.length; i++) {
+    let hit = true;
+    for (let k = 0; k < tokens.length; k++) {
+      if (flat[i + k]?.norm !== tokens[k]) {
+        hit = false;
+        break;
+      }
+    }
+    if (!hit) continue;
+    const startTok = flat[i];
+    const endTok = flat[i + tokens.length - 1];
+    if (!startTok || !endTok) continue;
+    const cue = spanCue(words, startTok.wordIndex, endTok.wordIndex);
+    if (cue) matches.push(cue);
+    i += tokens.length - 1;
+  }
+  return matches;
+}
+
+// Fallback when ASR wording drifts from the query (a wrong/missing word): the best windows
+// matching >=70% of the query tokens in order, anchored at the first or last token so the
+// span boundaries stay meaningful. Marked approximate so the caller can verify the text.
+function fuzzyWordSpans(words: WordToken[], query: string): SubtitleCue[] {
+  const tokens = queryTokens(query);
+  if (tokens.length < 3) return [];
+  const flat = flattenWords(words);
+  const need = Math.max(2, Math.ceil(tokens.length * 0.7));
+  const scored: Array<{ score: number; startIndex: number; endIndex: number }> = [];
+  for (let i = 0; i + tokens.length <= flat.length; i++) {
+    let score = 0;
+    for (let k = 0; k < tokens.length; k++) {
+      if (flat[i + k]?.norm === tokens[k]) score++;
+    }
+    const startTok = flat[i];
+    const endTok = flat[i + tokens.length - 1];
+    if (!startTok || !endTok || score < need) continue;
+    if (startTok.norm !== tokens[0] && endTok.norm !== tokens[tokens.length - 1]) continue;
+    scored.push({ score, startIndex: startTok.wordIndex, endIndex: endTok.wordIndex });
+  }
+  scored.sort((a, b) => b.score - a.score);
+  const matches: SubtitleCue[] = [];
+  const seen = new Set<number>();
+  for (const entry of scored) {
+    if (seen.has(entry.startIndex)) continue;
+    seen.add(entry.startIndex);
+    const cue = spanCue(words, entry.startIndex, entry.endIndex);
+    if (cue) matches.push(cue);
+    if (matches.length >= 8) break;
+  }
+  return matches;
+}
+
+// Group a word stream into readable transcript lines (<=10 words, or break on a >1.2s gap).
+function wordsToCues(words: WordToken[]): SubtitleCue[] {
+  const cues: SubtitleCue[] = [];
+  let current: WordToken[] = [];
+  const flush = (): void => {
+    const first = current[0];
+    const last = current[current.length - 1];
+    if (!first || !last) return;
+    cues.push({
+      start: first.start,
+      end: last.end,
+      text: current.map((word) => word.text.trim()).join(" "),
+    });
+    current = [];
+  };
+  for (let i = 0; i < words.length; i++) {
+    const word = words[i];
+    if (!word) continue;
+    current.push(word);
+    const next = words[i + 1];
+    const gap = next ? next.start - word.end : 0;
+    if (current.length >= 10 || (next && gap > 1.2)) flush();
+  }
+  flush();
+  return cues;
+}
+
+async function ytdlpSubFetch(
+  dir: string,
+  normalized: string,
+  prefix: string,
+  extra: string[],
+): Promise<string[]> {
+  const args = [
+    "--skip-download",
+    ...extra,
+    ...(await cookieArgs()),
+    "-o",
+    join(dir, prefix),
+    normalized,
+  ];
+  try {
+    await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
+  } catch (error) {
+    if (error instanceof ExecError) return [];
+    throw error;
+  }
+  return (await readdir(dir)).filter((name) => name.startsWith(prefix));
+}
+
+async function fetchAutoWords(
+  dir: string,
+  normalized: string,
+  lang: string,
+): Promise<{ words: WordToken[]; language: string } | null> {
+  const files = await ytdlpSubFetch(dir, normalized, "word", [
+    "--write-auto-subs",
+    "--sub-langs",
+    lang,
+    "--sub-format",
+    "json3",
+  ]);
+  const json3 = files.filter((name) => name.endsWith(".json3"));
+  const file = json3.find((name) => /\.en\.json3$/.test(name)) ?? json3[0];
+  if (!file) return null;
+  const words = parseJson3(await readFile(join(dir, file), "utf-8"));
+  if (words.length === 0) return null;
+  const language = file.match(/word\.([\w-]+)\.json3$/)?.[1] ?? "en";
+  return { words, language };
+}
+
+async function fetchCues(
+  dir: string,
+  normalized: string,
+  lang: string,
+  track: "auto" | "manual",
+): Promise<{ cues: SubtitleCue[]; language: string } | null> {
+  const prefix = track === "manual" ? "manual" : "autoc";
+  const files = await ytdlpSubFetch(dir, normalized, prefix, [
+    track === "manual" ? "--write-subs" : "--write-auto-subs",
+    "--sub-langs",
+    lang,
+    "--convert-subs",
+    "srt",
+  ]);
+  const subs = files.filter((name) => name.endsWith(".srt") || name.endsWith(".vtt"));
+  const file =
+    subs.find((name) => /\.en\.srt$/.test(name)) ??
+    subs.find((name) => name.endsWith(".srt")) ??
+    subs.find((name) => /\.en\.vtt$/.test(name)) ??
+    subs[0];
+  if (!file) return null;
+  const cues = parseSrt(await readFile(join(dir, file), "utf-8"));
+  if (cues.length === 0) return null;
+  const language = file.match(/(?:manual|autoc)\.([\w-]+)\.(?:srt|vtt)$/)?.[1] ?? lang;
+  return { cues, language };
+}
+
+const WORD_NOTE =
+  'Word-level timing from auto-captions (ASR): tight per-word start/end. ASR wording can differ slightly from what is said — pass prefer:"text" for the manual transcript wording (cue-level timing).';
+const WORD_NOTE_FUZZY =
+  'Word-level timing, APPROXIMATE phrase match — the auto-caption (ASR) wording differs from your query, so these are the closest spans. Check each match\'s `text`; pass prefer:"text" for the manual transcript.';
+const CUE_NOTE =
+  'Cue-level timing: phrase blocks ~1-6s, snapped to caption lines. For word-tight start/end pass prefer:"word" to use auto-caption word timing.';
+const CUE_CAP = 400;
+
+function cueResult(
+  cues: SubtitleCue[],
+  language: string,
+  track: "auto" | "manual",
+  query: string,
+): SubtitleSearch {
+  if (query) {
+    const needle = query.toLowerCase();
+    const matches = cues.filter((cue) => cue.text.toLowerCase().includes(needle)).slice(0, 25);
+    return {
+      available: true,
+      language,
+      track,
+      precision: "cue",
+      total_cues: cues.length,
+      matches,
+      note: CUE_NOTE,
+    };
+  }
+  const result: SubtitleSearch = {
+    available: true,
+    language,
+    track,
+    precision: "cue",
+    total_cues: cues.length,
+    cues: cues.slice(0, CUE_CAP),
+  };
+  if (cues.length > CUE_CAP) {
+    result.note = `Transcript truncated to ${CUE_CAP} of ${cues.length} cues; pass a query to find a phrase.`;
+  }
+  return result;
+}
+
+function wordResult(words: WordToken[], language: string, query: string): SubtitleSearch | null {
+  if (query) {
+    let matches = matchWordSpans(words, query).slice(0, 25);
+    let note = WORD_NOTE;
+    if (matches.length === 0) {
+      matches = fuzzyWordSpans(words, query).slice(0, 10);
+      if (matches.length === 0) return null;
+      note = WORD_NOTE_FUZZY;
+    }
+    return {
+      available: true,
+      language,
+      track: "auto",
+      precision: "word",
+      total_words: words.length,
+      matches,
+      note,
+    };
+  }
+  return {
+    available: true,
+    language,
+    track: "auto",
+    precision: "word",
+    total_words: words.length,
+    cues: wordsToCues(words).slice(0, CUE_CAP),
+    note: WORD_NOTE,
+  };
+}
+
+// Fetch a video's timed captions and optionally find a phrase. Two caption kinds exist and
+// trade off: AUTO (ASR) carries word-level timing but its wording can be wrong; MANUAL is
+// accurate text but only cue-level (~1-6s blocks). `prefer` picks which to try first —
+// "word" for the tightest loop window, "text" for faithful wording — and each falls back to
+// the other so a result returns whenever any captions exist. The result always reports
+// `precision` ("word"/"cue") and `track`, so the caller knows what it got. Returns
+// available:false (no error) when the video has no captions, so the agent can just try.
 export async function searchSubtitles(
   url: string,
   query: string,
   lang: string,
+  prefer: SubtitlePrefer = "word",
 ): Promise<SubtitleSearch> {
   const normalized = normalizeYouTubeUrl(url);
   await assertSafeUrl(normalized);
   const dir = await mkdtemp(join(tmpdir(), "vcm-subsearch-"));
+  const q = query.trim();
   try {
-    const args = [
-      "--skip-download",
-      "--write-subs",
-      "--write-auto-subs",
-      "--sub-langs",
-      lang,
-      "--convert-subs",
-      "srt",
-      ...(await cookieArgs()),
-      "-o",
-      join(dir, "sub"),
-      normalized,
-    ];
-    await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
-    const subs = (await readdir(dir)).filter(
-      (name) => name.endsWith(".srt") || name.endsWith(".vtt"),
-    );
-    // Prefer a converted .srt and the manual `en` track over auto/translated variants.
-    const file =
-      subs.find((name) => /\.en\.srt$/.test(name)) ??
-      subs.find((name) => name.endsWith(".srt")) ??
-      subs.find((name) => /\.en\.vtt$/.test(name)) ??
-      subs[0];
-    if (!file) return { available: false };
-    const content = await readFile(join(dir, file), "utf-8");
-    const cues = parseSrt(content);
-    const language = file.match(/sub\.([\w-]+)\.(?:srt|vtt)$/)?.[1] ?? lang;
-    if (query.trim()) {
-      const needle = query.toLowerCase();
-      const matches = cues.filter((cue) => cue.text.toLowerCase().includes(needle)).slice(0, 25);
-      return { available: true, language, total_cues: cues.length, matches };
+    if (prefer === "word") {
+      const auto = await fetchAutoWords(dir, normalized, lang);
+      const word = auto ? wordResult(auto.words, auto.language, q) : null;
+      if (word) return word;
+      const manual = await fetchCues(dir, normalized, lang, "manual");
+      if (manual) return cueResult(manual.cues, manual.language, "manual", q);
+      const autoCue = await fetchCues(dir, normalized, lang, "auto");
+      if (autoCue) return cueResult(autoCue.cues, autoCue.language, "auto", q);
+      return { available: false };
     }
-    const CAP = 400;
-    const result: SubtitleSearch = {
-      available: true,
-      language,
-      total_cues: cues.length,
-      cues: cues.slice(0, CAP),
-    };
-    if (cues.length > CAP) {
-      result.note = `Transcript truncated to ${CAP} of ${cues.length} cues; pass a query to find a specific phrase.`;
+    const manual = await fetchCues(dir, normalized, lang, "manual");
+    if (manual) {
+      const result = cueResult(manual.cues, manual.language, "manual", q);
+      if (!q || (result.matches && result.matches.length > 0)) return result;
     }
-    return result;
+    const auto = await fetchAutoWords(dir, normalized, lang);
+    const word = auto ? wordResult(auto.words, auto.language, q) : null;
+    if (word) return word;
+    const autoCue = await fetchCues(dir, normalized, lang, "auto");
+    if (autoCue) return cueResult(autoCue.cues, autoCue.language, "auto", q);
+    return { available: false };
   } finally {
     for (const name of await readdir(dir)) {
       await unlinkIfExists(join(dir, name));

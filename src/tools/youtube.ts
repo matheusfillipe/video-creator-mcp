@@ -54,13 +54,19 @@ export function registerYoutubeTools(server: McpServer): void {
     name: "video_search_subtitles",
     title: "Search Subtitles for a Spoken Phrase",
     description:
-      "Fetch a video's timed captions and find WHERE something is said. Pass a `query` to get the matching lines with start/end timestamps — feed those to video_download_media to clip/loop that exact moment (e.g. 'loop the part where he says X'). Omit `query` to dump the timed transcript. Returns available=false (no error) when the video has no captions, so you can just try. Read-only.",
+      "Find WHERE something is said and get timestamps to clip/loop it (e.g. 'loop the part where he says X'). Pass a `query` to get `matches[]` with start/end seconds — feed those to video_download_media. Two caption kinds, a real trade-off: AUTO captions (ASR) give WORD-level timing (tightest loop window) but the wording can be slightly wrong; MANUAL captions are accurate text but only cue-level (~1-6s blocks). `prefer` picks which to try first and each falls back to the other. The result REPORTS what you got: `precision` ('word'|'cue') and `track` ('auto'|'manual') — if the timing is too loose, or the auto wording is wrong, re-call with the other `prefer`. Omit `query` to dump the timed transcript. available=false (no error) when there are no captions, so just try. Read-only.",
     inputSchema: {
       url: z.string().min(1).describe("YouTube URL or video id."),
       query: z
         .string()
         .optional()
         .describe("Phrase to locate; omit to return the whole timed transcript."),
+      prefer: z
+        .enum(["word", "text"])
+        .default("word")
+        .describe(
+          "Which caption kind to try first. 'word' = auto/ASR word-level timing (tightest cut for looping an exact phrase). 'text' = manual captions' faithful wording (cue-level ~1-6s). Falls back to the other when the preferred kind is missing.",
+        ),
       lang: z
         .string()
         .default("en,en-orig")
@@ -69,7 +75,7 @@ export function registerYoutubeTools(server: McpServer): void {
         ),
     },
     annotations: { readOnlyHint: true },
-    handler: ({ url, query, lang }) => searchSubtitles(url, query ?? "", lang),
+    handler: ({ url, query, lang, prefer }) => searchSubtitles(url, query ?? "", lang, prefer),
   });
 
   registerTool(server, {

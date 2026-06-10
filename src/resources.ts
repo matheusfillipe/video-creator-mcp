@@ -48,7 +48,7 @@ Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines,
 4. Compose with \`video_render_timeline\`, or a ready template (\`video_render_tierlist\` / \`video_render_terminal\` / \`video_render_chart\`), or a catalog block (\`video_catalog\` → \`video_render_block\`).
 5. Poll \`video_render_status\`; the result \`url\` is a public link to the MP4.
 
-**Find a spoken moment:** to clip/loop "the part where he says X", call \`video_search_subtitles\` with \`query: "X"\` — it returns the matching caption lines with \`start\`/\`end\` seconds (or \`available:false\` if the video has no captions). Use those timestamps as the \`start\`/\`end\` for \`video_download_media\`. Omit \`query\` to dump the whole timed transcript.
+**Find a spoken moment:** to clip/loop "the part where he says X", call \`video_search_subtitles\` with \`query: "X"\` → \`matches[]\` with \`start\`/\`end\` seconds; feed them to \`video_download_media\`. The result tells you the \`precision\` you got: **word** (tight per-word window, from auto/ASR captions — best for looping an exact phrase) or **cue** (phrase block ~1-6s, from manual captions — accurate wording). Default \`prefer:"word"\` for the tightest cut; if the auto wording is wrong, re-call with \`prefer:"text"\` for the manual transcript. \`available:false\` = no captions. Omit \`query\` to dump the timed transcript.
 
 **Loop/repeat a clip:** to play a clip N times, \`video_download_media\` the range once, then \`video_loop\` with \`media_id\` + \`count\` — stream-copy, keeps audio, near-instant. \`video_loop\` returns a NEW \`media_id\` for the looped clip — use it to compose over the whole loop.
 
