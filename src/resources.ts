@@ -57,7 +57,7 @@ Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines,
 ## Putting text/elements over a clip — write the composition yourself, it's ~16 lines
 This server IS the compositor (your HTML renders over the \`<video>\`). There is NO caption/subtitle tool — never invent a result URL. Overlaying labels is one small composition: **copy this COMPLETE, lint-clean example, change the video filename + label text/timings, \`video_lint\` once (passes as-is), then \`video_render\` with \`media:[{ media_id }]\`.** Don't split one clip into N segments, don't re-author after lint passes.
 
-**Labels appear/disappear by \`class="clip"\` + \`data-start\`/\`data-duration\` — the framework does that for you. Write NO per-element GSAP for plain labels (that hand-written JS is where compositions break and lint-loop). The one \`<script>\` is fixed boilerplate — copy it verbatim. Add tweens ONLY if you specifically want motion/fades.**
+**Labels appear/disappear by \`class="clip"\` + \`data-start\`/\`data-duration\` — the framework does that for you. Write NO per-element GSAP for plain labels (that hand-written JS is where compositions break and lint-loop). The one \`<script>\` is fixed boilerplate — copy it verbatim. Add tweens ONLY if you specifically want motion/fades. Write each label as a plain HTML \`<div>…</div>\` — never build elements in JavaScript (escaped tags like \`<\\/div>\` leak into the video as visible junk).**
 
 \`\`\`html
 <!DOCTYPE html>

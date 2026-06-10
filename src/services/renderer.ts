@@ -56,6 +56,15 @@ function injectAudioTag(html: string, volume: number): string {
   return html.replace("</body>", `${tag}</body>`);
 }
 
+// A model sometimes JS-escapes a close tag ("<\/div>") into text content, which renders
+// as visible junk ("\/div>") over the video. "\/" is never valid in HTML body text, so
+// strip it — but leave <script> blocks untouched, where "<\/script>" is legitimate JS.
+function stripEscapedTagJunk(html: string): string {
+  return html.replace(/<script[\s\S]*?<\/script>|(<?\\\/[a-zA-Z][\w-]*>)/g, (match, junk) =>
+    junk ? "" : match,
+  );
+}
+
 async function copyGsap(assetsDir: string): Promise<void> {
   try {
     await copyFile(GSAP_SOURCE, join(assetsDir, "gsap.min.js"));
@@ -76,7 +85,9 @@ export async function renderComposition(
   await mkdir(assetsDir, { recursive: true });
 
   try {
-    let html = ensureDocument(Buffer.from(params.htmlBase64, "base64").toString("utf-8"));
+    let html = ensureDocument(
+      stripEscapedTagJunk(Buffer.from(params.htmlBase64, "base64").toString("utf-8")),
+    );
     await copyGsap(assetsDir);
     for (const item of params.media ?? []) {
       await linkMediaToWorkdir(item.media_id, workDir);
