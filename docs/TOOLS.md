@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 25 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 26 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -71,6 +71,15 @@ Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X,
 | `start` | number | no |  | Window start, seconds. |
 | `end` | number | no |  | Window end, seconds. |
 | `audio` | boolean | no | `true` | Include the audio stream. Set false for clips rendered muted (faster). |
+
+## `video_extract_frame`
+
+Pull a single PNG frame from a downloaded clip at time `time_sec`. Returns the image as a public URL AND a media_id, so you can pass the URL to vision/describe_image to verify content BEFORE committing to a render: spot watermarks, baked-in text, channel logos, or wrong scenes. Use this proactively after video_download_media for every candidate clip — a 1s vision check is far cheaper than re-rendering a 10-min timeline. Returns instantly (no chrome).
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `media_id` | string | yes |  | media_id of the clip (from video_download_media). |
+| `time_sec` | number | no | `0` | Time within the clip (seconds) to sample. Clamped to clip duration. |
 
 ## `video_get_info`
 

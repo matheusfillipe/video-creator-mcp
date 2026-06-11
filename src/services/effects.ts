@@ -5,6 +5,7 @@ import { run } from "../lib/exec.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
+import { saveRender } from "./publish.js";
 
 const IMAGE_RE = /\.(jpg|jpeg|png|webp)$/i;
 
@@ -237,6 +238,41 @@ export async function removeBackground(
       ext: `.${outFormat}`,
       sourceUrl: `rmbg://${input}`,
     });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// Pull a single frame from a cached clip at time T (seconds) and save it as a PNG. The
+// frame is uploaded as a media asset AND a public url, so the agent can pass the media_id
+// to a vision tool (describe_image) to verify content before using the source clip —
+// spotting watermarks, baked-in text, or wrong-content frames before committing to a render.
+export async function extractFrame(params: {
+  mediaId: string;
+  timeSec: number;
+}): Promise<{ buffer: Buffer; meta: MediaMeta; url: string; filename: string }> {
+  const meta = await loadMeta(params.mediaId);
+  if (!meta) {
+    throw new Error(`Unknown media_id "${params.mediaId}" — download it first.`);
+  }
+  const time = Math.max(0, Math.min(params.timeSec, Math.max(0, meta.duration - 0.05)));
+  const dir = await mkdtemp(join(tmpdir(), "vcm-frame-"));
+  try {
+    const out = join(dir, "frame.png");
+    await run(
+      "ffmpeg",
+      ["-y", "-ss", String(time), "-i", meta.path, "-frames:v", "1", "-vsync", "0", out],
+      { timeoutMs: 60_000 },
+    );
+    const buffer = await readFile(out);
+    const imageMeta = await writeMediaFromBuffer({
+      idSeed: `frame:${params.mediaId}:${time}`,
+      buffer,
+      ext: ".png",
+      sourceUrl: `frame://${params.mediaId}@${time}`,
+    });
+    const saved = await saveRender(buffer, imageMeta.filename);
+    return { buffer, meta: imageMeta, url: saved.url, filename: imageMeta.filename };
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

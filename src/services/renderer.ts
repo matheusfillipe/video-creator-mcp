@@ -43,10 +43,17 @@ function ensureDocument(html: string): string {
   if (!html.includes("<!DOCTYPE") && !html.includes("<html")) {
     return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n</head>\n<body>\n${html}\n</body>\n</html>`;
   }
-  if (!html.includes("gsap")) {
-    return html.replace("<head>", '<head>\n<script src="assets/gsap.min.js"></script>');
+  let out = html;
+  // Chrome's heuristic charset detection mojibakes UTF-8 punctuation (em-dashes, smart quotes,
+  // arrows) to Latin-1 garbage like "Ã" when the model authored <html> without an explicit
+  // <meta charset>. Inject one right after <head> if missing.
+  if (!/<meta[^>]+charset/i.test(out)) {
+    out = out.replace(/<head[^>]*>/i, (match) => `${match}\n<meta charset="UTF-8">`);
   }
-  return html;
+  if (!out.includes("gsap")) {
+    out = out.replace("<head>", '<head>\n<script src="assets/gsap.min.js"></script>');
+  }
+  return out;
 }
 
 function injectAudioTag(html: string, volume: number): string {
