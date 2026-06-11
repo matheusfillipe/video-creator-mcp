@@ -196,7 +196,7 @@ _No parameters._
 
 ## `video_render_slideshow`
 
-Build a slideshow/presentation/explainer video from a list of {text, media_id, duration_seconds} segments. The server stamps a pre-styled HTML template per segment (full-canvas video background + centered fading caption with correct max-width/word-wrap), then composes them into one MP4. **This is the right tool for any 'present X', 'explore X over scenery', 'documentary-style', 'slides with music' brief — DO NOT write HTML manually for these.** Pass an audio_media_id for music/narration. Asynchronous: returns a job_id to poll with video_render_status.
+Build a slideshow/presentation/explainer video from a list of {text, media_id, duration_seconds} segments. The server stamps a pre-styled HTML template per segment (full-canvas video background + centered fading caption with correct max-width/word-wrap), then composes them into one MP4. **This is the right tool for any 'present X', 'explore X over scenery', 'documentary-style', 'slides with music' brief — DO NOT write HTML manually for these.** **IF THE BRIEF NAMES A SOUNDTRACK / SONG / NARRATION URL, `audio_media_id` IS NOT OPTIONAL — download the audio with video_download_media first and pass its media_id here, or the rendered video will be silent.** Asynchronous: returns a job_id to poll with video_render_status.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
