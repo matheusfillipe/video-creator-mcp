@@ -222,6 +222,7 @@ export function registerTemplateTools(server: McpServer): void {
         );
       }
 
+      const totalDuration = timelineSegments.reduce((sum, seg) => sum + seg.duration, 0);
       const params: TimelineParams = {
         segments: timelineSegments,
         fps: args.fps,
@@ -234,6 +235,7 @@ export function registerTemplateTools(server: McpServer): void {
             offset_ms: 0,
             volume: args.audio_volume,
             fade_ms: args.audio_fade_ms,
+            max_duration_s: totalDuration,
           },
         ];
       }

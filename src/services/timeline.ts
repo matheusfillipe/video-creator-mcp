@@ -36,6 +36,7 @@ export interface TimelineAudioTrack {
   offset_ms: number;
   volume?: number;
   fade_ms?: number;
+  max_duration_s?: number;
 }
 
 export interface TimelineParams {
@@ -243,6 +244,7 @@ function resolveTracks(
     offset_ms: track.offset_ms,
     volume: track.volume ?? DEFAULT_OVERLAY_VOLUME,
     fade_ms: track.fade_ms ?? DEFAULT_FADE_MS,
+    ...(track.max_duration_s !== undefined ? { max_duration_s: track.max_duration_s } : {}),
   }));
 
   for (const [index, segment] of segments.entries()) {
