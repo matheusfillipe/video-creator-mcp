@@ -316,6 +316,15 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
       }
     }
   }
+  // The agent keeps shipping silent documentaries when the brief explicitly named a
+  // soundtrack URL. Render still succeeds (no fail) but the result is wrong — bubble a
+  // warning whenever a multi-segment timeline (>30s) has no audio so the agent fixes it.
+  const totalDuration = params.segments.reduce((sum, seg) => sum + seg.duration, 0);
+  if (totalDuration > 30 && (!params.audio || params.audio.length === 0)) {
+    preflightWarnings.push(
+      `the timeline is ${Math.round(totalDuration)}s long but has NO audio. Pass an "audio" array of {media_id, offset_ms, volume, fade_ms} so the video has a soundtrack — download the audio URL from the brief with video_download_media first to get its media_id. A silent ${Math.round(totalDuration)}s documentary is almost always wrong; if the user explicitly asked for silence, ignore this warning.`,
+    );
+  }
 
   try {
     // Segments are independent and rendered concurrently (bounded). A segment that fails to
