@@ -73,11 +73,13 @@ Treat these as REQUIRED gates, not optional polish. The cost of skipping them is
 **Labels appear/disappear by \`class="clip"\` + \`data-start\`/\`data-duration\` — the framework does that for you. Write NO per-element GSAP for plain labels (that hand-written JS is where compositions break and lint-loop). The one \`<script>\` is fixed boilerplate — copy it verbatim. Add tweens ONLY if you specifically want motion/fades. Write each label as a plain HTML \`<div>…</div>\` — never build elements in JavaScript (escaped tags like \`<\\/div>\` leak into the video as visible junk).**
 
 **HARD layout rules — every segment, no exceptions.** Without these you ship letterboxed black-bar slop:
-- \`body\` MUST be \`width:1920px;height:1080px;margin:0\` (or 1080×1920 for portrait). NEVER smaller — the chrome canvas matches the render resolution.
-- The \`<video>\` element MUST cover the full canvas: \`position:absolute;top:0;left:0;width:1920px;height:1080px;object-fit:cover\`. NEVER position it in a sub-rectangle, NEVER omit object-fit.
+- **Canvas size MUST match the render \`resolution\` param.** \`resolution:"1080p"\` (or "landscape", "4k", "uhd") = body 1920×1080 AND \`data-width="1920" data-height="1080"\` AND \`<video>\` 1920×1080. \`resolution:"portrait"\` = 1080×1920 in all three places. \`resolution:"square"\` = 1080×1080. **Mismatch = "outputResolution does not match the aspect ratio of the composition" hard error — every segment fails to render.** Pick landscape ("1080p") by default unless the brief explicitly says vertical/portrait.
+- \`body\` MUST be exactly \`width:Wpx;height:Hpx;margin:0\` matching the canvas (no smaller, no scrollbars).
+- The \`<video>\` element MUST cover the full canvas: \`position:absolute;top:0;left:0;width:Wpx;height:Hpx;object-fit:cover\`. NEVER position it in a sub-rectangle, NEVER omit object-fit.
 - Text overlays are positioned in PIXELS over the video (\`position:absolute\`), never below it. A black bar full of text is never the right layout — overlay the text on the footage with a translucent backing.
-- Always include \`<meta charset="UTF-8">\` in head. Skipping it mojibakes em-dashes/arrows/smart-quotes to "Ã" garbage in chrome.
+- Always include \`<meta charset="UTF-8">\` in \`<head>\`. Skipping it mojibakes em-dashes/arrows/smart-quotes to "Ã" garbage in chrome.
 - Style contract is locked at the brief: pick ONE accent color, ONE font family, ONE motion language (fade vs slide vs zoom) and use it everywhere. Mixing per segment looks amateurish.
+- **Read every render error literally.** If the failure says "aspect ratio mismatch", the fix is fixing the HTML dimensions or the resolution param — not switching to catalog blocks "because the runtime is strict". Don't guess at causes; the error text is the cause.
 
 \`\`\`html
 <!DOCTYPE html>
