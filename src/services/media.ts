@@ -248,7 +248,22 @@ async function trimMedia(
   const args = ["-y", "-i", rawFile];
   if (start !== undefined && start > 0) args.push("-ss", String(start));
   if (end !== undefined) args.push("-to", String(end));
-  args.push("-c:v", "libx264", "-c:a", "aac", "-movflags", "+faststart", outFile);
+  // -g 30 forces a keyframe every 30 frames (~1s @ 30fps). hyperframes' chrome rasterizer
+  // can't reliably seek clips whose keyframe interval is several seconds — segments fail
+  // with a "sparse keyframes" warning and the slideshow ends with a black/freeze tail.
+  args.push(
+    "-c:v",
+    "libx264",
+    "-g",
+    "30",
+    "-keyint_min",
+    "30",
+    "-c:a",
+    "aac",
+    "-movflags",
+    "+faststart",
+    outFile,
+  );
   await run("ffmpeg", args, { timeoutMs: 300_000 });
   if (outFile !== rawFile) {
     await unlinkIfExists(rawFile);

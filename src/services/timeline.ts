@@ -52,6 +52,7 @@ interface MixTrack {
   volume: number;
   fade_ms: number;
   max_duration_s?: number;
+  required?: boolean;
 }
 
 const DEFAULT_OVERLAY_VOLUME = 0.6;
@@ -182,7 +183,22 @@ async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]):
 
   for (const track of tracks) {
     const meta = await loadMeta(track.media_id);
-    if (!meta || !meta.hasAudio) continue;
+    if (!meta) {
+      if (track.required) {
+        throw new Error(
+          `audio media_id "${track.media_id}" not in cache — re-run video_download_media for the soundtrack/narration URL and pass the fresh media_id`,
+        );
+      }
+      continue;
+    }
+    if (!meta.hasAudio) {
+      if (track.required) {
+        throw new Error(
+          `audio media_id "${track.media_id}" was downloaded without an audio stream — re-run video_download_media with audio:true and the soundtrack URL`,
+        );
+      }
+      continue;
+    }
     inputs.push("-i", meta.path);
     const clipLen = track.max_duration_s
       ? Math.min(meta.duration, track.max_duration_s)
@@ -245,6 +261,7 @@ function resolveTracks(
     volume: track.volume ?? DEFAULT_OVERLAY_VOLUME,
     fade_ms: track.fade_ms ?? DEFAULT_FADE_MS,
     ...(track.max_duration_s !== undefined ? { max_duration_s: track.max_duration_s } : {}),
+    required: true,
   }));
 
   for (const [index, segment] of segments.entries()) {
