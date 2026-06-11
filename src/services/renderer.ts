@@ -13,15 +13,30 @@ const WIDTH_RE = /data-width\s*=\s*["'](\d+)["']/;
 const HEIGHT_RE = /data-height\s*=\s*["'](\d+)["']/;
 
 // Hyperframes hard-fails if the resolution preset's aspect ratio doesn't match the
-// composition's data-width/data-height — agents routinely write portrait HTML while
-// passing resolution="1080p" (landscape). Sniff the actual composition dimensions and
-// auto-pick the matching preset so the render succeeds instead of failing.
+// composition's dimensions — agents routinely write portrait HTML while passing
+// resolution="1080p" (landscape). Sniff the actual composition dimensions (from
+// data-width/data-height OR the body CSS) and auto-pick the matching preset so the
+// render succeeds instead of failing.
+function sniffCompositionSize(html: string): { w: number; h: number } | null {
+  const w1 = Number(WIDTH_RE.exec(html)?.[1] ?? 0);
+  const h1 = Number(HEIGHT_RE.exec(html)?.[1] ?? 0);
+  if (w1 && h1) return { w: w1, h: h1 };
+  // Fall back to body { width: Npx; height: Npx } in <style>. Agents often forget
+  // data-width/data-height and only set the body's CSS — chrome still picks up the size.
+  const bodyBlock = /body\s*\{([^}]*)\}/i.exec(html);
+  if (bodyBlock?.[1]) {
+    const w2 = Number(/width\s*:\s*(\d+)\s*px/i.exec(bodyBlock[1])?.[1] ?? 0);
+    const h2 = Number(/height\s*:\s*(\d+)\s*px/i.exec(bodyBlock[1])?.[1] ?? 0);
+    if (w2 && h2) return { w: w2, h: h2 };
+  }
+  return null;
+}
+
 function adjustResolutionForHtml(html: string, requested: Resolution): Resolution {
-  const w = Number(WIDTH_RE.exec(html)?.[1] ?? 0);
-  const h = Number(HEIGHT_RE.exec(html)?.[1] ?? 0);
-  if (!w || !h) return requested;
+  const dims = sniffCompositionSize(html);
+  if (!dims) return requested;
+  const { w, h } = dims;
   if (w === h) return "square";
-  // Treat 4k/uhd as the landscape family; if the comp is landscape, keep them.
   const compIsLandscape = w > h;
   const reqIsLandscape =
     requested === "1080p" || requested === "landscape" || requested === "4k" || requested === "uhd";

@@ -264,6 +264,36 @@ type SegmentResult =
   | { index: number; segment: TimelineSegment; path: string }
   | { index: number; warning: string };
 
+// Each segment failure echoes the same multi-line hyperframes error (~400 chars). Without
+// deduping, a 20-segment failure produces 8 KB of identical warnings — and the agent fed
+// that back into its next turn until z.ai's prompt-length cap blew. Group by message and
+// emit one short summary per kind plus the indices it covers.
+function summarizeWarnings(all: string[]): string[] {
+  const SEG_PREFIX = /^segment\s+\d+(?:\s+skipped)?[:\s—-]+\s*/i;
+  const groups = new Map<string, number[]>();
+  const standalone: string[] = [];
+  for (const raw of all) {
+    const match = /^segment\s+(\d+)/i.exec(raw);
+    if (!match) {
+      standalone.push(raw);
+      continue;
+    }
+    const index = Number(match[1]);
+    const message = raw.replace(SEG_PREFIX, "").trim().replace(/\s+/g, " ").slice(0, 280);
+    const indices = groups.get(message) ?? [];
+    indices.push(index);
+    groups.set(message, indices);
+  }
+  const summarized: string[] = [];
+  for (const [message, indices] of groups) {
+    const uniq = Array.from(new Set(indices)).sort((a, b) => a - b);
+    const indexList =
+      uniq.length > 10 ? `${uniq.slice(0, 10).join(",")},…(${uniq.length} total)` : uniq.join(",");
+    summarized.push(`segments [${indexList}]: ${message}`);
+  }
+  return [...standalone, ...summarized];
+}
+
 export async function assembleTimeline(params: TimelineParams): Promise<RenderOutput> {
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `timeline-${jobId}`);
@@ -355,7 +385,7 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
     return {
       buffer,
       filename: `timeline-${jobId}.mp4`,
-      warnings: [...preflightWarnings, ...warnings],
+      warnings: summarizeWarnings([...preflightWarnings, ...warnings]),
     };
   } finally {
     // Best-effort cleanup of the scratch tree. Parallel renders churn many inodes, so a
