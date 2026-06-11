@@ -261,8 +261,39 @@ function resolveTracks(
 }
 
 type SegmentResult =
-  | { index: number; segment: TimelineSegment; path: string }
+  | { index: number; segment: TimelineSegment; path: string; warning?: string }
   | { index: number; warning: string };
+
+// Probe a single frame at time T and report whether its average luminance is near zero.
+// Cheap: ffmpeg seeks, runs signalstats, prints YAVG to stderr. ~0.5s per segment.
+async function isMostlyBlack(filePath: string, atSec: number): Promise<boolean> {
+  try {
+    const { stderr } = await run(
+      "ffmpeg",
+      [
+        "-hide_banner",
+        "-nostats",
+        "-ss",
+        String(Math.max(0, atSec)),
+        "-i",
+        filePath,
+        "-vf",
+        "signalstats",
+        "-frames:v",
+        "1",
+        "-f",
+        "null",
+        "-",
+      ],
+      { timeoutMs: 15_000 },
+    );
+    const match = /YAVG\s*:\s*([\d.]+)/.exec(stderr);
+    const yavg = match?.[1] !== undefined ? Number(match[1]) : 255;
+    return yavg < 6;
+  } catch {
+    return false;
+  }
+}
 
 // Each segment failure echoes the same multi-line hyperframes error (~400 chars). Without
 // deduping, a 20-segment failure produces 8 KB of identical warnings — and the agent fed
@@ -374,6 +405,18 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
                 ...(segment.media ? { media: segment.media } : {}),
               });
               await writeFile(segPath, buffer);
+              // Catch the "renders successfully but the output is just black" case the
+              // round-10 outro hit: ffmpeg signalstats reports per-pixel luminance; YAVG
+              // near 0 across a mid-segment frame means the segment is visually black.
+              // Render counts as success (it didn't crash) but we warn so the agent knows.
+              if (await isMostlyBlack(segPath, segment.duration / 2)) {
+                return {
+                  index,
+                  segment,
+                  path: segPath,
+                  warning: `segment ${index} renders mostly black even though it didn't error — the HTML probably has a missing <video> source or styling that produces a black frame. Add real footage or drop the segment.`,
+                };
+              }
             } else {
               throw new Error("segment has neither html nor clipOverlay");
             }
@@ -387,11 +430,16 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
     );
 
     const ok = results
-      .filter((r): r is { index: number; segment: TimelineSegment; path: string } => "path" in r)
+      .filter(
+        (r): r is { index: number; segment: TimelineSegment; path: string; warning?: string } =>
+          "path" in r,
+      )
       .sort((a, b) => a.index - b.index);
-    const warnings = results
-      .filter((r): r is { index: number; warning: string } => "warning" in r)
-      .map((r) => r.warning);
+    // Failures plus any "rendered but black" cases the per-segment probe flagged.
+    const warnings = [
+      ...results.filter((r) => "warning" in r && !("path" in r)).map((r) => r.warning),
+      ...ok.filter((r) => r.warning).map((r) => r.warning as string),
+    ];
     if (ok.length === 0) {
       throw new Error(
         `all ${params.segments.length} segments failed to render: ${warnings.join("; ")}`,
