@@ -9,6 +9,26 @@ import { linkMediaToWorkdir } from "./media.js";
 
 const FRAME_RE = /Streaming frame\s*(\d+)\s*\/\s*(\d+)/;
 const DURATION_RE = /data-duration\s*=\s*["'](\d+(?:\.\d+)?)["']/;
+const WIDTH_RE = /data-width\s*=\s*["'](\d+)["']/;
+const HEIGHT_RE = /data-height\s*=\s*["'](\d+)["']/;
+
+// Hyperframes hard-fails if the resolution preset's aspect ratio doesn't match the
+// composition's data-width/data-height — agents routinely write portrait HTML while
+// passing resolution="1080p" (landscape). Sniff the actual composition dimensions and
+// auto-pick the matching preset so the render succeeds instead of failing.
+function adjustResolutionForHtml(html: string, requested: Resolution): Resolution {
+  const w = Number(WIDTH_RE.exec(html)?.[1] ?? 0);
+  const h = Number(HEIGHT_RE.exec(html)?.[1] ?? 0);
+  if (!w || !h) return requested;
+  if (w === h) return "square";
+  // Treat 4k/uhd as the landscape family; if the comp is landscape, keep them.
+  const compIsLandscape = w > h;
+  const reqIsLandscape =
+    requested === "1080p" || requested === "landscape" || requested === "4k" || requested === "uhd";
+  if (compIsLandscape && reqIsLandscape) return requested;
+  if (!compIsLandscape && requested === "portrait") return requested;
+  return compIsLandscape ? "1080p" : "portrait";
+}
 const here = dirname(fileURLToPath(import.meta.url));
 const GSAP_SOURCE = join(here, "..", "..", "gsap", "gsap.min.js");
 
@@ -105,6 +125,7 @@ export async function renderComposition(
     }
     await writeFile(join(workDir, "index.html"), html);
 
+    const effectiveResolution = adjustResolutionForHtml(html, params.resolution);
     const args = [
       "render",
       workDir,
@@ -113,7 +134,7 @@ export async function renderComposition(
       "--fps",
       String(params.fps),
       "--resolution",
-      params.resolution,
+      effectiveResolution,
     ];
     const producerPort = PRODUCER_PORT_BASE + (producerPortSeq++ % PRODUCER_PORT_WINDOW);
     // Invoke the globally-installed binary directly rather than via npx: under parallel
