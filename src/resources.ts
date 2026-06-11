@@ -6,8 +6,33 @@ HTML is the source of truth for video. A composition is HTML with \`data-*\` tim
 
 **This is the core skill. For depth — motion principles, techniques, transitions, typography, palettes, data-in-motion, GSAP — call \`video_skill\` (no argument lists every doc; pass a \`doc\` path to read one). Read \`video_skill\` references before any non-trivial or multi-scene composition; the rules below are the minimum.**
 
+## STEP 0 — pick the tool BEFORE writing anything
+
+The single biggest mistake is taking the single-\`video_render\` path for a brief that needs \`video_render_timeline\`. Read the brief, match the shape, then commit:
+
+| If the brief says… | Use |
+| --- | --- |
+| "presentation / slideshow / explore X and present", "intro about X over scenery", "cut at Ns and Ns", "documentary / montage / compilation", names ≥2 source clips, brief duration > 30s | \`video_render_timeline\` — one segment per scene, distinct \`media_id\` per cut. **Never one composition stretched to fill the time.** |
+| "loop this clip and put rotating text on it", "have you given up? / still here?" | \`video_loop\` → \`video_caption\` |
+| "countdown / top-N / tier-list" | \`video_render_tierlist\` |
+| "terminal / typed command" | \`video_render_terminal\` |
+| "line chart / data over time" | \`video_render_chart\` |
+| "logo reveal, animated lower-third, graphic overlay over ONE existing clip" (<30s) | \`video_render\` with one composition + \`media:[{media_id}]\` |
+| Catalog block (map/globe/device-mockup/etc.) | \`video_catalog\` → \`video_render_block\` |
+
+If a brief names cut points (41s, 94s, …) or implies multiple scenes ("explore", "present", "documentary"), the answer is ALWAYS \`video_render_timeline\` — even if you have only one bg clip, reuse it across segments at different windows. Stretching one HTML composition across 100+ seconds with a single static \`<video>\` background is a routing bug, not an authoring choice.
+
 ## Don't redo work — the #1 latency killer
-Author the HTML **once**. \`video_lint\` returns errors AND warnings: **0 errors → render immediately.** Warnings (e.g. \`timed_element_missing_clip_class\`) are non-blocking — never re-author just to clear a warning. Re-author ONLY to fix an actual error. After \`video_render_status\` returns a \`url\`, report it and **STOP** — do not re-lint, re-author, or re-render. Each re-author re-types thousands of HTML tokens (~45s) and each render is minutes; redundant passes are why a job takes 5 minutes instead of 1.
+Author the HTML **once**. \`video_lint\` returns errors AND warnings: **0 errors → render immediately.** Warnings (e.g. \`timed_element_missing_clip_class\`) are non-blocking — never re-author just to clear a warning. Re-author ONLY to fix an actual error. Each re-author re-types thousands of HTML tokens (~45s) and each render is minutes; redundant passes are why a job takes 5 minutes instead of 1.
+
+## After render_status — ONE verification pass, then stop
+When \`video_render_status\` returns a \`url\`, you have **one** verification pass before reporting:
+
+1. \`video_extract_frame\` at three timestamps — early (≈0.5s), middle (50%), late (≈95% of duration) — on the result.
+2. Pass each frame \`url\` to your vision tool (\`describe_image\` or equivalent).
+3. **The frame is bad if any of these are true:** text bleeds past the canvas edges, two text layers overlap, the \`<video>\` is letterboxed/black-barred, the wrong content is showing, the screen is mostly black (when it shouldn't be), there's mojibake / "Ã" garbage.
+
+If all three frames pass → report the URL and **STOP**. If any frame is bad → re-author the HTML ONCE to fix that specific bug (don't broaden scope), re-render, and report whichever URL comes out of THAT render without another verify loop. Two renders maximum, ever. Skipping verification is how a 10-minute render ships with cropped text or a black bar — and the user notices immediately.
 
 ## Structure & data attributes
 - Standalone composition: put the root div directly in \`<body>\` (no \`<template>\`): \`<div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">\` (N = seconds).
@@ -50,8 +75,8 @@ Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines,
 
 **Documentaries / montages / compilations** (several clips into one longer video) = ONE \`video_render_timeline\` call, NOT a single clip and NOT a loop. Download several DIFFERENT sources (\`video_search_youtube\` → \`video_download_media\` a distinct window from each), make each its own 3-15s segment (one \`<video>\` per segment), and let segment-count x length add up to the asked duration — a "2 minute" doc is ~12-20 segments, not one clip stretched out. Put narration/music in the timeline's \`audio\` array; the array takes **media_ids**, so fetch the audio file to a media_id with \`video_download_media\` first (\`video_tts\` returns base64, usable only in single-clip \`video_render\` — for a timeline, download the audio as a URL). Add on-screen facts as text per segment. Match the requested length and clip variety; never loop one clip and call it a documentary, and never describe a length/footage/narration you didn't actually render.
 
-## Curiosity loop — VISION-VALIDATE before committing
-A 2-min chrome render costs ~8 minutes of software-GL time, so **validate every assumption upfront**:
+## Pre-render checks — VISION-VALIDATE the sources before the long render
+A 2-min chrome render costs ~8 minutes of software-GL time, so **validate every assumption upfront** (the post-render verification covered above is the LAST gate, not a substitute for these):
 1. **Source clip is clean?** After every \`video_download_media\`, call \`video_extract_frame\` at 2-3 timestamps within the window and pass the returned \`url\` to your vision tool (e.g. \`describe_image\`). Reject any clip with baked-in watermarks ("4K Planet Earth", "Nature Relaxation Films", logos), on-screen text/captions, or wrong-scene content. Pick a different window or a different source — never use a source clip you haven't visually checked.
 2. **Audio peaks are where the user said?** Call \`video_analyze_audio\` on the soundtrack \`media_id\`. The reported \`active_spans\`, \`mean_volume_db\`, and \`silences\` show you the REAL energy curve — anchor cuts to those, not the user's guessed timestamps.
 3. **Layout works at full size?** Before \`video_render_timeline\` of N segments, render the SAME composition with \`data-duration="3"\` via \`video_render\` (a quick sample), then extract frames at 0.5s and 2.5s with \`video_extract_frame\` on the result and vision-check: video element fills 1920×1080 (no letterboxing), text isn't cut off, no overlap with baked source-text, contrast is readable. Fix the HTML before scaling up.
@@ -73,7 +98,9 @@ If narration AND background music are both requested, layer them: timeline.audio
 
 **Loop + rotating subtitles / talking to the viewer → \`video_caption\` (the cheap, correct path):** \`video_loop\` → its \`media_id\`, then \`video_caption\` with \`captions:[{text,start,duration}, …]\` to burn the timed text straight onto the loop in ONE ffmpeg pass — no HTML, no chrome render, seconds not minutes. This is the right tool for plain timed text ("have you given up yet?", "you still there?", "still watching?"). It returns a finished MP4 \`url\` (and a chainable \`media_id\`). Only reach for an HTML composition (below) when you need animated or graphic overlays beyond plain text. **Never** emit N \`video_render_timeline\` segments to loop a clip.
 
-## Putting text/elements over a clip
+## Putting text/elements over ONE clip (short, <30s)
+This whole section applies ONLY to a brief that names a single ≤30s clip. If the brief is a slideshow / "explore X" / has cut points / runs >30s — STOP and go to \`video_render_timeline\` per STEP 0. Re-read step 0 if unsure; misrouting here is the single most common reason a render ships a 162s static title card.
+
 **Plain timed text → \`video_caption\` (above): one ffmpeg pass, no HTML.** Reach for an HTML composition here only for richer overlays — animation/motion, styled graphics, logos, lower-thirds. This server IS the compositor (your HTML renders over the \`<video>\`); never invent a result URL. The composition is one small file: **copy this COMPLETE, lint-clean example, change the video filename + label text/timings, \`video_lint\` once (passes as-is), then \`video_render\` with \`media:[{ media_id }]\`.** Don't split one clip into N segments, don't re-author after lint passes.
 
 **Labels appear/disappear by \`class="clip"\` + \`data-start\`/\`data-duration\` — the framework does that for you. Write NO per-element GSAP for plain labels (that hand-written JS is where compositions break and lint-loop). The one \`<script>\` is fixed boilerplate — copy it verbatim. Add tweens ONLY if you specifically want motion/fades. Write each label as a plain HTML \`<div>…</div>\` — never build elements in JavaScript (escaped tags like \`<\\/div>\` leak into the video as visible junk).**
@@ -83,7 +110,9 @@ If narration AND background music are both requested, layer them: timeline.audio
 - **Canvas size MUST match the render \`resolution\` param.** \`resolution:"1080p"\` (or "landscape", "4k", "uhd") = body 1920×1080 AND \`data-width="1920" data-height="1080"\` AND \`<video>\` 1920×1080. \`resolution:"portrait"\` = 1080×1920 in all three places. \`resolution:"square"\` = 1080×1080. The server auto-fixes preset mismatches but a self-consistent HTML is faster.
 - \`body\` MUST be exactly \`width:Wpx;height:Hpx;margin:0\` matching the canvas (no smaller, no scrollbars).
 - The \`<video>\` element MUST cover the full canvas: \`position:absolute;top:0;left:0;width:Wpx;height:Hpx;object-fit:cover\`. NEVER position it in a sub-rectangle, NEVER omit object-fit.
-- Text overlays are positioned in PIXELS over the video (\`position:absolute\`), never below it. A black bar full of text is never the right layout — overlay the text on the footage with a translucent backing.
+- **Text overlays are positioned in PIXELS over the video (\`position:absolute\`), never below it.** A black bar full of text is never the right layout — overlay the text on the footage with a translucent backing.
+- **Every text element MUST set ALL FOUR of: \`max-width: 80%\` (or explicit \`left/right\` insets), \`word-wrap: break-word\`, \`overflow-wrap: break-word\`, \`box-sizing: border-box\`.** A bare \`<h1>Long title</h1>\` styled only with \`font-size:72px\` overflows a 1280×720 canvas horizontally. The example \`.label\` class below (with \`left:120px;right:120px;text-align:center\`) is the correct shape — copy it for every overlay.
+- **Two visible text elements MUST NOT share the same anchor.** If a title sits at \`top:50%; left:50%; transform:translate(-50%,-50%)\` you cannot put a subtitle at the same spot — they will render on top of each other (one will be visible AS the other through translucency). Anchor each text layer to a different region (e.g. title at \`top:30%\`, subtitle at \`top:60%\`). When two captions appear at the same time, this is non-negotiable.
 - Always include \`<meta charset="UTF-8">\` in \`<head>\`. Skipping it mojibakes em-dashes/arrows/smart-quotes to "Ã" garbage in chrome.
 - Style contract is locked at the brief: pick ONE accent color, ONE font family, ONE motion language (fade vs slide vs zoom) and use it everywhere. Mixing per segment looks amateurish.
 - **Read every render error literally.** If the failure says "aspect ratio mismatch", the fix is fixing the HTML dimensions or the resolution param — not switching to catalog blocks "because the runtime is strict". Don't guess at causes; the error text is the cause.
