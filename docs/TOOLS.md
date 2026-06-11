@@ -14,6 +14,7 @@ Lay an audio track onto a finished video — the audio counterpart to video_capt
 | `audio_media_id` | string | yes |  | Audio media_id — from video_tts (narration) or video_download_media (music/sfx). |
 | `mode` | `"replace"` \| `"mix"` | no | `"replace"` | 'replace' = this becomes the only audio (narration over muted footage); 'mix' = blend under the video's existing audio (needs the video to already have audio). |
 | `volume` | number | no | `1` | Volume of the added track (for 'mix', relative to the existing audio). |
+| `existing_volume` | number | no | `1` | For 'mix' only: volume of the video's ORIGINAL audio. Set low (e.g. 0.2) to duck the footage under a narration track so the clip's own sound stays as quiet background. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_analyze_audio`

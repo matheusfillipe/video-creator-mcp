@@ -38,6 +38,7 @@ export async function addAudioTrack(params: {
   audioId: string;
   mode: AudioMixMode;
   volume: number;
+  existingVolume: number;
 }): Promise<{ buffer: Buffer; meta: MediaMeta }> {
   const video = await loadMeta(params.videoId);
   if (!video) {
@@ -58,7 +59,7 @@ export async function addAudioTrack(params: {
   try {
     const filter =
       params.mode === "mix"
-        ? `[1:a]volume=${params.volume}[b];[0:a][b]amix=inputs=2:duration=first:normalize=0[a]`
+        ? `[0:a]volume=${params.existingVolume}[a0];[1:a]volume=${params.volume}[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`
         : `[1:a]volume=${params.volume}[a]`;
     const outFile = join(dir, "out.mp4");
     await run(

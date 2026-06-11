@@ -255,15 +255,24 @@ export function registerRenderTools(server: McpServer): void {
         .max(4)
         .default(1)
         .describe("Volume of the added track (for 'mix', relative to the existing audio)."),
+      existing_volume: z
+        .number()
+        .min(0)
+        .max(4)
+        .default(1)
+        .describe(
+          "For 'mix' only: volume of the video's ORIGINAL audio. Set low (e.g. 0.2) to duck the footage under a narration track so the clip's own sound stays as quiet background.",
+        ),
       metadata: metadataArg,
     },
-    handler: ({ media_id, audio_media_id, mode, volume, metadata }) => {
+    handler: ({ media_id, audio_media_id, mode, volume, existing_volume, metadata }) => {
       const jobId = submitJob("add-audio", async () => {
         const { buffer, meta } = await addAudioTrack({
           videoId: media_id,
           audioId: audio_media_id,
           mode,
           volume,
+          existingVolume: existing_volume,
         });
         const saved = await saveRender(buffer, meta.filename, metadata);
         return { ...saved, media_id: meta.media_id, duration: meta.duration };
