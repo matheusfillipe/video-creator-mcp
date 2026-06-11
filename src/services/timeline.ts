@@ -436,10 +436,17 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
       )
       .sort((a, b) => a.index - b.index);
     // Failures plus any "rendered but black" cases the per-segment probe flagged.
-    const warnings = [
-      ...results.filter((r) => "warning" in r && !("path" in r)).map((r) => r.warning),
-      ...ok.filter((r) => r.warning).map((r) => r.warning as string),
-    ];
+    const warnings: string[] = [];
+    for (const r of results) {
+      if ("warning" in r && !("path" in r) && typeof r.warning === "string") {
+        warnings.push(r.warning);
+      }
+    }
+    for (const r of ok) {
+      if (typeof r.warning === "string") {
+        warnings.push(r.warning);
+      }
+    }
     if (ok.length === 0) {
       throw new Error(
         `all ${params.segments.length} segments failed to render: ${warnings.join("; ")}`,
