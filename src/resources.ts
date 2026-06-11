@@ -12,7 +12,8 @@ The single biggest mistake is taking the single-\`video_render\` path for a brie
 
 | If the brief says… | Use |
 | --- | --- |
-| "presentation / slideshow / explore X and present", "intro about X over scenery", "cut at Ns and Ns", "documentary / montage / compilation", names ≥2 source clips, brief duration > 30s | \`video_render_timeline\` — one segment per scene, distinct \`media_id\` per cut. **Never one composition stretched to fill the time.** |
+| **"presentation / slideshow / explainer / explore X and present", "intro about X over scenery", "documentary-style with music"** (text over bg clips, N scenes) | **\`video_render_slideshow\`** — pass \`segments:[{text,media_id,duration_seconds}]\` + \`audio_media_id\`. Server stamps the HTML. **DO NOT write HTML for this — that's a 100-token call vs a 2000-token-per-segment authoring session.** |
+| "cut at Ns and Ns", "documentary / montage / compilation" with no presentation text (just clips + maybe music) | \`video_render_timeline\` — author one segment per scene with distinct \`media_id\` per cut. |
 | "loop this clip and put rotating text on it", "have you given up? / still here?" | \`video_loop\` → \`video_caption\` |
 | "countdown / top-N / tier-list" | \`video_render_tierlist\` |
 | "terminal / typed command" | \`video_render_terminal\` |
@@ -20,7 +21,7 @@ The single biggest mistake is taking the single-\`video_render\` path for a brie
 | "logo reveal, animated lower-third, graphic overlay over ONE existing clip" (<30s) | \`video_render\` with one composition + \`media:[{media_id}]\` |
 | Catalog block (map/globe/device-mockup/etc.) | \`video_catalog\` → \`video_render_block\` |
 
-If a brief names cut points (41s, 94s, …) or implies multiple scenes ("explore", "present", "documentary"), the answer is ALWAYS \`video_render_timeline\` — even if you have only one bg clip, reuse it across segments at different windows. Stretching one HTML composition across 100+ seconds with a single static \`<video>\` background is a routing bug, not an authoring choice.
+**Authoring HTML per segment is the slowest path on this server** — each segment's HTML takes ~2 minutes of LLM time. If the brief shape fits \`video_render_slideshow\` (text-over-video-with-optional-music), you save ~2 min per segment AND get correct CSS (max-width, word-wrap, single anchor) for free. Reach for raw \`video_render_timeline\` only when the segments need shapes the slideshow template can't express (custom motion, graphics, animated tier badges). If a brief names cut points or implies multiple scenes, the answer is NEVER single \`video_render\`.
 
 ## Don't redo work — the #1 latency killer
 Author the HTML **once**. \`video_lint\` returns errors AND warnings: **0 errors → render immediately.** Warnings (e.g. \`timed_element_missing_clip_class\`) are non-blocking — never re-author just to clear a warning. Re-author ONLY to fix an actual error. Each re-author re-types thousands of HTML tokens (~45s) and each render is minutes; redundant passes are why a job takes 5 minutes instead of 1.

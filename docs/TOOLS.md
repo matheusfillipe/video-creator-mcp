@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 26 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 27 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -193,6 +193,21 @@ Render a side-scrolling animated line chart: each series plots left-to-right, th
 Show the render engine concurrency state and all known jobs.
 
 _No parameters._
+
+## `video_render_slideshow`
+
+Build a slideshow/presentation/explainer video from a list of {text, media_id, duration_seconds} segments. The server stamps a pre-styled HTML template per segment (full-canvas video background + centered fading caption with correct max-width/word-wrap), then composes them into one MP4. **This is the right tool for any 'present X', 'explore X over scenery', 'documentary-style', 'slides with music' brief — DO NOT write HTML manually for these.** Pass an audio_media_id for music/narration. Asynchronous: returns a job_id to poll with video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `segments` | array | yes |  | Slideshow segments in display order; each becomes one scene. |
+| `audio_media_id` | string | no |  | Soundtrack / narration media_id (covers the full video). |
+| `audio_volume` | number | no | `0.8` | Soundtrack volume. |
+| `audio_fade_ms` | integer | no | `1500` | Fade-in and fade-out length on the soundtrack, milliseconds. |
+| `accent_color` | string | no |  | Caption color (CSS); defaults to white. |
+| `fps` | integer | no | `30` |  |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_status`
 

@@ -10,6 +10,7 @@ import {
   assembleTimeline,
 } from "../services/timeline.js";
 import { lineChartHtml } from "../templates/chart.js";
+import { slideshowSegmentHtml } from "../templates/slideshow.js";
 import { terminalHtml } from "../templates/terminal.js";
 import { titleCardHtml } from "../templates/tierlist.js";
 import type { Resolution } from "../types.js";
@@ -134,6 +135,124 @@ export function registerTemplateTools(server: McpServer): void {
         job_id: jobId,
         state: "queued",
         entries: args.entries.length,
+        poll_with: `video_render_status with job_id "${jobId}"`,
+      };
+    },
+  });
+
+  registerTool(server, {
+    name: "video_render_slideshow",
+    title: "Render a Slideshow / Presentation Video",
+    description:
+      "Build a slideshow/presentation/explainer video from a list of {text, media_id, duration_seconds} segments. The server stamps a pre-styled HTML template per segment (full-canvas video background + centered fading caption with correct max-width/word-wrap), then composes them into one MP4. **This is the right tool for any 'present X', 'explore X over scenery', 'documentary-style', 'slides with music' brief — DO NOT write HTML manually for these.** Pass an audio_media_id for music/narration. Asynchronous: returns a job_id to poll with video_render_status.",
+    inputSchema: {
+      segments: z
+        .array(
+          z.object({
+            text: z.string().min(1).describe("The caption text shown over this segment."),
+            media_id: z
+              .string()
+              .min(1)
+              .describe("Background-video media_id from video_download_media."),
+            duration_seconds: z
+              .number()
+              .positive()
+              .max(60)
+              .describe("How long this segment plays (seconds)."),
+          }),
+        )
+        .min(1)
+        .describe("Slideshow segments in display order; each becomes one scene."),
+      audio_media_id: z
+        .string()
+        .optional()
+        .describe("Soundtrack / narration media_id (covers the full video)."),
+      audio_volume: z.number().min(0).max(1).default(0.8).describe("Soundtrack volume."),
+      audio_fade_ms: z
+        .number()
+        .int()
+        .min(0)
+        .max(10000)
+        .default(1500)
+        .describe("Fade-in and fade-out length on the soundtrack, milliseconds."),
+      accent_color: z.string().optional().describe("Caption color (CSS); defaults to white."),
+      fps: z.number().int().min(1).max(60).default(30),
+      resolution: z
+        .enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"])
+        .default("1080p")
+        .describe("Output resolution/orientation."),
+      metadata: metadataArg,
+    },
+    handler: async (args) => {
+      const orientation: "landscape" | "portrait" | "square" =
+        args.resolution === "portrait"
+          ? "portrait"
+          : args.resolution === "square"
+            ? "square"
+            : "landscape";
+
+      const timelineSegments: TimelineSegment[] = [];
+      const mediaIds = new Set<string>();
+      const segmentWarnings: string[] = [];
+      for (const [i, seg] of args.segments.entries()) {
+        const meta = await loadMeta(seg.media_id);
+        if (!meta) {
+          segmentWarnings.push(`segment ${i}: media_id "${seg.media_id}" not in cache — skipped`);
+          continue;
+        }
+        mediaIds.add(seg.media_id);
+        timelineSegments.push({
+          html: encode(
+            slideshowSegmentHtml({
+              text: seg.text,
+              videoFilename: meta.filename,
+              durationSeconds: seg.duration_seconds,
+              resolution: orientation,
+              ...(args.accent_color ? { accentColor: args.accent_color } : {}),
+            }),
+          ),
+          duration: seg.duration_seconds,
+          media: [{ media_id: seg.media_id }],
+        });
+      }
+
+      if (timelineSegments.length === 0) {
+        throw new Error(
+          `No segments had cached media — download clips with video_download_media first. ${segmentWarnings.join("; ")}`,
+        );
+      }
+
+      const params: TimelineParams = {
+        segments: timelineSegments,
+        fps: args.fps,
+        resolution: args.resolution as Resolution,
+      };
+      if (args.audio_media_id) {
+        params.audio = [
+          {
+            media_id: args.audio_media_id,
+            offset_ms: 0,
+            volume: args.audio_volume,
+            fade_ms: args.audio_fade_ms,
+          },
+        ];
+      }
+
+      const jobId = submitJob("slideshow", async () => {
+        const { buffer, filename, warnings } = await assembleTimeline(params);
+        const saved = await saveRender(buffer, filename, args.metadata);
+        return {
+          ...saved,
+          segments: timelineSegments.length,
+          unique_clips: mediaIds.size,
+          warnings: [...segmentWarnings, ...(warnings ?? [])],
+        };
+      });
+      return {
+        job_id: jobId,
+        state: "queued",
+        segments: timelineSegments.length,
+        unique_clips: mediaIds.size,
         poll_with: `video_render_status with job_id "${jobId}"`,
       };
     },
