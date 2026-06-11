@@ -89,7 +89,7 @@ export async function addAudioTrack(params: {
     );
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `addaudio:${params.videoId}:${params.audioId}:${params.mode}:${params.volume}`,
+      idSeed: `addaudio:${params.videoId}:${params.audioId}:${params.mode}:${params.volume}:${params.existingVolume}`,
       buffer,
       ext: ".mp4",
       sourceUrl: `addaudio://${params.videoId}`,
@@ -243,10 +243,6 @@ export async function removeBackground(
   }
 }
 
-// Pull a single frame from a cached clip at time T (seconds) and save it as a PNG. The
-// frame is uploaded as a media asset AND a public url, so the agent can pass the media_id
-// to a vision tool (describe_image) to verify content before using the source clip —
-// spotting watermarks, baked-in text, or wrong-content frames before committing to a render.
 export async function extractFrame(params: {
   mediaId: string;
   timeSec: number;

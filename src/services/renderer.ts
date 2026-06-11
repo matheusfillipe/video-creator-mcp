@@ -12,17 +12,11 @@ const DURATION_RE = /data-duration\s*=\s*["'](\d+(?:\.\d+)?)["']/;
 const WIDTH_RE = /data-width\s*=\s*["'](\d+)["']/;
 const HEIGHT_RE = /data-height\s*=\s*["'](\d+)["']/;
 
-// Hyperframes hard-fails if the resolution preset's aspect ratio doesn't match the
-// composition's dimensions — agents routinely write portrait HTML while passing
-// resolution="1080p" (landscape). Sniff the actual composition dimensions (from
-// data-width/data-height OR the body CSS) and auto-pick the matching preset so the
-// render succeeds instead of failing.
+// Hyperframes rejects a composition whose dimensions don't match the resolution preset.
 function sniffCompositionSize(html: string): { w: number; h: number } | null {
   const w1 = Number(WIDTH_RE.exec(html)?.[1] ?? 0);
   const h1 = Number(HEIGHT_RE.exec(html)?.[1] ?? 0);
   if (w1 && h1) return { w: w1, h: h1 };
-  // Fall back to body { width: Npx; height: Npx } in <style>. Agents often forget
-  // data-width/data-height and only set the body's CSS — chrome still picks up the size.
   const bodyBlock = /body\s*\{([^}]*)\}/i.exec(html);
   if (bodyBlock?.[1]) {
     const w2 = Number(/width\s*:\s*(\d+)\s*px/i.exec(bodyBlock[1])?.[1] ?? 0);
@@ -79,9 +73,7 @@ function ensureDocument(html: string): string {
     return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n</head>\n<body>\n${html}\n</body>\n</html>`;
   }
   let out = html;
-  // Chrome's heuristic charset detection mojibakes UTF-8 punctuation (em-dashes, smart quotes,
-  // arrows) to Latin-1 garbage like "Ã" when the model authored <html> without an explicit
-  // <meta charset>. Inject one right after <head> if missing.
+  // chrome defaults to Latin-1 without an explicit <meta charset>; UTF-8 punctuation breaks.
   if (!/<meta[^>]+charset/i.test(out)) {
     out = out.replace(/<head[^>]*>/i, (match) => `${match}\n<meta charset="UTF-8">`);
   }

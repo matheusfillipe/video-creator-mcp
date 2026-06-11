@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.js";
-import { run } from "../lib/exec.js";
+import { ExecError, run } from "../lib/exec.js";
 import { Limiter } from "../lib/queue.js";
 import type { Resolution } from "../types.js";
 import { loadMeta } from "./media.js";
@@ -264,8 +264,6 @@ type SegmentResult =
   | { index: number; segment: TimelineSegment; path: string; warning?: string }
   | { index: number; warning: string };
 
-// Probe a single frame at time T and report whether its average luminance is near zero.
-// Cheap: ffmpeg seeks, runs signalstats, prints YAVG to stderr. ~0.5s per segment.
 async function isMostlyBlack(filePath: string, atSec: number): Promise<boolean> {
   try {
     const { stderr } = await run(
@@ -290,15 +288,13 @@ async function isMostlyBlack(filePath: string, atSec: number): Promise<boolean> 
     const match = /YAVG\s*:\s*([\d.]+)/.exec(stderr);
     const yavg = match?.[1] !== undefined ? Number(match[1]) : 255;
     return yavg < 6;
-  } catch {
-    return false;
+  } catch (error) {
+    if (error instanceof ExecError) return false;
+    throw error;
   }
 }
 
-// Each segment failure echoes the same multi-line hyperframes error (~400 chars). Without
-// deduping, a 20-segment failure produces 8 KB of identical warnings — and the agent fed
-// that back into its next turn until z.ai's prompt-length cap blew. Group by message and
-// emit one short summary per kind plus the indices it covers.
+// Group identical per-segment failure messages into one line plus the list of indices.
 function summarizeWarnings(all: string[]): string[] {
   const SEG_PREFIX = /^segment\s+\d+(?:\s+skipped)?[:\s—-]+\s*/i;
   const groups = new Map<string, number[]>();
@@ -331,11 +327,6 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
   const segDir = join(dir, "segments");
   await mkdir(segDir, { recursive: true });
 
-  // Surface text-only HTML segments (no <video> tag) up front. The agent's job is to make
-  // *video*; a segment that renders as black-with-floating-text is almost always a bug — the
-  // model forgot to include the <video> element from its media array. Bubble these back as
-  // warnings the agent reads, so it fixes them next iteration instead of silently shipping a
-  // doc of caption slides.
   const preflightWarnings: string[] = [];
   for (const [index, segment] of params.segments.entries()) {
     if (segment.html) {
@@ -347,19 +338,12 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
       }
     }
   }
-  // The agent keeps shipping silent documentaries when the brief explicitly named a
-  // soundtrack URL. Render still succeeds (no fail) but the result is wrong — bubble a
-  // warning whenever a multi-segment timeline (>30s) has no audio so the agent fixes it.
   const totalDuration = params.segments.reduce((sum, seg) => sum + seg.duration, 0);
   if (totalDuration > 30 && (!params.audio || params.audio.length === 0)) {
     preflightWarnings.push(
       `the timeline is ${Math.round(totalDuration)}s long but has NO audio. Pass an "audio" array of {media_id, offset_ms, volume, fade_ms} so the video has a soundtrack — download the audio URL from the brief with video_download_media first to get its media_id. A silent ${Math.round(totalDuration)}s documentary is almost always wrong; if the user explicitly asked for silence, ignore this warning.`,
     );
   }
-  // Catch the "video runs past the music as silent black" case: the agent built segments
-  // totalling longer than the audio it wants to lay under them. The render still completes,
-  // but the result has a silent black tail — almost never what was asked. We warn and let
-  // the agent decide whether to drop tail segments or extend the audio with another track.
   if (params.audio && params.audio.length > 0) {
     const audioCovers = await Promise.all(
       params.audio.map(async (track) => {
@@ -405,10 +389,6 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
                 ...(segment.media ? { media: segment.media } : {}),
               });
               await writeFile(segPath, buffer);
-              // Catch the "renders successfully but the output is just black" case the
-              // round-10 outro hit: ffmpeg signalstats reports per-pixel luminance; YAVG
-              // near 0 across a mid-segment frame means the segment is visually black.
-              // Render counts as success (it didn't crash) but we warn so the agent knows.
               if (await isMostlyBlack(segPath, segment.duration / 2)) {
                 return {
                   index,
@@ -435,7 +415,6 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
           "path" in r,
       )
       .sort((a, b) => a.index - b.index);
-    // Failures plus any "rendered but black" cases the per-segment probe flagged.
     const warnings: string[] = [];
     for (const r of results) {
       if ("warning" in r && !("path" in r) && typeof r.warning === "string") {

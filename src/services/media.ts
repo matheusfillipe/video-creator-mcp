@@ -353,9 +353,6 @@ export async function writeMediaFromBuffer(params: {
 export async function linkMediaToWorkdir(mediaId: string, workdir: string): Promise<string> {
   const meta = await loadMeta(mediaId);
   if (!meta) {
-    // Show what IS cached so the agent can self-correct if it typoed/hallucinated an id,
-    // or remembers it actually downloaded a different window. Keep it short — the failing
-    // agent already has tight context.
     const cached = (await listCachedMedia().catch(() => [])).slice(0, 12).map((m) => m.media_id);
     const hint = cached.length
       ? ` Cached media_ids you CAN reference (top ${cached.length}): ${cached.join(", ")}. Did you call video_download_media for the URL you meant to use? video_get_info and video_search_youtube don't download — they just inspect.`
