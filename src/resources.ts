@@ -59,7 +59,7 @@ A 2-min chrome render costs ~8 minutes of software-GL time, so **validate every 
 
 Treat these as REQUIRED gates, not optional polish. The cost of skipping them is shipping a 10-min render with cropped video and mojibake text.
 
-**Narration & sound — MANDATORY when an audio URL is in the brief.** If the user names a soundtrack/narration URL (or asks for any kind of music or voiceover), the finished video MUST carry that audio — a silent timeline of >30s when audio was named is always wrong, the server warns about it. Two paths:
+**Narration & sound — MANDATORY when an audio URL is in the brief.** If the user names a soundtrack/narration URL (or asks for any kind of music or voiceover), the finished video MUST carry that audio — a silent timeline of >30s when audio was named is always wrong, the server warns about it. **And the video length MUST match the soundtrack length** (or the explicit duration the user requested, whichever is shorter): segments summing to more than the audio leaves a silent black tail playing past the music, which is always wrong. Cap your timeline at the soundtrack length and trim the song trailer rather than running video past the music. Two paths:
 
 1. **video_render_timeline path (preferred when you're already building a timeline):** \`video_download_media\` the audio URL → media_id → pass it as an entry in the timeline's \`audio\` array \`[{media_id: "<audio>", offset_ms: 0, volume: 0.8, fade_ms: 1500}]\`. The timeline mixes it during the final render — no extra step.
 

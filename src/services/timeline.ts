@@ -325,6 +325,26 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
       `the timeline is ${Math.round(totalDuration)}s long but has NO audio. Pass an "audio" array of {media_id, offset_ms, volume, fade_ms} so the video has a soundtrack — download the audio URL from the brief with video_download_media first to get its media_id. A silent ${Math.round(totalDuration)}s documentary is almost always wrong; if the user explicitly asked for silence, ignore this warning.`,
     );
   }
+  // Catch the "video runs past the music as silent black" case: the agent built segments
+  // totalling longer than the audio it wants to lay under them. The render still completes,
+  // but the result has a silent black tail — almost never what was asked. We warn and let
+  // the agent decide whether to drop tail segments or extend the audio with another track.
+  if (params.audio && params.audio.length > 0) {
+    const audioCovers = await Promise.all(
+      params.audio.map(async (track) => {
+        const meta = await loadMeta(track.media_id);
+        const dur = meta?.duration ?? 0;
+        return dur > 0 ? (track.offset_ms ?? 0) / 1000 + dur : 0;
+      }),
+    );
+    const audioEnd = Math.max(...audioCovers, 0);
+    if (audioEnd > 0 && totalDuration > audioEnd + 1) {
+      const tail = Math.round(totalDuration - audioEnd);
+      preflightWarnings.push(
+        `the timeline is ${Math.round(totalDuration)}s but the audio only covers ${Math.round(audioEnd)}s, so the last ${tail}s of the video will play in SILENCE with no soundtrack. Either drop trailing segments to match the audio length, or add another audio track to cover the tail.`,
+      );
+    }
+  }
 
   try {
     // Segments are independent and rendered concurrently (bounded). A segment that fails to
