@@ -270,6 +270,23 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
   const segDir = join(dir, "segments");
   await mkdir(segDir, { recursive: true });
 
+  // Surface text-only HTML segments (no <video> tag) up front. The agent's job is to make
+  // *video*; a segment that renders as black-with-floating-text is almost always a bug — the
+  // model forgot to include the <video> element from its media array. Bubble these back as
+  // warnings the agent reads, so it fixes them next iteration instead of silently shipping a
+  // doc of caption slides.
+  const preflightWarnings: string[] = [];
+  for (const [index, segment] of params.segments.entries()) {
+    if (segment.html) {
+      const decoded = Buffer.from(segment.html, "base64").toString("utf-8");
+      if (!/<video\b/i.test(decoded)) {
+        preflightWarnings.push(
+          `segment ${index} has no <video> tag — it will render as a black background with text only. Documentaries/montages should have footage in every segment; reuse a media_id from another segment if you don't have enough clips.`,
+        );
+      }
+    }
+  }
+
   try {
     // Segments are independent and rendered concurrently (bounded). A segment that fails to
     // render is dropped — not fatal — so the rest of the video still ships; the failure is
@@ -335,7 +352,11 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
     const tracks = resolveTracks(okSegments, params.audio);
     const finalOut = tracks.length ? await overlayAudio(dir, concatOut, tracks) : concatOut;
     const buffer = await readFile(finalOut);
-    return { buffer, filename: `timeline-${jobId}.mp4`, warnings };
+    return {
+      buffer,
+      filename: `timeline-${jobId}.mp4`,
+      warnings: [...preflightWarnings, ...warnings],
+    };
   } finally {
     // Best-effort cleanup of the scratch tree. Parallel renders churn many inodes, so a
     // recursive rmdir can transiently hit ENOTEMPTY — retry, and never let a teardown
