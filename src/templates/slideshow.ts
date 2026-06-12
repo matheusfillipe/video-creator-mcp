@@ -39,6 +39,11 @@ export function slideshowSegmentHtml(opts: SlideshowSegmentOptions): string {
         `    tl.from("#c${i}", { opacity: 0, y: 40, duration: 0.7, ease: "power2.out" }, ${t.startSeconds});`,
     )
     .join("\n");
+  // Slow Ken-Burns zoom for image backgrounds (static photos look amateurish without motion).
+  // Video backgrounds carry their own motion — skip to avoid fighting it.
+  const kenBurns = opts.isImage
+    ? `    tl.fromTo("#v", { scale: 1.0, xPercent: 0, yPercent: 0 }, { scale: 1.12, xPercent: -2, yPercent: -2, duration: ${dur}, ease: "none" }, 0);`
+    : "";
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
 <script src="assets/gsap.min.js"></script>
@@ -57,6 +62,7 @@ ${captions}
     window.__timelines = window.__timelines || {};
     const tl = gsap.timeline({ paused: true });
 ${tweens}
+${kenBurns}
     window.__timelines["main"] = tl;
   </script>
 </div>
