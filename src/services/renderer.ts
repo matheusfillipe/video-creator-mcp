@@ -142,10 +142,6 @@ export async function renderComposition(
       String(params.fps),
       "--resolution",
       effectiveResolution,
-      // Pin 1 worker + screenshot capture. Auto-worker calibration probes capture speed and
-      // throws "Measured slow frame capture" on software-GL pods under concurrent load,
-      // dropping the segment entirely.
-      "--low-memory-mode",
     ];
     const producerPort = PRODUCER_PORT_BASE + (producerPortSeq++ % PRODUCER_PORT_WINDOW);
     // Invoke the globally-installed binary directly rather than via npx: under parallel
