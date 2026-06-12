@@ -142,6 +142,10 @@ export async function renderComposition(
       String(params.fps),
       "--resolution",
       effectiveResolution,
+      // Pin 1 worker — skips auto-worker calibration which probes ~2-3s per frame on
+      // software-GL pods and intermittently fails segments with "slow frame capture".
+      "--workers",
+      "1",
     ];
     const producerPort = PRODUCER_PORT_BASE + (producerPortSeq++ % PRODUCER_PORT_WINDOW);
     // Invoke the globally-installed binary directly rather than via npx: under parallel
