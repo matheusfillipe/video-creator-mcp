@@ -182,11 +182,22 @@ async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]):
   let audioIndex = 0;
 
   for (const track of tracks) {
-    const meta = await loadMeta(track.media_id);
+    let meta = await loadMeta(track.media_id);
+    // Required audio tracks (e.g. soundtrack passed by the caller) sometimes race against a
+    // still-in-flight video_download_media for the same media_id — the agent fires render
+    // before the download response lands. Briefly retry rather than failing the job: cheaper
+    // than the agent's full re-render loop.
+    if (!meta && track.required) {
+      const deadline = Date.now() + 60_000;
+      while (!meta && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 2000));
+        meta = await loadMeta(track.media_id);
+      }
+    }
     if (!meta) {
       if (track.required) {
         throw new Error(
-          `audio media_id "${track.media_id}" not in cache — re-run video_download_media for the soundtrack/narration URL and pass the fresh media_id`,
+          `audio media_id "${track.media_id}" not in cache after 60s — re-run video_download_media for the soundtrack/narration URL and pass the fresh media_id`,
         );
       }
       continue;
