@@ -12,6 +12,7 @@ export interface SlideshowSegmentOptions {
   totalDurationSeconds: number;
   resolution: "landscape" | "portrait" | "square";
   accentColor?: string;
+  isImage?: boolean;
 }
 
 const DIMS = {
@@ -49,7 +50,7 @@ export function slideshowSegmentHtml(opts: SlideshowSegmentOptions): string {
 </style></head>
 <body>
 <div id="root" data-composition-id="main" data-start="0" data-duration="${dur}" data-width="${w}" data-height="${h}">
-  <video id="v" src="${src}" muted playsinline data-start="0" data-duration="${dur}" data-track-index="0"></video>
+  ${opts.isImage ? `<img id="v" src="${src}" data-start="0" data-duration="${dur}" data-track-index="0" />` : `<video id="v" src="${src}" muted playsinline data-start="0" data-duration="${dur}" data-track-index="0"></video>`}
   <div id="vignette"></div>
 ${captions}
   <script>

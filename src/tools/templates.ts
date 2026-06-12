@@ -153,7 +153,9 @@ export function registerTemplateTools(server: McpServer): void {
             media_id: z
               .string()
               .min(1)
-              .describe("Background-video media_id from video_download_media."),
+              .describe(
+                "Background media_id from video_download_media. Can be a video clip OR a static image (JPG/PNG/WebP) — pass image URLs (page screenshots, avatars, profile pics, logos) through video_download_media just like videos; the slideshow renders them as full-canvas backgrounds for the segment's duration.",
+              ),
             duration_seconds: z
               .number()
               .positive()
@@ -196,6 +198,7 @@ export function registerTemplateTools(server: McpServer): void {
       type Group = {
         media_id: string;
         filename: string;
+        isImage: boolean;
         texts: { text: string; startSeconds: number; durationSeconds: number }[];
         total: number;
       };
@@ -209,6 +212,7 @@ export function registerTemplateTools(server: McpServer): void {
           continue;
         }
         mediaIds.add(seg.media_id);
+        const isImage = meta.duration === 0 && meta.width > 0 && meta.height > 0;
         const last = groups[groups.length - 1];
         if (last && last.media_id === seg.media_id) {
           last.texts.push({
@@ -221,6 +225,7 @@ export function registerTemplateTools(server: McpServer): void {
           groups.push({
             media_id: seg.media_id,
             filename: meta.filename,
+            isImage,
             texts: [{ text: seg.text, startSeconds: 0, durationSeconds: seg.duration_seconds }],
             total: seg.duration_seconds,
           });
@@ -234,6 +239,7 @@ export function registerTemplateTools(server: McpServer): void {
             videoFilename: g.filename,
             totalDurationSeconds: g.total,
             resolution: orientation,
+            isImage: g.isImage,
             ...(args.accent_color ? { accentColor: args.accent_color } : {}),
           }),
         ),

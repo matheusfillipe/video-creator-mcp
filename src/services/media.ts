@@ -301,10 +301,11 @@ export async function downloadMedia(params: {
 
       const needTrim = !preTrimmed && ((start !== undefined && start > 0) || end !== undefined);
       const isAudioOnly = /\.(mp3|wav|m4a|ogg|flac)(\?.*)?$/i.test(url);
+      const isImage = /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i.test(url);
       let outFile: string;
       if (needTrim) {
         outFile = await trimMedia(rawFile, mediaId, start, end);
-      } else if (!isAudioOnly) {
+      } else if (!isAudioOnly && !isImage) {
         // Always re-encode video downloads through trimMedia (no time args) so the output has
         // -g 30 keyframes. YouTube sources can have I-frames 4-10s apart; hyperframes' chrome
         // rasterizer needs ~1s intervals or segment renders fail with "sparse keyframes".
