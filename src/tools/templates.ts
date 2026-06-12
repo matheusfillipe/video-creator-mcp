@@ -191,7 +191,15 @@ export function registerTemplateTools(server: McpServer): void {
             ? "square"
             : "landscape";
 
-      const timelineSegments: TimelineSegment[] = [];
+      // Group consecutive segments that share a media_id so the bg video plays continuously
+      // across text changes instead of restarting from t=0 on every slide.
+      type Group = {
+        media_id: string;
+        filename: string;
+        texts: { text: string; startSeconds: number; durationSeconds: number }[];
+        total: number;
+      };
+      const groups: Group[] = [];
       const mediaIds = new Set<string>();
       const segmentWarnings: string[] = [];
       for (const [i, seg] of args.segments.entries()) {
@@ -201,20 +209,37 @@ export function registerTemplateTools(server: McpServer): void {
           continue;
         }
         mediaIds.add(seg.media_id);
-        timelineSegments.push({
-          html: encode(
-            slideshowSegmentHtml({
-              text: seg.text,
-              videoFilename: meta.filename,
-              durationSeconds: seg.duration_seconds,
-              resolution: orientation,
-              ...(args.accent_color ? { accentColor: args.accent_color } : {}),
-            }),
-          ),
-          duration: seg.duration_seconds,
-          media: [{ media_id: seg.media_id }],
-        });
+        const last = groups[groups.length - 1];
+        if (last && last.media_id === seg.media_id) {
+          last.texts.push({
+            text: seg.text,
+            startSeconds: last.total,
+            durationSeconds: seg.duration_seconds,
+          });
+          last.total += seg.duration_seconds;
+        } else {
+          groups.push({
+            media_id: seg.media_id,
+            filename: meta.filename,
+            texts: [{ text: seg.text, startSeconds: 0, durationSeconds: seg.duration_seconds }],
+            total: seg.duration_seconds,
+          });
+        }
       }
+
+      const timelineSegments: TimelineSegment[] = groups.map((g) => ({
+        html: encode(
+          slideshowSegmentHtml({
+            texts: g.texts,
+            videoFilename: g.filename,
+            totalDurationSeconds: g.total,
+            resolution: orientation,
+            ...(args.accent_color ? { accentColor: args.accent_color } : {}),
+          }),
+        ),
+        duration: g.total,
+        media: [{ media_id: g.media_id }],
+      }));
 
       if (timelineSegments.length === 0) {
         throw new Error(
