@@ -8,7 +8,7 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 
 | Brief shape | Tool |
 | --- | --- |
-| Text-over-bg-clips slideshow / "explore X and present" / explainer / documentary-style with music | **\`video_render_slideshow\`** (data only, no HTML) |
+| **Brief has any TEXT to display over the video** (captions, narration, "present X", "intro to Y", explainer, slide titles) — even if it ALSO mentions cuts/music/scenery | **\`video_render_slideshow\`** (data only, no HTML) |
 | Loop one clip + rotating timed text ("have you given up?") | \`video_loop\` → \`video_caption\` |
 | Countdown / top-N / tier list | \`video_render_tierlist\` |
 | Typed terminal command | \`video_render_terminal\` |
@@ -16,9 +16,9 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 | Catalog block (map, globe, device mockup, …) | \`video_catalog\` → \`video_render_block\` |
 | Plain timed captions on ONE existing ≤30s clip | \`video_caption\` |
 | Lower-third / logo reveal / graphic overlay on ONE ≤30s clip | \`video_render\` with one composition (read html-authoring skill) |
-| Cuts at specific timestamps with no presentation text — pure montage | \`video_render_timeline\` (read html-authoring skill) |
+| **Pure clip montage with ZERO on-screen text** — just cuts, music | \`video_render_timeline\` (read html-authoring skill) |
 
-If the brief implies multiple scenes (>30s, cut points, "explore", "present"), the answer is NEVER single \`video_render\`. If it fits **slideshow**, prefer slideshow over raw timeline — the template stamps correct CSS for free.
+The presence of ANY caption / title / overlay text → slideshow, not timeline. Phrases like "cut at 41s" or "documentary style" alone do NOT push toward custom HTML — slideshow handles cuts via segments. Reach for \`video_render_timeline\` ONLY when you genuinely have no text overlays at all and need custom motion the slideshow template can't express.
 
 ## Source fetching — keep it tight
 - \`video_search_youtube\` returns several candidates; **pick one per segment without re-searching**. Don't download 30 clips to "have options" — the next turn's LLM call costs ~20s. Each unused download is a wasted minute.
