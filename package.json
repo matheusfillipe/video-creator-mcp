@@ -4,9 +4,31 @@
   "description": "Agent-driven video-creation MCP server: scavenge sources (YouTube, web), composite, and render video via Hyperframes.",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "video-creator-mcp": "dist/index.js"
+  },
+  "files": ["dist", "gsap", "python", "skills", ".env.example", "README.md", "LICENSE"],
   "engines": {
     "node": ">=20"
   },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "video",
+    "ai-agent",
+    "hyperframes",
+    "ffmpeg",
+    "youtube-dl",
+    "claude"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/matheusfillipe/video-creator-mcp.git"
+  },
+  "license": "MIT",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",

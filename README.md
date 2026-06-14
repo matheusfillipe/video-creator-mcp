@@ -23,14 +23,69 @@ server:  searches YouTube → picks 8 clips at their heatmap peaks
 - **Render in the background** — submit a job, poll for the URL. Nothing blocks the agent on a multi-minute render.
 - **Catch mistakes before they ship** — composition linter, frame extractor for visual verification, audio-analysis for cut-point grounding.
 
-## Quick start
+## Use it from Claude Code
+
+Two ways. Pick one.
+
+### A) Hosted (zero install, recommended)
+
+Connect Claude Code directly to a hosted instance over HTTP:
+
+```bash
+claude mcp add --transport http video-creator-mcp \
+  https://video-mcp.t3ks.com/mcp \
+  --header "x-api-key: YOUR_KEY"
+```
+
+This is the fastest path — no toolchain to install locally, GPU-accelerated render server, S3-backed outputs.
+
+### B) Local via npx (self-hosted)
+
+Run the server as a stdio child process under Claude Code. **Needs `ffmpeg` + `chromium` (or `chrome-headless-shell`) + `yt-dlp` on `PATH`** for full functionality:
+
+```bash
+claude mcp add video-creator-mcp \
+  -- npx -y video-creator-mcp@latest
+```
+
+This boots the server in stdio mode and points Claude Code at it. Defaults: `STORAGE_TYPE=local` (writes MP4s to `./output`), media cache in `~/.cache/video-creator-mcp`.
+
+To configure (S3 storage, custom paths, etc.), pass env vars after `--` in the install command, or edit the entry in `~/.claude/claude_desktop_config.json` (or wherever your MCP config lives) and add an `env` block:
+
+```jsonc
+{
+  "mcpServers": {
+    "video-creator-mcp": {
+      "command": "npx",
+      "args": ["-y", "video-creator-mcp@latest"],
+      "env": {
+        "TRANSPORT": "stdio",
+        "STORAGE_TYPE": "s3",
+        "S3_ENDPOINT": "https://s3.example.com",
+        "S3_BUCKET": "video-renders",
+        "S3_ACCESS_KEY": "...",
+        "S3_SECRET_KEY": "...",
+        "PUBLIC_URL": "https://video-renders.example.com"
+      }
+    }
+  }
+}
+```
+
+Once installed (either way), in any Claude Code session try:
+
+> "Make a 30-second video about handyc's GitHub repos with cinematic nature backgrounds and a documentary feel."
+
+The server picks the right rendering tool, downloads source clips, composes captions, renders to MP4, and posts the URL back.
+
+## Develop locally
 
 ```bash
 npm install
-npm run dev          # MCP server on http://localhost:3100/mcp
+npm run dev          # http://localhost:3100/mcp (Streamable HTTP)
 ```
 
-Point any MCP client at `http://localhost:3100/mcp` (stateless Streamable HTTP). Set `MCP_API_KEY` to require an `x-api-key` header on every call.
+Point any MCP client at `http://localhost:3100/mcp`. Set `MCP_API_KEY` to require an `x-api-key` header on every call.
 
 ## Docker (recommended)
 
