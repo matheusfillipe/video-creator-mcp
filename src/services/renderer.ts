@@ -146,6 +146,10 @@ export async function renderComposition(
       // software-GL pods and intermittently fails segments with "slow frame capture".
       "--workers",
       "1",
+      // Force chrome's hardware GPU path when /dev/dri is mounted. Without this flag
+      // hyperframes' "auto" probe still launches chrome with --use-angle=swiftshader
+      // (verified in the chrome args), falling back to software regardless.
+      "--browser-gpu",
     ];
     const producerPort = PRODUCER_PORT_BASE + (producerPortSeq++ % PRODUCER_PORT_WINDOW);
     // Invoke the globally-installed binary directly rather than via npx: under parallel
