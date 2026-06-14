@@ -1,17 +1,27 @@
 # video-creator-mcp
 
-Give an AI agent the ability to **make videos**. It searches YouTube and the web, grabs and trims clips, lays text, images and animation over them, mixes audio, and renders a finished MP4 — all driven over the [Model Context Protocol](https://modelcontextprotocol.io), so any MCP-capable agent (like cloudbot) can use it.
+**An AI agent's video studio, behind an API.**
 
-Think of it as a small video studio sitting behind an API the agent talks to.
+Hand an MCP-capable agent a prompt — "make a 2-minute documentary about X" — and this server does the hands-on work: finds footage on YouTube, grabs the right clips, lays text and animation over them, syncs music, narrates, and renders a finished MP4. Everything an LLM can't do on its own, in one place.
+
+```
+agent: "make a 90s explainer about quantum entanglement, narrate it"
+server:  searches YouTube → picks 8 clips at their heatmap peaks
+         generates voiceover, mixes it under the music
+         stamps captions, renders 1920×1080 H.264
+         returns:  https://your-bucket/render-abc123.mp4
+```
 
 ## What it can do
 
-- **Find footage** — search YouTube, read a video's metadata and its "most-replayed" heatmap to pick the best moments.
-- **Pull media from anywhere** — YouTube, TikTok, X, Reddit, Vimeo, or any direct audio/video/image URL, trimmed to the part you want.
-- **Compose** — stack video clips, text, images and animation; sequence multiple clips into one timeline.
-- **Control the sound** — per-clip volume and mute, plus background music or voiceover overlaid at any point.
-- **Narrate** — built-in text-to-speech voices.
-- **Render** — to MP4 as a background job: the agent submits, gets a job id, and polls until the video is ready (so it never blocks on a long render).
+- **Find footage** — YouTube search with metadata, "most-replayed" heatmaps, full caption/subtitle search to clip the exact moment someone says X.
+- **Pull media from anywhere** — YouTube, TikTok, X, Reddit, Vimeo, or any direct audio/video/image URL. Range-trim at download, SSRF-guarded.
+- **Compose** — full slideshows (`video_render_slideshow`), animated countdowns/tier lists, terminal demos, data-driven line charts, or fully custom HTML+GSAP scenes. Templates stamp the HTML for the agent — no hand-authored markup needed for the common shapes.
+- **Edit on the timeline** — multiple clips with per-segment text overlays, background video that plays *through* text changes (not restarting on every slide), Ken-Burns zoom on stills.
+- **Audio control** — per-clip volume + mute, soundtrack/narration overlay with fade and offset, video length auto-clamped to the music.
+- **Narrate** — built-in TTS with multiple voices.
+- **Render in the background** — submit a job, poll for the URL. Nothing blocks the agent on a multi-minute render.
+- **Catch mistakes before they ship** — composition linter, frame extractor for visual verification, audio-analysis for cut-point grounding.
 
 ## Quick start
 
@@ -20,29 +30,49 @@ npm install
 npm run dev          # MCP server on http://localhost:3100/mcp
 ```
 
-Point an MCP client at `http://localhost:3100/mcp` (stateless Streamable HTTP). Set `MCP_API_KEY` to require an `x-api-key` header.
+Point any MCP client at `http://localhost:3100/mcp` (stateless Streamable HTTP). Set `MCP_API_KEY` to require an `x-api-key` header on every call.
 
-## Run with Docker (recommended)
+## Docker (recommended)
 
-Rendering needs ffmpeg and a headless browser; the image bundles them, so this is the most reliable way to run it:
+Rendering needs a headless browser plus ffmpeg; the image bundles both:
 
 ```bash
-docker compose up --build      # :3100, with volumes for rendered output + media cache
+docker build -t video-creator-mcp .
+docker run --rm -p 3100:3100 \
+  -v $(pwd)/output:/app/output \
+  -v $(pwd)/cache:/root/.cache/video-creator-mcp \
+  video-creator-mcp
 ```
+
+For real production use, schedule it on a node with `/dev/dri` access — chrome's WebGL capture path is ~10× faster on a GPU than on software SwiftShader.
 
 ## Tools
 
-The agent has 13 tools — search, download, render, timeline, tts, and more. Full reference, every parameter, auto-generated from the live server:
+27 tools spanning search, download, audio, lint, render, verify. Full reference auto-generated from the live server:
 
 **→ [docs/TOOLS.md](docs/TOOLS.md)**
 
+The agent picks the right one from a routing table loaded as an MCP resource (`guide://authoring`); template tools (`video_render_slideshow`, `video_render_tierlist`, `video_render_terminal`, `video_render_chart`) stamp HTML internally so the agent emits JSON, not markup.
+
 ## Configuration
 
-Copy `.env.example` to `.env`. Common knobs: `TRANSPORT`, `PORT`, `MCP_API_KEY`, `STORAGE_TYPE` (`local`/`s3`), `RENDER_CONCURRENCY`. Downloads are SSRF-guarded — hosts resolving to private/internal addresses are blocked unless `ALLOW_PRIVATE_NETWORK=true`.
+Copy `.env.example` to `.env`. Common knobs:
+
+| Var | What |
+| --- | --- |
+| `TRANSPORT` | `http` (default) or `stdio` |
+| `PORT` | `3100` |
+| `MCP_API_KEY` | optional; requires `x-api-key` header |
+| `STORAGE_TYPE` | `local` (`./output`) or `s3` (MinIO/Cloudflare R2/AWS) |
+| `RENDER_CONCURRENCY` | parallel render jobs (default 1) |
+| `RENDER_SEGMENT_CONCURRENCY` | parallel chrome segments per job (default 3) |
+| `ALLOW_PRIVATE_NETWORK` | unblock downloads of private/internal URLs |
+
+Downloads are SSRF-guarded by default — hosts resolving to private/internal addresses are rejected.
 
 ## Under the hood
 
-Compositions are HTML + [GSAP](https://gsap.com), rendered to frames by [Hyperframes](https://hyperframes.dev) (headless Chrome) and assembled with ffmpeg. Multi-clip videos render each segment, concatenate them, and mix the audio tracks. For the authoring rules an agent follows, see <https://hyperframes.mintlify.app/llms.txt>.
+Compositions are HTML + [GSAP](https://gsap.com), rasterized by [Hyperframes](https://hyperframes.dev) (headless Chrome) and assembled with ffmpeg. The slideshow path groups consecutive same-media segments into one continuous chrome render so the background plays through text transitions naturally. For the authoring rules an agent follows, see <https://hyperframes.mintlify.app/llms.txt>.
 
 ## Development
 
@@ -51,5 +81,5 @@ npm run lint
 npm run typecheck
 npm test
 npm run build
-npm run docs:tools   # regenerate docs/TOOLS.md (also runs on pre-commit and is checked in CI)
+npm run docs:tools   # regenerate docs/TOOLS.md (also runs on pre-commit and in CI)
 ```
