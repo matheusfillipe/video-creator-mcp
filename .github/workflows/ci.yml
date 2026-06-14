@@ -74,6 +74,10 @@ jobs:
           node-version: 22
           cache: npm
           registry-url: "https://registry.npmjs.org"
+      # Trusted Publishing (OIDC → npm auth, no NPM_TOKEN) requires npm >= 11.5.1.
+      # Node 22 ships npm 10.9 which can sign provenance but can't exchange the OIDC
+      # token for an npm auth token, so PUT to the registry 404s as unauthenticated.
+      - run: npm install -g npm@latest
       - run: npm ci
       - run: npm run build
       - run: npm publish --provenance --access public
