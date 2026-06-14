@@ -177,7 +177,7 @@ export function cumulativeOffsetsMs(durationsSeconds: number[]): number[] {
 
 async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]): Promise<string> {
   const inputs = ["-y", "-i", concatOut];
-  const filters = ["[0:v]copy[v]"];
+  const filters: string[] = [];
   const mixLabels: string[] = [];
   let audioIndex = 0;
 
@@ -232,6 +232,9 @@ async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]):
     `${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0[outa]`,
   );
   const out = join(dir, "final.mp4");
+  // Skip re-encoding the video — the concat input is already h264 from the per-segment
+  // chrome renders, and the filter graph only touches audio. -map 0:v + -c:v copy muxes
+  // the existing stream straight through (saves a full libx264 pass over 146s × 30fps).
   await run(
     "ffmpeg",
     [
@@ -239,15 +242,11 @@ async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]):
       "-filter_complex",
       filters.join(";"),
       "-map",
-      "[v]",
+      "0:v",
       "-map",
       "[outa]",
       "-c:v",
-      "libx264",
-      "-crf",
-      "23",
-      "-preset",
-      "fast",
+      "copy",
       "-c:a",
       "aac",
       "-b:a",
