@@ -150,6 +150,9 @@ export async function renderComposition(
       // hyperframes' "auto" probe still launches chrome with --use-angle=swiftshader
       // (verified in the chrome args), falling back to software regardless.
       "--browser-gpu",
+      // Hardware H.264 encode via VAAPI (AMD 780M). Cuts the final libx264 encode pass
+      // from minutes to seconds for long timelines.
+      "--gpu",
     ];
     const producerPort = PRODUCER_PORT_BASE + (producerPortSeq++ % PRODUCER_PORT_WINDOW);
     // Invoke the globally-installed binary directly rather than via npx: under parallel
