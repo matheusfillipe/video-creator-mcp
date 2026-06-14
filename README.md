@@ -87,20 +87,6 @@ npm run dev          # http://localhost:3100/mcp (Streamable HTTP)
 
 Point any MCP client at `http://localhost:3100/mcp`. Set `MCP_API_KEY` to require an `x-api-key` header on every call.
 
-## Release & publish
-
-Releases are tag-driven. CI builds on every push; **publishing to npm happens only when a `v*.*.*` tag is pushed**, via GitHub Actions and npm's [Trusted Publishing](https://docs.npmjs.com/trusted-publishers) (OIDC — no NPM_TOKEN secret stored). Each published package carries a [provenance attestation](https://docs.npmjs.com/generating-provenance-statements) so consumers can verify it was built by this exact workflow run.
-
-One-time npm setup: on the package's npm page, add a Trusted Publisher pointing at this repo + `.github/workflows/ci.yml`, job `npm-publish`.
-
-To cut a release:
-
-```bash
-npm version patch      # or minor / major — bumps package.json + creates git tag
-git push --follow-tags # CI sees the tag, runs verify + publishes to npm with provenance
-```
-
-The same tag push also publishes the Docker image to `ghcr.io/<owner>/video-creator-mcp:vX.Y.Z`.
 
 ## Docker (recommended)
 
