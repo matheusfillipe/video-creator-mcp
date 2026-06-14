@@ -18,6 +18,8 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg python3 python3-pip curl ca-certificates chromium unzip tini \
       fonts-liberation fonts-noto-color-emoji fonts-noto-core libglib2.0-0 \
+      mesa-vulkan-drivers libgl1-mesa-dri libegl-mesa0 libgbm1 \
+      libva-drm2 libva2 mesa-va-drivers vainfo \
     && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" opencv-python-headless numpy \
     && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
     && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod +x /usr/local/bin/deno \
