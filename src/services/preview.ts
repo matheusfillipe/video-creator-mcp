@@ -59,11 +59,12 @@ export async function previewFrames(params: PreviewParams): Promise<PreviewOutpu
     const files = await readdir(snapsDir);
     const frames: PreviewOutput["frames"] = [];
     for (const [i, t] of params.timeSeconds.entries()) {
-      const name = files.find(
-        (f) => /^frame-\d+-at-/.test(f) && f.includes(`at-${t}s`) && f.endsWith(".png"),
-      );
+      const prefix = `frame-${String(i).padStart(2, "0")}-`;
+      const name = files.find((f) => f.startsWith(prefix) && f.endsWith(".png"));
       if (!name) {
-        throw new Error(`hyperframes snapshot didn't produce a PNG for t=${t}s`);
+        throw new Error(
+          `hyperframes snapshot didn't produce a PNG for index ${i} (t=${t}s). Available: ${files.join(", ")}`,
+        );
       }
       const buffer = await readFile(join(snapsDir, name));
       frames.push({
