@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 27 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 28 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -135,6 +135,17 @@ List cached media, or remove one cached item by media_id.
 |---|---|---|---|---|
 | `action` | `"list"` \| `"remove"` | no | `"list"` | List all, or remove one. |
 | `media_id` | string | no |  | Required when action=remove. |
+
+## `video_preview_frame`
+
+Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_render or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `html` | string | yes |  | Base64-encoded HTML+GSAP composition (same shape as video_render). |
+| `at` | array | yes |  | Timestamps (seconds, within the composition's data-duration) to capture. |
+| `media` | array | no |  | media_ids referenced by the HTML (linked into assets/ before snapshot). |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution preset. |
 
 ## `video_remove_background`
 

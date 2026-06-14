@@ -2,6 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { extractFrame, lintComposition, removeBackground } from "../services/effects.js";
 import { runOnEngine } from "../services/engine.js";
+import { previewFrames } from "../services/preview.js";
+import { saveRender } from "../services/publish.js";
+import type { Resolution } from "../types.js";
 import { registerTool } from "./defineTool.js";
 
 export function registerEffectsTools(server: McpServer): void {
@@ -31,6 +34,61 @@ export function registerEffectsTools(server: McpServer): void {
       return {
         ...meta,
         html_hint: `Reference as src="assets/${meta.filename}" and pass media_id "${meta.media_id}" in a render media array.`,
+      };
+    },
+  });
+
+  registerTool(server, {
+    name: "video_preview_frame",
+    title: "Preview a Composition Frame WITHOUT Rendering",
+    description:
+      "Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_render or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.",
+    inputSchema: {
+      html: z
+        .string()
+        .min(1)
+        .describe("Base64-encoded HTML+GSAP composition (same shape as video_render)."),
+      at: z
+        .array(z.number().min(0))
+        .min(1)
+        .max(10)
+        .describe("Timestamps (seconds, within the composition's data-duration) to capture."),
+      media: z
+        .array(
+          z.object({
+            media_id: z.string().min(1),
+          }),
+        )
+        .optional()
+        .describe("media_ids referenced by the HTML (linked into assets/ before snapshot)."),
+      resolution: z
+        .enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"])
+        .default("1080p")
+        .describe("Output resolution preset."),
+    },
+    annotations: { readOnlyHint: true },
+    handler: async ({ html, at, media, resolution }) => {
+      const output = await runOnEngine(() =>
+        previewFrames({
+          htmlBase64: html,
+          timeSeconds: at,
+          resolution: resolution as Resolution,
+          ...(media ? { media } : {}),
+        }),
+      );
+      const frames: Array<{ time_seconds: number; url: string; filename: string }> = [];
+      for (const f of output.frames) {
+        const saved = await saveRender(f.buffer, f.filename);
+        frames.push({ time_seconds: f.time_seconds, url: saved.url, filename: saved.filename });
+      }
+      const contact = output.contactSheet
+        ? await saveRender(output.contactSheet.buffer, output.contactSheet.filename)
+        : null;
+      return {
+        frames,
+        ...(contact ? { contact_sheet_url: contact.url } : {}),
+        vision_hint:
+          "Pass each frame `url` (or the contact sheet) to your vision/describe_image tool to verify layout BEFORE you commit to a full render.",
       };
     },
   });
