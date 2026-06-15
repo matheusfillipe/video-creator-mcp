@@ -104,7 +104,7 @@ For real production use, schedule it on a node with `/dev/dri` access — chrome
 
 ## Tools
 
-27 tools spanning search, download, audio, lint, render, verify. Full reference auto-generated from the live server:
+28 tools spanning search, download, audio, lint, render, verify (including `video_preview_frame` — single-frame composition preview in ~1.5s instead of a full render). Full reference auto-generated from the live server:
 
 **→ [docs/TOOLS.md](docs/TOOLS.md)**
 
