@@ -30,10 +30,15 @@ The presence of ANY caption / title / overlay text → slideshow, not timeline. 
 - **Video length = min(requested duration, soundtrack length).** Don't run video past the music. Trim the song download instead.
 - **Don't re-render after success.** \`video_render_status\` returns a \`url\` → run ONE verify pass → report. Skipping verify ships cropped text; doing more than one re-render burns minutes.
 
-## After render_status — ONE verification pass, then stop
-1. \`video_extract_frame\` at 3 timestamps (≈0.5s, 50%, ≈95%) on the result url.
-2. Vision-check each: text bleed, layer overlap, letterbox, wrong content, mostly-black, mojibake.
-3. All clean → report URL + STOP. One bad → fix the specific bug, re-render ONCE, report. Two renders maximum, ever.
+## Vision-validate BEFORE you render — use \`video_preview_frame\`
+**Verifying a finished render is the wrong loop.** A full render is minutes; one preview frame is ~1.5s. Catch layout problems while they're still cheap to fix.
+
+For every composition before \`video_render\` / \`video_render_timeline\` / \`video_render_slideshow\`:
+1. Call \`video_preview_frame\` on the SAME html + media you'd render, at 3 key timestamps (≈0.5s, mid, ≈95% of duration).
+2. Vision-check the returned PNGs (or the contact-sheet jpg) for: text bleed, layer overlap, letterbox, wrong content, mostly-black, mojibake.
+3. All clean → render once. Any bad → fix the HTML and preview again. **Render is the LAST step.** When \`video_render_status\` returns a url, report it and STOP — no second verify pass on the finished MP4.
+
+\`video_extract_frame\` is for verifying **source clips** (a freshly downloaded YouTube clip — does it actually contain what the title promised?), not for verifying your own render output. If you used preview_frame correctly, you don't need to re-check the final.
 
 ## When to read deeper
 - \`video_skill\` (no arg) lists every doc.
