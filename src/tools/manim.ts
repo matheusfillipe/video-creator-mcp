@@ -65,15 +65,8 @@ export function registerManimTools(server: McpServer): void {
       ...musicArg,
       metadata: metadataArg,
     },
-    handler: async ({
-      title,
-      scenes,
-      resolution,
-      accent_color,
-      music_media_id,
-      music_volume,
-      metadata,
-    }) => {
+    handler: async ({ metadata, ...args }) => {
+      const { title, scenes, resolution, accent_color, music_media_id, music_volume } = args;
       const jobId = submitJob("math", async () => {
         const { buffer, filename } = await renderMathShort({
           title,
@@ -84,7 +77,7 @@ export function registerManimTools(server: McpServer): void {
         const final = music_media_id
           ? await muxLoopedMusic(buffer, ".mp4", music_media_id, music_volume)
           : buffer;
-        return saveRender(final, filename, metadata);
+        return saveRender(final, filename, metadata, { tool: "video_render_math", args });
       });
       return {
         job_id: jobId,
@@ -115,13 +108,14 @@ export function registerManimTools(server: McpServer): void {
         ...musicArg,
         metadata: metadataArg,
       },
-      handler: async ({ code, scene_name, renderer, music_media_id, music_volume, metadata }) => {
+      handler: async ({ metadata, ...args }) => {
+        const { code, scene_name, renderer, music_media_id, music_volume } = args;
         const jobId = submitJob("manim", async () => {
           const { buffer, filename } = await renderManimScene(code, scene_name, renderer);
           const final = music_media_id
             ? await muxLoopedMusic(buffer, ".mp4", music_media_id, music_volume)
             : buffer;
-          return saveRender(final, filename, metadata);
+          return saveRender(final, filename, metadata, { tool: "video_render_manim", args });
         });
         return {
           job_id: jobId,

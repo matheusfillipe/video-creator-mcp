@@ -1,3 +1,4 @@
+import { config } from "../config.js";
 import { storage } from "./storage.js";
 
 export interface PublishMetadata {
@@ -5,6 +6,21 @@ export interface PublishMetadata {
   description?: string;
   tags?: string[];
   category?: string;
+}
+
+// Args are creative inputs only (code/spec/media_ids/params), never credentials — safe to publish.
+export interface RenderRecipe {
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+export interface SidecarBody {
+  video?: string;
+  title?: string;
+  description?: string;
+  tags?: string[];
+  category?: string;
+  recipe?: RenderRecipe;
 }
 
 export interface SavedRender {
@@ -27,23 +43,29 @@ export function metadataSidecarName(filename: string): string {
   return `${base.replace(/\.[^.]+$/, "")}.json`;
 }
 
-// Saves a rendered video and, when metadata is supplied, a publish-ready JSON sidecar
-// next to it — so one render call yields both the video URL and the metadata URL.
+// The sidecar carries the recipe alongside publish metadata, so a client can read it back and
+// iterate on the render.
 export async function saveRender(
   buffer: Buffer,
   filename: string,
   metadata?: PublishMetadata,
+  recipe?: RenderRecipe,
 ): Promise<SavedRender> {
   const url = await storage().save(buffer, filename);
   const saved: SavedRender = { url, filename, size_bytes: buffer.byteLength };
-  if (metadata) {
+  if (metadata || recipe) {
     const sidecar = metadataSidecarName(filename);
-    const body = {
+    const body: SidecarBody = {
       video: filename.split("/").pop(),
-      title: metadata.title,
-      description: metadata.description ?? "",
-      tags: metadata.tags ?? [],
-      ...(metadata.category ? { category: metadata.category } : {}),
+      ...(metadata
+        ? {
+            title: metadata.title,
+            description: metadata.description ?? "",
+            tags: metadata.tags ?? [],
+            ...(metadata.category ? { category: metadata.category } : {}),
+          }
+        : {}),
+      ...(recipe ? { recipe } : {}),
     };
     saved.metadata_url = await storage().save(
       Buffer.from(JSON.stringify(body, null, 2)),
@@ -52,4 +74,29 @@ export async function saveRender(
     );
   }
   return saved;
+}
+
+// Reads the JSON sidecar for one of our own rendered videos. The url is confined to this server's
+// public bucket by origin + path prefix (not a bare string match, which a look-alike host defeats),
+// so this can never be turned into a fetch of an arbitrary host. Returns null when there's no sidecar.
+export async function readSidecar(videoUrl: string): Promise<SidecarBody | null> {
+  const base = config.storage.publicUrl;
+  if (!base) throw new Error("storage publicUrl is not configured; cannot resolve sidecars");
+  const baseUrl = new URL(base);
+  const prefix = baseUrl.pathname.replace(/\/?$/, "/");
+  let target: URL;
+  try {
+    target = new URL(videoUrl);
+  } catch {
+    throw new Error(`Invalid url: ${videoUrl}`);
+  }
+  if (target.origin !== baseUrl.origin || !target.pathname.startsWith(prefix)) {
+    throw new Error(`url must be under this server's bucket (${base}).`);
+  }
+  const sidecarUrl = target.href.endsWith(".json")
+    ? target.href
+    : target.href.replace(/\.[^./]+$/, ".json");
+  const res = await fetch(sidecarUrl, { redirect: "error" });
+  if (!res.ok) return null;
+  return (await res.json()) as SidecarBody;
 }

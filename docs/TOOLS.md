@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 30 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 31 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -104,6 +104,14 @@ Full metadata for a YouTube video (or any yt-dlp URL): title, channel, duration,
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `url` | string | yes |  | YouTube URL or 11-char video id. |
+
+## `video_get_recipe`
+
+Fetch the recipe a video was made with — the exact tool + args (manim code, edit spec, media_ids, params) stored in its JSON sidecar. Pass the video's URL (…/name.mp4) or its sidecar (…/name.json). This is how you ITERATE on an earlier render: get the recipe, change one field (duration, a scene, music_media_id, the code), then call that same tool again. Returns the recipe, or a note if this artifact has none.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | string | yes |  | The video's public URL (…/name.mp4) or its sidecar (…/name.json). |
 
 ## `video_get_subtitles`
 

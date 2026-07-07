@@ -77,7 +77,8 @@ export function registerEditTools(server: McpServer): void {
       fps: z.number().int().min(1).max(60).default(30),
       metadata: metadataArg,
     },
-    handler: async ({ layout, groups, text, audio, fade, resolution, fps, metadata }) => {
+    handler: async ({ metadata, ...args }) => {
+      const { layout, groups, text, audio, fade, resolution, fps } = args;
       const spec: EditSpec = {
         layout,
         groups,
@@ -89,7 +90,7 @@ export function registerEditTools(server: McpServer): void {
       };
       const jobId = submitJob("edit", async () => {
         const { buffer, filename, duration, warnings } = await renderEdit(spec);
-        const saved = await saveRender(buffer, filename, metadata);
+        const saved = await saveRender(buffer, filename, metadata, { tool: "video_edit", args });
         return { ...saved, duration, warnings };
       });
       return {
