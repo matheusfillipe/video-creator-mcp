@@ -3,7 +3,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
-import { spawnStreaming } from "../lib/exec.js";
+import { sanitizedEnv, spawnStreaming } from "../lib/exec.js";
 import type { Resolution } from "../types.js";
 import { linkMediaToWorkdir } from "./media.js";
 
@@ -169,7 +169,7 @@ export async function renderComposition(
       },
       {
         env: {
-          ...process.env,
+          ...sanitizedEnv(),
           PRODUCER_PORT: String(producerPort),
           PRODUCER_RENDERS_DIR: join(workDir, "renders"),
         },

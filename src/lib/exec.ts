@@ -27,6 +27,20 @@ export class ExecError extends Error {
 const DEFAULT_TIMEOUT_MS = 120_000;
 const STREAMING_TIMEOUT_MS = 600_000;
 
+// Subprocesses (ffmpeg, chromium, yt-dlp, manim) run agent-controlled input — a manim scene is
+// arbitrary Python, a rendered page is arbitrary JS — so they must not inherit credential-shaped
+// env vars (the storage keys). Node keeps the full env for its own S3 client; only what it spawns
+// is scrubbed.
+const SECRET_ENV_RE = /SECRET|PASSWORD|TOKEN|CREDENTIAL|ACCESS_KEY|API_KEY|_KEY$/i;
+
+export function sanitizedEnv(): NodeJS.ProcessEnv {
+  const clean: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!SECRET_ENV_RE.test(key)) clean[key] = value;
+  }
+  return clean;
+}
+
 export function run(
   command: string,
   args: string[],
@@ -38,7 +52,7 @@ export function run(
       stdio: ["ignore", "pipe", "pipe"],
       timeout: timeoutMs,
       cwd,
-      env,
+      env: env ?? sanitizedEnv(),
     });
     let stdout = "";
     let stderr = "";
@@ -74,7 +88,7 @@ export function spawnStreaming(
       stdio: ["ignore", "pipe", "pipe"],
       timeout: timeoutMs,
       cwd,
-      env,
+      env: env ?? sanitizedEnv(),
     });
     let stdout = "";
     let stderr = "";
