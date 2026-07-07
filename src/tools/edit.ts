@@ -35,7 +35,7 @@ export function registerEditTools(server: McpServer): void {
         .min(1)
         .max(4)
         .describe(
-          "One array of segments per layout slot. Segments inside a group play in sequence.",
+          'Array of GROUPS, where each group is itself an ARRAY of segments — so this is a list of lists, even for a single group. layout single = 1 group; vstack/hstack/pip = 2 groups; grid = 4. Segments within a group play in sequence; groups are the layout slots. Example vstack: [[{media_id:"top"}],[{media_id:"bottom"}]].',
         ),
       text: z
         .array(

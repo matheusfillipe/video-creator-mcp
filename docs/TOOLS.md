@@ -79,7 +79,7 @@ The fast path for cut editing: trim clips, join them (optionally with crossfades
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `layout` | `"single"` \| `"vstack"` \| `"hstack"` \| `"pip"` \| `"grid"` | no | `"single"` | How groups are arranged on the canvas. |
-| `groups` | array | yes |  | One array of segments per layout slot. Segments inside a group play in sequence. |
+| `groups` | array | yes |  | Array of GROUPS, where each group is itself an ARRAY of segments — so this is a list of lists, even for a single group. layout single = 1 group; vstack/hstack/pip = 2 groups; grid = 4. Segments within a group play in sequence; groups are the layout slots. Example vstack: [[{media_id:"top"}],[{media_id:"bottom"}]]. |
 | `text` | array | no |  | Timed text overlays burned onto the combined video. |
 | `audio` | array | no |  | Music/narration tracks laid over the edit. |
 | `fade` | number | no |  | Crossfade seconds between segments in a group (0 = hard cuts, the default). |
