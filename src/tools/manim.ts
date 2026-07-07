@@ -28,8 +28,16 @@ export function registerManimTools(server: McpServer): void {
               .describe(
                 "Plottable expression in x, e.g. '3*exp(-x**2)*sin(15*x)'. Omit for a formula-only scene.",
               ),
-            x_range: z.tuple([z.number(), z.number()]).optional().describe("Default [-5, 5]."),
-            y_range: z.tuple([z.number(), z.number()]).optional().describe("Default [-3, 3]."),
+            x_range: z
+              .array(z.number())
+              .length(2)
+              .optional()
+              .describe("[min, max] for the x-axis. Default [-5, 5]."),
+            y_range: z
+              .array(z.number())
+              .length(2)
+              .optional()
+              .describe("[min, max] for the y-axis. Default [-3, 3]."),
             duration: z
               .number()
               .min(2)

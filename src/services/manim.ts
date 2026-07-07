@@ -51,8 +51,8 @@ export function validatePlotExpr(expr: string): string | null {
 export interface MathScene {
   latex: string;
   plot_expr?: string;
-  x_range?: [number, number];
-  y_range?: [number, number];
+  x_range?: number[];
+  y_range?: number[];
   duration?: number;
 }
 
