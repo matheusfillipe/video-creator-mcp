@@ -225,6 +225,8 @@ Render a math-animation video in the classic manim style: dark background, a tit
 | `scenes` | array | yes |  | Scenes shown in sequence, each fading out before the next. |
 | `resolution` | `"1080p"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"portrait"` |  |
 | `accent_color` | string | no |  | Hex color for formulas/graphs. |
+| `music_media_id` | string | no |  | Background-music media_id from video_download_media. Looped to cover the whole video and baked in here, so a math short with music is ONE call — no separate video_add_audio. |
+| `music_volume` | number | no | `0.8` | Music volume (default 0.8). |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_queue`

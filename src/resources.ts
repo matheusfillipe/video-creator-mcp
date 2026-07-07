@@ -30,8 +30,8 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 - After downloading the SOUNDTRACK: \`video_analyze_audio\` once to ground cut points in real energy peaks, not the user's guessed timestamps.
 
 ## Mandatory rules
-- **Soundtrack named in the brief → the finished video MUST carry that audio.** Silent video when music was requested is the #1 failure. Download the track, then lay it on in ONE step: for silent footage (a math/manim render) \`video_add_audio(mode:"replace", loop:true)\`; where a renderer takes music directly use its \`music_media_id\` / \`audio\` field. \`loop:true\` repeats a short song to fill the whole video, so you never need to match the song length to the video or trim either one.
-- **Add the music exactly once.** A single \`video_add_audio\` call finishes it — do NOT re-download the song or add audio a second time. Adding audio twice or re-fetching after success just burns turns.
+- **Soundtrack named in the brief → the finished video MUST carry that audio.** Silent video when music was requested is the #1 failure. Download the track, then bake it into the SAME render call: \`video_render_math\` / \`video_render_manim\` take a \`music_media_id\`, \`video_edit\` takes an \`audio\` track, \`video_render_tierlist\` takes \`music_media_id\`. Only for footage you already rendered silent do you need a separate \`video_add_audio(mode:"replace", loop:true)\`. The music always loops to cover the whole video, so never match the song length to the video or trim either one.
+- **Add the music exactly once.** Whether via the render's \`music_media_id\` or one \`video_add_audio\` call — do it a SINGLE time. Do NOT re-download the song or add audio a second time; that just burns turns.
 - **Don't re-render after success.** \`video_render_status\` returns a \`url\` → run ONE verify pass → report. Skipping verify ships cropped text; doing more than one re-render burns minutes.
 
 ## Vision-validate BEFORE you render — use \`video_preview_frame\`

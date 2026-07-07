@@ -1,11 +1,22 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { config } from "../config.js";
+import { muxLoopedMusic } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { renderManimScene, renderMathShort } from "../services/manim.js";
 import { saveRender } from "../services/publish.js";
 import { registerTool } from "./defineTool.js";
 import { metadataArg } from "./shared.js";
+
+const musicArg = {
+  music_media_id: z
+    .string()
+    .optional()
+    .describe(
+      "Background-music media_id from video_download_media. Looped to cover the whole video and baked in here, so a math short with music is ONE call — no separate video_add_audio.",
+    ),
+  music_volume: z.number().min(0).max(2).default(0.8).describe("Music volume (default 0.8)."),
+};
 
 export function registerManimTools(server: McpServer): void {
   registerTool(server, {
@@ -51,9 +62,18 @@ export function registerManimTools(server: McpServer): void {
         .describe("Scenes shown in sequence, each fading out before the next."),
       resolution: z.enum(["1080p", "landscape", "portrait", "square"]).default("portrait"),
       accent_color: z.string().optional().describe("Hex color for formulas/graphs."),
+      ...musicArg,
       metadata: metadataArg,
     },
-    handler: async ({ title, scenes, resolution, accent_color, metadata }) => {
+    handler: async ({
+      title,
+      scenes,
+      resolution,
+      accent_color,
+      music_media_id,
+      music_volume,
+      metadata,
+    }) => {
       const jobId = submitJob("math", async () => {
         const { buffer, filename } = await renderMathShort({
           title,
@@ -61,7 +81,10 @@ export function registerManimTools(server: McpServer): void {
           resolution,
           ...(accent_color ? { accent_color } : {}),
         });
-        return saveRender(buffer, filename, metadata);
+        const final = music_media_id
+          ? await muxLoopedMusic(buffer, ".mp4", music_media_id, music_volume)
+          : buffer;
+        return saveRender(final, filename, metadata);
       });
       return {
         job_id: jobId,
@@ -83,12 +106,16 @@ export function registerManimTools(server: McpServer): void {
           .min(1)
           .describe("Complete Python source including imports (from manim import *)."),
         scene_name: z.string().min(1).describe("Name of the Scene class to render."),
+        ...musicArg,
         metadata: metadataArg,
       },
-      handler: async ({ code, scene_name, metadata }) => {
+      handler: async ({ code, scene_name, music_media_id, music_volume, metadata }) => {
         const jobId = submitJob("manim", async () => {
           const { buffer, filename } = await renderManimScene(code, scene_name);
-          return saveRender(buffer, filename, metadata);
+          const final = music_media_id
+            ? await muxLoopedMusic(buffer, ".mp4", music_media_id, music_volume)
+            : buffer;
+          return saveRender(final, filename, metadata);
         });
         return {
           job_id: jobId,
