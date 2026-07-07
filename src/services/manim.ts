@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.js";
-import { run } from "../lib/exec.js";
+import { ExecError, run } from "../lib/exec.js";
 import { validateColor } from "../lib/ffmpeg.js";
 import type { Resolution } from "../types.js";
 import { dimsFor } from "./timeline.js";
@@ -165,10 +165,10 @@ async function findRenderedFile(mediaDir: string): Promise<string> {
   throw new Error("manim produced no mp4 output");
 }
 
-export async function renderManimScene(
+async function runManimAttempt(
   sceneCode: string,
   sceneName: string,
-  renderer: ManimRenderer = "auto",
+  useGl: boolean,
 ): Promise<ManimRenderOutput> {
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `manim-${jobId}`);
@@ -176,9 +176,7 @@ export async function renderManimScene(
   try {
     const scriptPath = join(dir, "scene.py");
     await writeFile(scriptPath, sceneCode);
-    const rendererArgs = useOpenGl(renderer, sceneCode)
-      ? ["--renderer=opengl", "--write_to_movie"]
-      : [];
+    const rendererArgs = useGl ? ["--renderer=opengl", "--write_to_movie"] : [];
     await run(
       "manim",
       [
@@ -199,6 +197,27 @@ export async function renderManimScene(
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
   }
+}
+
+export async function renderManimScene(
+  sceneCode: string,
+  sceneName: string,
+  renderer: ManimRenderer = "auto",
+): Promise<ManimRenderOutput> {
+  // "auto" sends a ThreeDScene to the GPU (OpenGL) for speed, but parts of manim's 3D
+  // camera API (e.g. set_camera_orientation(zoom=...)) are unimplemented on the OpenGL
+  // renderer and abort the render within a few seconds. Fall back to the CPU (Cairo)
+  // renderer so the scene still produces a video. An explicit renderer choice is honoured
+  // as given, with no fallback.
+  if (renderer === "auto" && useOpenGl("auto", sceneCode)) {
+    try {
+      return await runManimAttempt(sceneCode, sceneName, true);
+    } catch (error) {
+      if (!(error instanceof ExecError)) throw error;
+      return runManimAttempt(sceneCode, sceneName, false);
+    }
+  }
+  return runManimAttempt(sceneCode, sceneName, useOpenGl(renderer, sceneCode));
 }
 
 export async function renderMathShort(spec: MathShortSpec): Promise<ManimRenderOutput> {
