@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  audioClipLenSec,
   buildClipOverlayFilter,
   cumulativeOffsetsMs,
   dimsFor,
@@ -16,6 +17,28 @@ describe("cumulativeOffsetsMs", () => {
 
   it("returns an empty list for no segments", () => {
     expect(cumulativeOffsetsMs([])).toEqual([]);
+  });
+});
+
+describe("audioClipLenSec", () => {
+  it("caps a long song to the video length (the tier-list music-tail bug)", () => {
+    expect(audioClipLenSec(136, undefined, 32, 0)).toBe(32);
+  });
+
+  it("keeps a short track at its own length (silence tail, not truncation)", () => {
+    expect(audioClipLenSec(20, undefined, 32, 0)).toBe(20);
+  });
+
+  it("accounts for the track's start offset", () => {
+    expect(audioClipLenSec(136, undefined, 32, 10_000)).toBe(22);
+  });
+
+  it("honours an explicit max_duration_s under the video cap", () => {
+    expect(audioClipLenSec(136, 8, 32, 0)).toBe(8);
+  });
+
+  it("returns 0 when the track starts at or after the video ends", () => {
+    expect(audioClipLenSec(136, undefined, 32, 40_000)).toBe(0);
   });
 });
 

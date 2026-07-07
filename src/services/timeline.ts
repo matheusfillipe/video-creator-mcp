@@ -173,7 +173,26 @@ export function cumulativeOffsetsMs(durationsSeconds: number[]): number[] {
   return offsets;
 }
 
-async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]): Promise<string> {
+// How long an overlaid audio track may actually play: its own length (or the caller's max), but
+// never past the end of the composed video from where the track starts. 0 means it starts at or
+// after the video ends and should be dropped.
+export function audioClipLenSec(
+  mediaDurationSec: number,
+  maxDurationSec: number | undefined,
+  videoDurationSec: number,
+  offsetMs: number,
+): number {
+  const available = Math.max(0, videoDurationSec - offsetMs / 1000);
+  const requested = maxDurationSec ? Math.min(mediaDurationSec, maxDurationSec) : mediaDurationSec;
+  return Math.min(requested, available);
+}
+
+async function overlayAudio(
+  dir: string,
+  concatOut: string,
+  tracks: MixTrack[],
+  videoDurationSec: number,
+): Promise<string> {
   const inputs = ["-y", "-i", concatOut];
   const filters: string[] = [];
   const mixLabels: string[] = [];
@@ -208,12 +227,18 @@ async function overlayAudio(dir: string, concatOut: string, tracks: MixTrack[]):
       }
       continue;
     }
-    inputs.push("-i", meta.path);
-    const clipLen = track.max_duration_s
-      ? Math.min(meta.duration, track.max_duration_s)
-      : meta.duration;
-    const fadeSec = track.fade_ms / 1000;
     const startSec = track.offset_ms / 1000;
+    // Never let a track run past the end of the composed video — a full-length song under a short
+    // countdown would otherwise leave the file playing minutes of audio over a frozen last frame.
+    const clipLen = audioClipLenSec(
+      meta.duration,
+      track.max_duration_s,
+      videoDurationSec,
+      track.offset_ms,
+    );
+    if (clipLen < 0.05) continue;
+    inputs.push("-i", meta.path);
+    const fadeSec = Math.min(track.fade_ms / 1000, clipLen);
     const fadeStart = Math.max(startSec, startSec + clipLen - fadeSec);
     const inputIndex = audioIndex + 1;
     filters.push(
@@ -469,8 +494,11 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
     );
 
     const okSegments = ok.map((r) => r.segment);
+    const videoDurationSec = okSegments.reduce((sum, seg) => sum + seg.duration, 0);
     const tracks = resolveTracks(okSegments, params.audio);
-    const finalOut = tracks.length ? await overlayAudio(dir, concatOut, tracks) : concatOut;
+    const finalOut = tracks.length
+      ? await overlayAudio(dir, concatOut, tracks, videoDurationSec)
+      : concatOut;
     const buffer = await readFile(finalOut);
     return {
       buffer,
