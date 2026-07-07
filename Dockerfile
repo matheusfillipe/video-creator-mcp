@@ -20,9 +20,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       fonts-liberation fonts-noto-color-emoji fonts-noto-core libglib2.0-0 \
       mesa-vulkan-drivers libgl1-mesa-dri libegl-mesa0 libgbm1 \
       libva-drm2 libva2 mesa-va-drivers vainfo \
-    && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" opencv-python-headless numpy \
+      libcairo2-dev libpango1.0-dev pkg-config python3-dev build-essential \
+      texlive-latex-base texlive-fonts-recommended texlive-latex-extra dvisvgm \
+    && pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]" opencv-python-headless numpy manim \
     && curl -fsSL https://github.com/denoland/deno/releases/latest/download/deno-x86_64-unknown-linux-gnu.zip -o /tmp/deno.zip \
     && unzip -o /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod +x /usr/local/bin/deno \
+    && apt-get purge -y build-essential python3-dev pkg-config libcairo2-dev libpango1.0-dev \
+    && apt-get autoremove -y \
+    && apt-get install -y --no-install-recommends libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \

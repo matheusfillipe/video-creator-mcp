@@ -8,17 +8,18 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 
 | Brief shape | Tool |
 | --- | --- |
-| **Brief has any TEXT to display over the video** (captions, narration, "present X", "intro to Y", explainer, slide titles) — even if it ALSO mentions cuts/music/scenery | **\`video_render_slideshow\`** (data only, no HTML) |
+| **Cut editing** — trim/join clips, "the part where he says X", stack top/bottom or side-by-side (shorts style), picture-in-picture, speed changes, swap/mix music, plain text overlays | **\`video_edit\`** (one JSON spec → ffmpeg; renders a 60s edit in <1 min) |
+| Slideshow: text cards over background clips ("present X", explainer, slide titles) | \`video_render_slideshow\` |
+| Math/graph animation ("graph of f(x)", formula visualization, 3blue1brown style) | \`video_render_math\` (manim; data only) |
 | Loop one clip + rotating timed text ("have you given up?") | \`video_loop\` → \`video_caption\` |
 | Countdown / top-N / tier list | \`video_render_tierlist\` |
 | Typed terminal command | \`video_render_terminal\` |
 | Line chart from data points | \`video_render_chart\` |
 | Catalog block (map, globe, device mockup, …) | \`video_catalog\` → \`video_render_block\` |
-| Plain timed captions on ONE existing ≤30s clip | \`video_caption\` |
-| Lower-third / logo reveal / graphic overlay on ONE ≤30s clip | \`video_render\` with one composition (read html-authoring skill) |
-| **Pure clip montage with ZERO on-screen text** — just cuts, music | \`video_render_timeline\` (read html-authoring skill) |
+| Custom geometry/physics/3D animation beyond the math template | \`video_render_manim\` (write a manim Scene) |
+| Animated graphic overlays (motion design, GSAP) over ONE clip | \`video_render\` with one composition (read html-authoring skill) |
 
-The presence of ANY caption / title / overlay text → slideshow, not timeline. Phrases like "cut at 41s" or "documentary style" alone do NOT push toward custom HTML — slideshow handles cuts via segments. Reach for \`video_render_timeline\` ONLY when you genuinely have no text overlays at all and need custom motion the slideshow template can't express.
+**\`video_edit\` is the path for anything cut-shaped.** It trims, concatenates (with optional crossfades), stacks groups (vstack = top/bottom shorts split, hstack, pip, grid), burns timed text, and lays music over — one call, no HTML, no browser. To cut "the part where he says X": \`video_search_subtitles\` gives the exact start/end, \`video_download_media\` that window, reference the media_id in the spec. Reach for HTML compositions ONLY for animated motion-design overlays the plain text of \`video_edit\` can't express.
 
 ## Source fetching — keep it tight
 - \`video_search_youtube\` returns several candidates; **pick one per segment without re-searching**. Don't download 30 clips to "have options" — the next turn's LLM call costs ~20s. Each unused download is a wasted minute.
@@ -33,10 +34,12 @@ The presence of ANY caption / title / overlay text → slideshow, not timeline. 
 ## Vision-validate BEFORE you render — use \`video_preview_frame\`
 **Verifying a finished render is the wrong loop.** A full render is minutes; one preview frame is ~1.5s. Catch layout problems while they're still cheap to fix.
 
-For every composition before \`video_render\` / \`video_render_timeline\` / \`video_render_slideshow\`:
+For every HTML composition before \`video_render\` / \`video_render_timeline\` / \`video_render_slideshow\`:
 1. Call \`video_preview_frame\` on the SAME html + media you'd render, at 3 key timestamps (≈0.5s, mid, ≈95% of duration).
 2. Vision-check the returned PNGs (or the contact-sheet jpg) for: text bleed, layer overlap, letterbox, wrong content, mostly-black, mojibake.
 3. All clean → render once. Any bad → fix the HTML and preview again. **Render is the LAST step.** When \`video_render_status\` returns a url, report it and STOP — no second verify pass on the finished MP4.
+
+\`video_edit\` and the manim tools need no preview pass — their layout is deterministic from the spec. Verify their SOURCES instead (\`video_extract_frame\` on downloaded clips) and ship the result directly.
 
 \`video_extract_frame\` is for verifying **source clips** (a freshly downloaded YouTube clip — does it actually contain what the title promised?), not for verifying your own render output. If you used preview_frame correctly, you don't need to re-check the final.
 

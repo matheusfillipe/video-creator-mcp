@@ -35,6 +35,10 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((value) => value === "1" || value === "true"),
+  MANIM_SCENES: z
+    .string()
+    .optional()
+    .transform((value) => value === "1" || value === "true"),
 });
 
 export interface S3Config {
@@ -70,6 +74,7 @@ export interface Config {
   downloadConcurrency: number;
   ytdlp: YtDlpConfig;
   allowPrivateNetwork: boolean;
+  manimScenes: boolean;
 }
 
 type ParsedEnv = z.infer<typeof EnvSchema>;
@@ -119,6 +124,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     downloadConcurrency: parsed.DOWNLOAD_CONCURRENCY,
     ytdlp: { path: parsed.YTDLP_PATH, cookies: parsed.YTDLP_COOKIES, format: parsed.YTDLP_FORMAT },
     allowPrivateNetwork: parsed.ALLOW_PRIVATE_NETWORK,
+    manimScenes: parsed.MANIM_SCENES,
   };
 }
 

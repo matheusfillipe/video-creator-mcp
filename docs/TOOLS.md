@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 28 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 30 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -71,6 +71,21 @@ Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X,
 | `start` | number | no |  | Window start, seconds. |
 | `end` | number | no |  | Window end, seconds. |
 | `audio` | boolean | no | `true` | Include the audio stream. Set false for clips rendered muted (faster). |
+
+## `video_edit`
+
+The fast path for cut editing: trim clips, join them (optionally with crossfades), stack groups side-by-side or top/bottom (shorts style), burn timed text, and lay music/narration over the result — all from one JSON spec, executed as plain ffmpeg. No HTML, no browser: a 60s edit renders in well under a minute. USE THIS for any brief shaped like 'take clip A from X-Y and clip B where he says Z, put them together / stack them / add this song'. groups is a list of tracks: layout single=1 group (clips play in sequence), vstack=2 groups (top/bottom halves — the classic shorts split), hstack=2 (left/right), pip=2 (second group as a corner inset), grid=4. Every clip is cover-cropped to its cell, so 16:9 sources drop cleanly into a portrait 9:16 canvas. With multiple groups the output stops at the shortest group. Asynchronous: returns a job_id — poll video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `layout` | `"single"` \| `"vstack"` \| `"hstack"` \| `"pip"` \| `"grid"` | no | `"single"` | How groups are arranged on the canvas. |
+| `groups` | array | yes |  | One array of segments per layout slot. Segments inside a group play in sequence. |
+| `text` | array | no |  | Timed text overlays burned onto the combined video. |
+| `audio` | array | no |  | Music/narration tracks laid over the edit. |
+| `fade` | number | no |  | Crossfade seconds between segments in a group (0 = hard cuts, the default). |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Canvas — use portrait for shorts. |
+| `fps` | integer | no | `30` |  |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_extract_frame`
 
@@ -197,6 +212,18 @@ Render a side-scrolling animated line chart: each series plots left-to-right, th
 | `window_size` | integer | no | `8` | Points visible at once before the chart scrolls. |
 | `duration_seconds` | number | no | `10` | Total video length. |
 | `fps` | integer | no | `30` |  |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
+
+## `video_render_math`
+
+Render a math-animation video in the classic manim style: dark background, a title, and per scene a LaTeX formula with its graph drawn left-to-right by a moving dot. Pass DATA only — the server generates and renders the manim scene. Perfect for 'graph shorts' (portrait) showing a sequence of functions. plot_expr is a plain math expression in x (sin, cos, exp, log, sqrt, abs, pi, e ... — no arbitrary code). Asynchronous: returns a job_id — poll video_render_status.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `title` | string | yes |  | Title shown at the top throughout. |
+| `scenes` | array | yes |  | Scenes shown in sequence, each fading out before the next. |
+| `resolution` | `"1080p"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"portrait"` |  |
+| `accent_color` | string | no |  | Hex color for formulas/graphs. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_queue`

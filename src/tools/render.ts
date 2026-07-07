@@ -8,9 +8,8 @@ import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
 import { assembleTimeline } from "../services/timeline.js";
 import { registerTool } from "./defineTool.js";
-import { metadataArg } from "./shared.js";
+import { RESOLUTION, metadataArg } from "./shared.js";
 
-const RESOLUTION = z.enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"]);
 const mediaRef = z.object({
   media_id: z.string().describe("media_id from video_download_media / video_get_thumbnail."),
 });

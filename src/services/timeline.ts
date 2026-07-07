@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.js";
 import { ExecError, run } from "../lib/exec.js";
+import { FONT_FILE } from "../lib/ffmpeg.js";
 import { Limiter } from "../lib/queue.js";
 import type { Resolution } from "../types.js";
 import { loadMeta } from "./media.js";
@@ -59,9 +60,6 @@ const DEFAULT_OVERLAY_VOLUME = 0.6;
 const DEFAULT_CLIP_VOLUME = 1.0;
 const DEFAULT_FADE_MS = 1000;
 
-// Liberation Sans (metric-compatible with the Arial family the html cards use) ships
-// in the image via the fonts-liberation package; ffmpeg drawtext needs a concrete file.
-const FONT_FILE = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf";
 const DEFAULT_ACCENT = "#ffd24a";
 
 const RESOLUTION_DIMS: Record<Resolution, { width: number; height: number }> = {

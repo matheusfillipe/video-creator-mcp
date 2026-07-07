@@ -2,15 +2,13 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../lib/exec.js";
+import { buildTimedDrawtext } from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
 import { saveRender } from "./publish.js";
 
 const IMAGE_RE = /\.(jpg|jpeg|png|webp)$/i;
-
-// Bold reads better burned over moving footage than the regular weight.
-const CAPTION_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf";
 
 export interface Caption {
   text: string;
@@ -100,19 +98,10 @@ export async function addAudioTrack(params: {
   }
 }
 
-function yExpression(position: CaptionPosition, margin: number): string {
-  if (position === "top") return String(margin);
-  if (position === "center") return "(h-text_h)/2";
-  return `h-text_h-${margin}`;
-}
-
-// Burn timed text onto a clip with a single ffmpeg drawtext pass — one drawtext filter per
-// caption, shown only within its [start, start+duration] window via `enable=between(t,..)`.
-// This is the cheap path for "loop a clip and talk to the viewer with rotating subtitles":
-// libx264 re-encodes once in roughly real time, versus a headless-chrome composition that
-// renders every frame in software GL at ~3x real time. Text comes from files so arbitrary
-// caption content can't break the filtergraph syntax, and expansion is off so `%`/`\` in a
-// caption stay literal.
+// Burn timed text onto a clip with a single ffmpeg drawtext pass — the cheap path for
+// "loop a clip and talk to the viewer with rotating subtitles": libx264 re-encodes once
+// in roughly real time, versus a headless-chrome composition rendering every frame in
+// software GL at ~3x real time.
 export async function captionMedia(
   params: CaptionParams,
 ): Promise<{ buffer: Buffer; meta: MediaMeta }> {
@@ -128,27 +117,21 @@ export async function captionMedia(
   const dir = await mkdtemp(join(tmpdir(), "vcm-caption-"));
   try {
     const fontSize = params.fontSize ?? Math.max(24, Math.round((meta.height || 1080) / 20));
-    const margin = Math.round(fontSize * 0.9);
-    const yExpr = yExpression(params.position, margin);
     const filters: string[] = [];
     for (const [index, caption] of params.captions.entries()) {
       const textFile = join(dir, `cap${index}.txt`);
       await writeFile(textFile, caption.text);
-      const end = caption.start + caption.duration;
-      const parts = [
-        `fontfile=${CAPTION_FONT}`,
-        `textfile=${textFile}`,
-        "expansion=none",
-        `enable='between(t,${caption.start},${end})'`,
-        "x=(w-text_w)/2",
-        `y=${yExpr}`,
-        `fontsize=${fontSize}`,
-        `fontcolor=${params.color}`,
-      ];
-      if (params.box) {
-        parts.push("box=1", "boxcolor=black@0.5", `boxborderw=${Math.round(fontSize * 0.35)}`);
-      }
-      filters.push(`drawtext=${parts.join(":")}`);
+      filters.push(
+        buildTimedDrawtext({
+          textFile,
+          start: caption.start,
+          end: caption.start + caption.duration,
+          position: params.position,
+          fontSize,
+          color: params.color,
+          box: params.box,
+        }),
+      );
     }
     const outFile = join(dir, "out.mp4");
     await run(

@@ -2,7 +2,9 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerAnalyzeTools } from "./analyze.js";
 import { registerAudioTools } from "./audio.js";
 import { registerCatalogTools } from "./catalog.js";
+import { registerEditTools } from "./edit.js";
 import { registerEffectsTools } from "./effects.js";
+import { registerManimTools } from "./manim.js";
 import { registerMediaTools } from "./media.js";
 import { registerRenderTools } from "./render.js";
 import { registerSkillTools } from "./skill.js";
@@ -11,6 +13,8 @@ import { registerYoutubeTools } from "./youtube.js";
 
 export function registerAllTools(server: McpServer): void {
   registerRenderTools(server);
+  registerEditTools(server);
+  registerManimTools(server);
   registerMediaTools(server);
   registerYoutubeTools(server);
   registerAudioTools(server);
