@@ -18,7 +18,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg python3 python3-pip curl ca-certificates chromium unzip tini \
       fonts-liberation fonts-noto-color-emoji fonts-noto-core libglib2.0-0 \
-      mesa-vulkan-drivers libgl1-mesa-dri libegl-mesa0 libgbm1 \
+      mesa-vulkan-drivers libgl1-mesa-dri libegl-mesa0 libglvnd0 libegl1 libgles2 libgbm1 \
       libva-drm2 libva2 mesa-va-drivers vainfo \
       libcairo2-dev libpango1.0-dev pkg-config python3-dev build-essential \
       texlive-latex-base texlive-fonts-recommended texlive-latex-extra dvisvgm \
@@ -28,6 +28,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get purge -y build-essential python3-dev pkg-config libcairo2-dev libpango1.0-dev \
     && apt-get autoremove -y \
     && apt-get install -y --no-install-recommends libcairo2 libpango-1.0-0 libpangocairo-1.0-0 \
+    # moderngl's EGL loader dlopens the unversioned libEGL.so; only libEGL.so.1 ships at runtime,
+    # so link it. This lets manim's --renderer=opengl reach the GPU's DRI render node headlessly.
+    && ln -sf libEGL.so.1 /usr/lib/x86_64-linux-gnu/libEGL.so \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \

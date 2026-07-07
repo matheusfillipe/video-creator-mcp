@@ -12,7 +12,8 @@ geometry and proofs, transformations, 3D, number theory, vectors/fields, typogra
   for landscape. The manim *frame* is 8 units tall; portrait is ~4.5 units wide — keep x within ±2.2.
 - Dark background reads best: `self.camera.background_color="#0b0f14"`.
 - LaTeX works (`MathTex`, `Tex`) — no keys needed. Put LaTeX in a Python raw string: `MathTex(r"\frac{a}{b}")`.
-- Keep it under ~60s of animation. 3D and dense `Surface`/`always_redraw` scenes render slower.
+- Keep it under ~60s of animation. Dense `Surface`/`always_redraw` scenes render slower.
+- **3D renders on the GPU automatically.** A `ThreeDScene` uses the OpenGL renderer (~3x faster than software); 2D stays on Cairo (most predictable). Override with the tool's `renderer` param (`auto` | `cairo` | `opengl`) if needed.
 - **Do NOT add audio in code.** Pass `music_media_id` (from `video_download_media`) to the tool and the
   server loops it under the finished clip.
 

@@ -106,12 +106,18 @@ export function registerManimTools(server: McpServer): void {
           .min(1)
           .describe("Complete Python source including imports (from manim import *)."),
         scene_name: z.string().min(1).describe("Name of the Scene class to render."),
+        renderer: z
+          .enum(["auto", "cairo", "opengl"])
+          .default("auto")
+          .describe(
+            "Rendering backend. 'auto' (default) renders a 3D ThreeDScene on the GPU (OpenGL, ~3x faster) and 2D on the CPU (Cairo, most predictable). Force with 'opengl' or 'cairo'.",
+          ),
         ...musicArg,
         metadata: metadataArg,
       },
-      handler: async ({ code, scene_name, music_media_id, music_volume, metadata }) => {
+      handler: async ({ code, scene_name, renderer, music_media_id, music_volume, metadata }) => {
         const jobId = submitJob("manim", async () => {
-          const { buffer, filename } = await renderManimScene(code, scene_name);
+          const { buffer, filename } = await renderManimScene(code, scene_name, renderer);
           const final = music_media_id
             ? await muxLoopedMusic(buffer, ".mp4", music_media_id, music_volume)
             : buffer;

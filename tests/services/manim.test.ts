@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { mathShortScene, validatePlotExpr } from "../../src/services/manim.js";
+import { mathShortScene, useOpenGl, validatePlotExpr } from "../../src/services/manim.js";
+
+describe("useOpenGl (renderer auto-selection)", () => {
+  it("auto: GPU for 3D, CPU for 2D", () => {
+    expect(useOpenGl("auto", "class S(ThreeDScene):\n  pass")).toBe(true);
+    expect(useOpenGl("auto", "class S(Scene):\n  pass")).toBe(false);
+  });
+
+  it("honors an explicit override either way", () => {
+    expect(useOpenGl("cairo", "class S(ThreeDScene):\n  pass")).toBe(false);
+    expect(useOpenGl("opengl", "class S(Scene):\n  pass")).toBe(true);
+  });
+});
 
 describe("validatePlotExpr", () => {
   it("accepts plain math in x", () => {

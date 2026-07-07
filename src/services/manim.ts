@@ -140,6 +140,17 @@ export interface ManimRenderOutput {
   filename: string;
 }
 
+export type ManimRenderer = "auto" | "cairo" | "opengl";
+
+// The Cairo renderer projects 3D on the CPU (slow); the OpenGL renderer draws it on the GPU's DRI
+// render node (~3x faster for a ThreeDScene). Cairo stays the default for 2D, where it's fast and
+// its output is the most predictable; "auto" switches to OpenGL only when the scene is 3D.
+export function useOpenGl(renderer: ManimRenderer, sceneCode: string): boolean {
+  if (renderer === "opengl") return true;
+  if (renderer === "cairo") return false;
+  return /\bThreeDScene\b/.test(sceneCode);
+}
+
 async function findRenderedFile(mediaDir: string): Promise<string> {
   const stack = [mediaDir];
   while (stack.length) {
@@ -157,6 +168,7 @@ async function findRenderedFile(mediaDir: string): Promise<string> {
 export async function renderManimScene(
   sceneCode: string,
   sceneName: string,
+  renderer: ManimRenderer = "auto",
 ): Promise<ManimRenderOutput> {
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `manim-${jobId}`);
@@ -164,9 +176,21 @@ export async function renderManimScene(
   try {
     const scriptPath = join(dir, "scene.py");
     await writeFile(scriptPath, sceneCode);
+    const rendererArgs = useOpenGl(renderer, sceneCode)
+      ? ["--renderer=opengl", "--write_to_movie"]
+      : [];
     await run(
       "manim",
-      ["render", "-q", "h", "--media_dir", join(dir, "media"), scriptPath, sceneName],
+      [
+        "render",
+        "-q",
+        "h",
+        "--media_dir",
+        join(dir, "media"),
+        ...rendererArgs,
+        scriptPath,
+        sceneName,
+      ],
       { timeoutMs: 600_000, cwd: dir },
     );
     const outFile = await findRenderedFile(join(dir, "media"));
