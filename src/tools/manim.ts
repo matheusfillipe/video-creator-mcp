@@ -76,7 +76,7 @@ export function registerManimTools(server: McpServer): void {
       name: "video_render_manim",
       title: "Render a Custom Manim Scene",
       description:
-        "Render arbitrary manim (Manim Community) scene code to MP4. The code must define exactly one Scene subclass whose name you pass as scene_name. Use for animations the data-driven tools can't express: geometry, transformations, 3D, physics diagrams. Keep scenes under ~60s. Asynchronous: returns a job_id — poll video_render_status.",
+        'Render arbitrary manim (Manim Community) scene code to MP4 — use for geometry, theorem proofs, transformations, and 3D that video_render_math can\'t express. The code must define exactly one Scene subclass whose name you pass as scene_name. Keep scenes under ~60s. For a portrait short, set the pixel size at module top and a dark background; adapt this skeleton:\n```\nfrom manim import *\nconfig.pixel_width=1080\nconfig.pixel_height=1920\nconfig.frame_rate=30\nclass Proof(Scene):\n    def construct(self):\n        self.camera.background_color="#0b0f14"\n        tri = Polygon([-2,-1.5,0],[2,-1.5,0],[2,1.5,0], color=BLUE)\n        self.play(Create(tri))\n        self.wait(1)\n```\nAsynchronous: returns a job_id — poll video_render_status.',
       inputSchema: {
         code: z
           .string()

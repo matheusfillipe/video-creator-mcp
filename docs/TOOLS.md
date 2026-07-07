@@ -15,6 +15,7 @@ Lay an audio track onto a finished video — the audio counterpart to video_capt
 | `mode` | `"replace"` \| `"mix"` | no | `"replace"` | 'replace' = this becomes the only audio (narration over muted footage); 'mix' = blend under the video's existing audio (needs the video to already have audio). |
 | `volume` | number | no | `1` | Volume of the added track (for 'mix', relative to the existing audio). |
 | `existing_volume` | number | no | `1` | For 'mix' only: volume of the video's ORIGINAL audio. Set low (e.g. 0.2) to duck the footage under a narration track so the clip's own sound stays as quiet background. |
+| `loop` | boolean | no | `false` | Repeat the track to cover the whole video if it's shorter. Set true for BACKGROUND MUSIC so the video never goes silent before it ends; leave false for a one-shot voiceover you don't want repeated. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_analyze_audio`

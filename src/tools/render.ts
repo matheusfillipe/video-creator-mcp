@@ -262,9 +262,15 @@ export function registerRenderTools(server: McpServer): void {
         .describe(
           "For 'mix' only: volume of the video's ORIGINAL audio. Set low (e.g. 0.2) to duck the footage under a narration track so the clip's own sound stays as quiet background.",
         ),
+      loop: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Repeat the track to cover the whole video if it's shorter. Set true for BACKGROUND MUSIC so the video never goes silent before it ends; leave false for a one-shot voiceover you don't want repeated.",
+        ),
       metadata: metadataArg,
     },
-    handler: ({ media_id, audio_media_id, mode, volume, existing_volume, metadata }) => {
+    handler: ({ media_id, audio_media_id, mode, volume, existing_volume, loop, metadata }) => {
       const jobId = submitJob("add-audio", async () => {
         const { buffer, meta } = await addAudioTrack({
           videoId: media_id,
@@ -272,6 +278,7 @@ export function registerRenderTools(server: McpServer): void {
           mode,
           volume,
           existingVolume: existing_volume,
+          loop,
         });
         const saved = await saveRender(buffer, meta.filename, metadata);
         return { ...saved, media_id: meta.media_id, duration: meta.duration };

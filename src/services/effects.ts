@@ -30,14 +30,16 @@ export type AudioMixMode = "replace" | "mix";
 
 // Mux an audio track onto a video. "replace" makes it the sole audio (TTS narration over muted
 // footage); "mix" blends it UNDER the video's existing audio (background music/ambient — the
-// video must already have an audio stream). The video keeps its full length; an audio track
-// shorter than the video simply ends. Video is stream-copied, only the audio is re-encoded.
+// video must already have an audio stream). The video keeps its full length; with `loop` a track
+// shorter than the video repeats to cover it (background music), otherwise it simply ends. Video
+// is stream-copied, only the audio is re-encoded.
 export async function addAudioTrack(params: {
   videoId: string;
   audioId: string;
   mode: AudioMixMode;
   volume: number;
   existingVolume: number;
+  loop: boolean;
 }): Promise<{ buffer: Buffer; meta: MediaMeta }> {
   const video = await loadMeta(params.videoId);
   if (!video) {
@@ -61,33 +63,33 @@ export async function addAudioTrack(params: {
         ? `[0:a]volume=${params.existingVolume}[a0];[1:a]volume=${params.volume}[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`
         : `[1:a]volume=${params.volume}[a]`;
     const outFile = join(dir, "out.mp4");
-    await run(
-      "ffmpeg",
-      [
-        "-y",
-        "-i",
-        video.path,
-        "-i",
-        audio.path,
-        "-filter_complex",
-        filter,
-        "-map",
-        "0:v:0",
-        "-map",
-        "[a]",
-        "-c:v",
-        "copy",
-        "-c:a",
-        "aac",
-        "-movflags",
-        "+faststart",
-        outFile,
-      ],
-      { timeoutMs: 300_000 },
+    // -stream_loop repeats the audio input so a short track covers the whole video; amix's
+    // duration=first already caps the mix at the video, so -shortest is only needed to bound
+    // an otherwise-endless looped replace track.
+    const args = ["-y", "-i", video.path];
+    if (params.loop) args.push("-stream_loop", "-1");
+    args.push(
+      "-i",
+      audio.path,
+      "-filter_complex",
+      filter,
+      "-map",
+      "0:v:0",
+      "-map",
+      "[a]",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-movflags",
+      "+faststart",
     );
+    if (params.loop && params.mode !== "mix") args.push("-shortest");
+    args.push(outFile);
+    await run("ffmpeg", args, { timeoutMs: 300_000 });
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `addaudio:${params.videoId}:${params.audioId}:${params.mode}:${params.volume}:${params.existingVolume}`,
+      idSeed: `addaudio:${params.videoId}:${params.audioId}:${params.mode}:${params.volume}:${params.existingVolume}:${params.loop}`,
       buffer,
       ext: ".mp4",
       sourceUrl: `addaudio://${params.videoId}`,
