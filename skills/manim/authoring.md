@@ -102,5 +102,6 @@ class S(Scene):
 ## Gotchas
 - Anything tied to a `ValueTracker` must be wrapped in `always_redraw(lambda: …)`, else it's drawn once and freezes.
 - 3D needs `ThreeDScene` (not `Scene`) and a camera orientation, or you see the surface edge-on.
+- In a `ThreeDScene`, a title/label made with `Text`/`MathTex` tilts and warps with the camera. Keep 2D text flat and readable by registering it with `self.add_fixed_in_frame_mobjects(label)` (position it with `to_edge`/`to_corner` first), and add it with `self.add(...)` — don't let it live in the rotating 3D space.
 - `MathTex`/`Tex` render through LaTeX; keep expressions valid and in raw strings so backslashes survive.
 - A tall shape can collide with a top title — give the title `to_edge(UP, buff=~1)` and keep the figure below it.
