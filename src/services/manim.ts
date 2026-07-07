@@ -99,7 +99,7 @@ export function mathShortScene(spec: MathShortSpec): string {
     "    def construct(self):",
     `        self.camera.background_color = "#0b0f14"`,
     `        title = Text(${pyStr(spec.title)}, font_size=52, weight=BOLD, color="${accent}")`,
-    "        title.to_edge(UP, buff=1.2)",
+    "        title.to_edge(UP, buff=0.9)",
     "        self.play(Write(title), run_time=1.0)",
   ];
   for (const [i, scene] of spec.scenes.entries()) {
@@ -108,14 +108,14 @@ export function mathShortScene(spec: MathShortSpec): string {
     const yr = scene.y_range ?? [-3, 3];
     lines.push(
       "",
-      `        formula${i} = MathTex(${pyRawStr(scene.latex)}, font_size=56)`,
-      `        formula${i}.next_to(title, DOWN, buff=1.0)`,
+      `        formula${i} = MathTex(${pyRawStr(scene.latex)}, font_size=50)`,
+      `        formula${i}.next_to(title, DOWN, buff=0.5)`,
       `        self.play(FadeIn(formula${i}), run_time=0.8)`,
     );
     if (scene.plot_expr) {
       lines.push(
-        `        axes${i} = Axes(x_range=[${xr[0]}, ${xr[1]}], y_range=[${yr[0]}, ${yr[1]}], x_length=8, y_length=6, tips=True, axis_config={"color": GREY_B, "stroke_width": 2})`,
-        `        axes${i}.move_to(DOWN * 1.5)`,
+        `        axes${i} = Axes(x_range=[${xr[0]}, ${xr[1]}], y_range=[${yr[0]}, ${yr[1]}], x_length=6.8, y_length=5.2, tips=True, axis_config={"color": GREY_B, "stroke_width": 2})`,
+        `        axes${i}.next_to(formula${i}, DOWN, buff=0.5)`,
         `        graph${i} = axes${i}.plot(lambda x: ${pyExpr(scene.plot_expr)}, x_range=[${xr[0]}, ${xr[1]}, 0.01], color="${accent}", stroke_width=5)`,
         `        dot${i} = Dot(color="${accent}", radius=0.09)`,
         `        dot${i}.move_to(graph${i}.get_start())`,
