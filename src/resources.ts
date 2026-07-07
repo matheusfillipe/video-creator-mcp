@@ -11,7 +11,7 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 | **Cut editing** — trim/join clips, "the part where he says X", stack top/bottom or side-by-side (shorts style), picture-in-picture, speed changes, swap/mix music, plain text overlays | **\`video_edit\`** (one JSON spec → ffmpeg; renders a 60s edit in <1 min) |
 | Slideshow: text cards over background clips ("present X", explainer, slide titles) | \`video_render_slideshow\` |
 | Math: a function graph, a formula, a constant/number, or a sequence (golden ratio, Fibonacci, Euler's identity, "graph of f(x)", 3blue1brown style) | \`video_render_math\` (manim; data only) |
-| Math: a geometry figure or a visual theorem proof (Pythagoras, unit circle, shapes) | \`video_render_manim\` (write a short manim Scene) |
+| Math: geometry, a theorem proof, a 3D surface (saddle/paraboloid), or a parametric curve (a SPIRAL, Lissajous) | \`video_render_manim\` (write a short manim Scene) |
 | Loop one clip + rotating timed text ("have you given up?") | \`video_loop\` → \`video_caption\` |
 | Countdown / top-N / tier list | \`video_render_tierlist\` |
 | Typed terminal command | \`video_render_terminal\` |
@@ -22,7 +22,7 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 
 **\`video_edit\` is the path for anything cut-shaped.** It trims, concatenates (with optional crossfades), stacks groups (vstack = top/bottom shorts split, hstack, pip, grid), burns timed text, and lays music over — one call, no HTML, no browser. To cut "the part where he says X": \`video_search_subtitles\` gives the exact start/end, \`video_download_media\` that window, reference the media_id in the spec. Reach for HTML compositions ONLY for animated motion-design overlays the plain text of \`video_edit\` can't express.
 
-**A math visual is RENDERED, never sourced.** Anything like a formula, a graph, a constant (golden ratio), a sequence (Fibonacci), or a geometry/theorem proof is a manim animation you generate with \`video_render_math\` or \`video_render_manim\`. Do NOT \`video_search_youtube\` for it and do NOT \`video_tts\` a narration of it — that path renders nothing and wastes the whole run.
+**A math visual is RENDERED with manim, never faked.** A formula, a graph, a constant (golden ratio), a sequence (Fibonacci), a 3D surface (a Pringle/saddle \`z = x²/a² − y²/b²\`), a spiral, or a geometry/theorem proof is a manim animation you generate with \`video_render_math\` (graphs/formulas) or \`video_render_manim\` (3D, parametric, geometry). Do NOT \`video_search_youtube\` for it, do NOT \`video_tts\` a narration of it, and do NOT build a \`video_render_slideshow\` of static/AI-generated pictures of the math — a real animated manim scene beats stills, and those other paths waste the run.
 
 ## Source fetching — keep it tight
 - \`video_search_youtube\` returns several candidates; **pick one per segment without re-searching**. Don't download 30 clips to "have options" — the next turn's LLM call costs ~20s. Each unused download is a wasted minute.
