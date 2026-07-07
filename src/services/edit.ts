@@ -271,16 +271,18 @@ async function concatGroup(
   return out;
 }
 
+// shortest=1 on every combine so the output ends with the shortest group instead of
+// freeze-padding the shorter one to the longer's length (ffmpeg's default).
 function layoutFilter(layout: EditLayout, groupCount: number): string {
   switch (layout) {
     case "vstack":
-      return "[0:v][1:v]vstack=inputs=2[vout]";
+      return "[0:v][1:v]vstack=inputs=2:shortest=1[vout]";
     case "hstack":
-      return "[0:v][1:v]hstack=inputs=2[vout]";
+      return "[0:v][1:v]hstack=inputs=2:shortest=1[vout]";
     case "pip":
-      return "[0:v][1:v]overlay=W-w-40:H-h-40[vout]";
+      return "[0:v][1:v]overlay=W-w-40:H-h-40:shortest=1[vout]";
     case "grid":
-      return "[0:v][1:v]hstack=inputs=2[top];[2:v][3:v]hstack=inputs=2[bottom];[top][bottom]vstack=inputs=2[vout]";
+      return "[0:v][1:v]hstack=inputs=2:shortest=1[top];[2:v][3:v]hstack=inputs=2:shortest=1[bottom];[top][bottom]vstack=inputs=2:shortest=1[vout]";
     default:
       throw new Error(`layout ${layout} with ${groupCount} groups needs no combine`);
   }
