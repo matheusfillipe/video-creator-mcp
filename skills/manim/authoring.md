@@ -13,6 +13,9 @@ geometry and proofs, transformations, 3D, number theory, vectors/fields, typogra
 - Dark background reads best: `self.camera.background_color="#0b0f14"`.
 - LaTeX works (`MathTex`, `Tex`) — no keys needed. Put LaTeX in a Python raw string: `MathTex(r"\frac{a}{b}")`.
 - Keep it under ~60s of animation. Dense `Surface`/`always_redraw` scenes render slower.
+- **Always pass `resolution=(24,24)`–`(32,32)` to `Surface`/`Torus`/`Sphere`.** The default is
+  `(101,101)` — ~10k points re-transformed every frame — which turns a 20-second render into many
+  minutes. `(24,24)` looks identical at short-video size.
 - **3D renders on the GPU automatically.** A `ThreeDScene` uses the OpenGL renderer (~3x faster than software); 2D stays on Cairo (most predictable). Override with the tool's `renderer` param (`auto` | `cairo` | `opengl`) if needed.
 - **Do NOT add audio in code.** Pass `music_media_id` (from `video_download_media`) to the tool and the
   server loops it under the finished clip.
@@ -101,6 +104,11 @@ class S(Scene):
 ```
 
 ## Gotchas
+- `set_camera_orientation(phi=…, theta=…)` takes no `zoom=` on the GPU renderer — it aborts the
+  render and the scene re-renders on the slow CPU path. Scale the mobjects or move the camera instead.
+- Surface-family kwargs are not validated on the GPU renderer: a misspelled kwarg (e.g.
+  `resolution_major=`) is silently ignored and the default `(101,101)` resolution applies — pass
+  `resolution=(u,v)` exactly.
 - Anything tied to a `ValueTracker` must be wrapped in `always_redraw(lambda: …)`, else it's drawn once and freezes.
 - 3D needs `ThreeDScene` (not `Scene`) and a camera orientation, or you see the surface edge-on.
 - In a `ThreeDScene`, a title/label made with `Text`/`MathTex` tilts and warps with the camera. Keep 2D text flat and readable by registering it with `self.add_fixed_in_frame_mobjects(label)` (position it with `to_edge`/`to_corner` first), and add it with `self.add(...)` — don't let it live in the rotating 3D space.
