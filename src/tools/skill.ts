@@ -3,9 +3,11 @@ import { z } from "zod";
 import { listSkillDocs, readSkillDoc } from "../services/skills.js";
 import { registerTool } from "./defineTool.js";
 
-const INDEX_HEADER = `# HyperFrames authoring skill — document index
+const INDEX_HEADER = `# Authoring skill — document index
 
-Start with \`hyperframes/SKILL.md\`. Read \`hyperframes/references/video-composition.md\`, \`hyperframes/references/motion-principles.md\` and \`hyperframes/references/typography.md\` before any non-trivial composition; add \`hyperframes/references/beat-direction.md\` and \`hyperframes/references/transitions.md\` for multi-scene pieces. GSAP patterns live under \`gsap/\`.
+For a **manim animation** (\`video_render_manim\`: geometry, 3D, transforms, dynamic scenes), read \`manim/authoring.md\` — the server contract plus copy-adaptable examples.
+
+For a **custom HTML/GSAP composition** (\`video_render\` / \`video_render_timeline\`): start with \`hyperframes/SKILL.md\`. Read \`hyperframes/references/video-composition.md\`, \`hyperframes/references/motion-principles.md\` and \`hyperframes/references/typography.md\` before any non-trivial composition; add \`hyperframes/references/beat-direction.md\` and \`hyperframes/references/transitions.md\` for multi-scene pieces. GSAP patterns live under \`gsap/\`.
 
 Two adaptations for THIS server (it renders HTML you author via \`video_render\` / \`video_render_timeline\`):
 - The skill's CLI commands (init/preview/render, design.md, inspect/validate) map to this server's tools — use \`video_lint\` then \`video_render\`; ignore raw \`npx hyperframes\` invocations.
