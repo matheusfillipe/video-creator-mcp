@@ -6,6 +6,7 @@ import { ExecError, run } from "../lib/exec.js";
 import { FONT_FILE } from "../lib/ffmpeg.js";
 import { Limiter } from "../lib/queue.js";
 import type { Resolution } from "../types.js";
+import { BLACK_OUTPUT_YMAX, maxFrameLumaOfFile } from "./effects.js";
 import { loadMeta } from "./media.js";
 import { type RenderOutput, renderComposition } from "./renderer.js";
 
@@ -316,30 +317,9 @@ type SegmentResult =
   | { index: number; segment: TimelineSegment; path: string; warning?: string }
   | { index: number; warning: string };
 
-async function isMostlyBlack(filePath: string, atSec: number): Promise<boolean> {
+async function rendersBlank(filePath: string): Promise<boolean> {
   try {
-    const { stderr } = await run(
-      "ffmpeg",
-      [
-        "-hide_banner",
-        "-nostats",
-        "-ss",
-        String(Math.max(0, atSec)),
-        "-i",
-        filePath,
-        "-vf",
-        "signalstats",
-        "-frames:v",
-        "1",
-        "-f",
-        "null",
-        "-",
-      ],
-      { timeoutMs: 15_000 },
-    );
-    const match = /YAVG\s*:\s*([\d.]+)/.exec(stderr);
-    const yavg = match?.[1] !== undefined ? Number(match[1]) : 255;
-    return yavg < 6;
+    return (await maxFrameLumaOfFile(filePath)) < BLACK_OUTPUT_YMAX;
   } catch (error) {
     if (error instanceof ExecError) return false;
     throw error;
@@ -441,7 +421,7 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
                 ...(segment.media ? { media: segment.media } : {}),
               });
               await writeFile(segPath, buffer);
-              if (await isMostlyBlack(segPath, segment.duration / 2)) {
+              if (await rendersBlank(segPath)) {
                 return {
                   index,
                   segment,

@@ -23,7 +23,7 @@ geometry and proofs, transformations, 3D, number theory, vectors/fields, typogra
 ## What manim can do here (capability tour)
 - **2D geometry / proofs** — `Polygon`, `Circle`, `Line`, `Angle`, `RightAngle`, `Arc`, `Dot`, `Brace`; label with `MathTex`/`Text`; animate `Create`, `DrawBorderThenFill`.
 - **Transformations / morphs** — `Transform`, `ReplacementTransform`, `TransformMatchingTex` (great for turning one equation into the next), `Rotate`, `.animate` syntax.
-- **3D** — subclass `ThreeDScene`; `ThreeDAxes`, `Surface`, `Sphere`, `Cube`; `set_camera_orientation(phi=…, theta=…)` and `begin_ambient_camera_rotation(rate=…)`.
+- **3D** — subclass `ThreeDScene`; `ThreeDAxes`, `Surface`, `Sphere`, `Cube`; draw space curves (knots, spirals, Lissajous) with `ParametricFunction(lambda t: …, t_range=[a, b])`; `set_camera_orientation(phi=…, theta=…)` and `begin_ambient_camera_rotation(rate=…)`.
 - **Dynamic / data-driven** — `ValueTracker` + `always_redraw(lambda: …)` for anything that follows a moving parameter (traces, sweeps, growing bars, a dot on a path).
 - **Graphs** — `Axes().plot(...)`, `MoveAlongPath`, `get_area`, `get_riemann_rectangles` (for calculus visuals `video_render_math` won't do).
 - **Number / typography** — `NumberLine`, `NumberPlane`, `Table`, `DecimalNumber` (count-ups), `Write`/`AddTextLetterByLetter`.
@@ -104,6 +104,9 @@ class S(Scene):
 ```
 
 ## Gotchas
+- **Build a curve with `ParametricFunction`, never `VMobject.set_points_smoothly(points)`.** A
+  many-point `set_points_smoothly` hangs the GPU renderer outright; the same curve as a
+  `ParametricFunction(lambda t: …, t_range=[a, b])` draws in seconds.
 - `set_camera_orientation(phi=…, theta=…)` takes no `zoom=` on the GPU renderer — it aborts the
   render and the scene re-renders on the slow CPU path. Scale the mobjects or move the camera instead.
 - Surface-family kwargs are not validated on the GPU renderer: a misspelled kwarg (e.g.

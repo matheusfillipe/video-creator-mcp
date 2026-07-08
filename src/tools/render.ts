@@ -1,10 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { ExecError } from "../lib/exec.js";
 import {
   addAudioTrack,
   blackOutputWarning,
   captionMedia,
-  lumaProfile,
+  maxFrameLuma,
 } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
@@ -41,6 +42,16 @@ Authoring rules (run video_lint first):
 - Reference downloaded media as src="assets/<filename>" and pass its media_id in the media array.
 Reference: https://hyperframes.mintlify.app/llms.txt`;
 
+// The luma probe runs after the video is uploaded, so a probe failure must never fail the job.
+async function blankRenderWarning(buffer: Buffer): Promise<string | null> {
+  try {
+    return blackOutputWarning(await maxFrameLuma(buffer));
+  } catch (error) {
+    if (error instanceof ExecError) return null;
+    throw error;
+  }
+}
+
 export function registerRenderTools(server: McpServer): void {
   registerTool(server, {
     name: "video_render",
@@ -55,8 +66,8 @@ export function registerRenderTools(server: McpServer): void {
       media: z.array(mediaRef).optional().describe("Pre-downloaded media to include."),
       metadata: metadataArg,
     },
-    handler: ({ metadata, ...args }) => {
-      const { html, audio_base64, audio_volume, fps, resolution, media } = args;
+    handler: ({ metadata, audio_base64, ...args }) => {
+      const { html, audio_volume, fps, resolution, media } = args;
       const jobId = submitJob("render", async () => {
         const { buffer, filename } = await renderComposition({
           htmlBase64: html,
@@ -66,11 +77,13 @@ export function registerRenderTools(server: McpServer): void {
           audioVolume: audio_volume,
           media,
         });
+        // audio_base64 stays out of the recipe: the sidecar is world-readable and an
+        // inline track would put megabytes of base64 next to every render.
         const saved = await saveRender(buffer, filename, metadata, {
           tool: "video_render",
           args,
         });
-        const warning = blackOutputWarning(await lumaProfile(buffer));
+        const warning = await blankRenderWarning(buffer);
         return warning ? { ...saved, warnings: [warning] } : saved;
       });
       return Promise.resolve({
@@ -128,10 +141,7 @@ export function registerRenderTools(server: McpServer): void {
           tool: "video_render_timeline",
           args,
         });
-        const allWarnings = [...(warnings ?? [])];
-        const blackWarning = blackOutputWarning(await lumaProfile(buffer));
-        if (blackWarning) allWarnings.push(blackWarning);
-        return { ...saved, segments: segments.length, warnings: allWarnings };
+        return { ...saved, segments: segments.length, warnings: warnings ?? [] };
       });
       return Promise.resolve({
         job_id: jobId,

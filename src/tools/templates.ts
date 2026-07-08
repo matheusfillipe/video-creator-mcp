@@ -315,7 +315,8 @@ export function registerTemplateTools(server: McpServer): void {
       fps: z.number().int().min(1).max(60).default(30),
       metadata: metadataArg,
     },
-    handler: async ({ command, output, prompt, duration_seconds, fps, metadata }) => {
+    handler: async ({ metadata, ...args }) => {
+      const { command, output, prompt, duration_seconds, fps } = args;
       const jobId = submitJob("terminal", async () => {
         const html = terminalHtml({ command, output, prompt, durationSeconds: duration_seconds });
         const { buffer, filename } = await renderComposition({
@@ -325,7 +326,7 @@ export function registerTemplateTools(server: McpServer): void {
         });
         return saveRender(buffer, filename, metadata, {
           tool: "video_render_terminal",
-          args: { command, output, prompt, duration_seconds, fps },
+          args,
         });
       });
       return {
