@@ -422,3 +422,41 @@ export function blackOutputWarning(maxLuma: number): string | null {
   if (!(maxLuma < BLACK_OUTPUT_YMAX)) return null;
   return `Rendered video looks BLACK/empty: no sampled frame has a pixel brighter than ${Math.round(maxLuma)}/255, so the composition's elements never became visible. Most common cause: GSAP tweens that never fire — give every element its initial state with gsap.set(...) and animate with .to(...) tweens, then re-render. Check a mid-scene frame with video_preview_frame before re-rendering.`;
 }
+
+// A composition whose timeline never ran still renders: the browser paints the CSS start state for
+// every frame. The output is bright, so the black-frame check passes, and the model reports success
+// on a still image. freezedetect reports the frozen spans; a span covering the whole clip means
+// nothing ever moved.
+const FREEZE_NOISE_TOLERANCE = 0.003;
+const FREEZE_START_RE = /freeze_start:\s*([0-9.]+)/g;
+const STATIC_COVERAGE = 0.9;
+
+export function staticRenderWarning(
+  freezeStarts: number[],
+  durationSeconds: number,
+): string | null {
+  const fromTheStart = freezeStarts.some(
+    (start) => start <= durationSeconds * (1 - STATIC_COVERAGE),
+  );
+  if (!fromTheStart) return null;
+  return "Rendered video NEVER CHANGES — every frame is identical, so the timeline never drove anything. Check that the timeline is registered (window.__timelines for GSAP, window.__hfAnime for anime.js) and that the whole document survived base64 encoding. Re-render after fixing.";
+}
+
+export async function freezeStarts(filePath: string): Promise<number[]> {
+  const { stderr } = await run(
+    "ffmpeg",
+    [
+      "-v",
+      "info",
+      "-i",
+      filePath,
+      "-vf",
+      `freezedetect=n=${FREEZE_NOISE_TOLERANCE}:d=2`,
+      "-f",
+      "null",
+      "-",
+    ],
+    { timeoutMs: 120_000 },
+  );
+  return [...stderr.matchAll(FREEZE_START_RE)].map((match) => Number(match[1]));
+}

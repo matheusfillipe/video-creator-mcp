@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkComposition } from "../../src/lib/composition-checks.js";
+import { base64CompositionError, checkComposition } from "../../src/lib/composition-checks.js";
 
 describe("checkComposition", () => {
   it("flags a non-zero length that lost its unit", () => {
@@ -37,5 +37,31 @@ describe("checkComposition", () => {
     expect(
       checkComposition("<script>gsap.to(x,{ease:'power2.out',easing:'nonsense'})</script>"),
     ).toEqual([]);
+  });
+});
+
+describe("base64CompositionError", () => {
+  const good = Buffer.from('<div data-composition-id="main"></div>').toString("base64");
+
+  it("accepts a well-formed document", () => {
+    expect(base64CompositionError(good)).toBeNull();
+  });
+
+  it("accepts a valid document encoded without padding", () => {
+    expect(base64CompositionError(good.replace(/=+$/, ""))).toBeNull();
+  });
+
+  it("rejects a string that decodes with data loss (the truncating-decode case)", () => {
+    const lossy = good.replace(/=+$/, "").slice(0, -2);
+    expect(base64CompositionError(lossy)).toMatch(/data loss/);
+  });
+
+  it("rejects characters outside the base64 alphabet", () => {
+    expect(base64CompositionError("not base64!!")).toMatch(/outside the base64 alphabet/);
+  });
+
+  it("rejects a document with no composition root", () => {
+    const noRoot = Buffer.from("<div>hello</div>").toString("base64");
+    expect(base64CompositionError(noRoot)).toMatch(/data-composition-id/);
   });
 });

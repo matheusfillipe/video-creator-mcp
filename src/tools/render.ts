@@ -1,3 +1,6 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ExecError } from "../lib/exec.js";
@@ -5,7 +8,9 @@ import {
   addAudioTrack,
   blackOutputWarning,
   captionMedia,
-  maxFrameLuma,
+  freezeStarts,
+  maxFrameLumaOfFile,
+  staticRenderWarning,
 } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
@@ -14,7 +19,7 @@ import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
 import { assembleTimeline } from "../services/timeline.js";
 import { registerTool } from "./defineTool.js";
-import { RESOLUTION, metadataArg } from "./shared.js";
+import { RESOLUTION, compositionHtml, metadataArg } from "./shared.js";
 
 const mediaRef = z.object({
   media_id: z.string().describe("media_id from video_download_media / video_get_thumbnail."),
@@ -43,15 +48,28 @@ Authoring rules (run video_lint first):
 - Reference downloaded media as src="assets/<filename>" and pass its media_id in the media array.
 Reference: https://hyperframes.mintlify.app/llms.txt`;
 
-// The luma probe runs after the video is uploaded, so a probe failure must never fail the job.
-async function blankRenderWarning(buffer: Buffer): Promise<string | null> {
+// These probes run after the video is uploaded, so a probe failure must never fail the job.
+// A composition can fail two ways that still produce a valid mp4: nothing was ever drawn (black),
+// or nothing ever moved (the timeline never ran).
+async function renderWarnings(buffer: Buffer, durationSeconds: number): Promise<string[]> {
+  const dir = await mkdtemp(join(tmpdir(), "vcm-verify-"));
   try {
-    return blackOutputWarning(await maxFrameLuma(buffer));
+    const file = join(dir, "render.mp4");
+    await writeFile(file, buffer);
+    const warnings = [
+      blackOutputWarning(await maxFrameLumaOfFile(file)),
+      staticRenderWarning(await freezeStarts(file), durationSeconds),
+    ];
+    return warnings.filter((warning): warning is string => warning !== null);
   } catch (error) {
-    if (error instanceof ExecError) return null;
+    if (error instanceof ExecError) return [];
     throw error;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
   }
 }
+
+const DURATION_RE = /data-duration="([0-9.]+)"/;
 
 export function registerRenderTools(server: McpServer): void {
   registerTool(server, {
@@ -59,7 +77,7 @@ export function registerRenderTools(server: McpServer): void {
     title: "Render Video",
     description: RENDER_RULES,
     inputSchema: {
-      html: z.string().min(1).describe("Base64-encoded HTML+GSAP composition."),
+      html: compositionHtml("Base64-encoded HTML+GSAP composition."),
       audio_base64: z.string().optional().describe("Base64 WAV/MP3, injected as an <audio> track."),
       audio_volume: z.number().min(0).max(1).default(0.9).describe("Audio volume 0-1."),
       fps: z.number().int().min(1).max(60).default(30).describe("Frames per second."),
@@ -84,8 +102,9 @@ export function registerRenderTools(server: McpServer): void {
           tool: "video_render",
           args,
         });
-        const warning = await blankRenderWarning(buffer);
-        return warning ? { ...saved, warnings: [warning] } : saved;
+        const declared = DURATION_RE.exec(Buffer.from(html, "base64").toString("utf-8"));
+        const warnings = await renderWarnings(buffer, Number(declared?.[1] ?? 0));
+        return warnings.length > 0 ? { ...saved, warnings } : saved;
       });
       return Promise.resolve({
         job_id: jobId,
@@ -104,7 +123,7 @@ export function registerRenderTools(server: McpServer): void {
       segments: z
         .array(
           z.object({
-            html: z.string().min(1).describe("Base64 HTML+GSAP for this segment."),
+            html: compositionHtml("Base64 HTML+GSAP for this segment."),
             duration: z.number().positive().describe("Segment duration, seconds."),
             media: z
               .array(segmentMediaRef)

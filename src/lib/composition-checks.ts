@@ -113,3 +113,33 @@ export function checkComposition(html: string): string[] {
 
   return findings;
 }
+
+// Node's base64 decoder is lenient: a string whose length is not a multiple of 4, or that carries a
+// stray character, silently decodes to a truncated document. A composition mangled that way still
+// renders — the browser just drops the incomplete tail, usually the <script> that drives the
+// timeline — and the result is a still frame that no amount of downstream checking explains.
+const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
+const REPLACEMENT_CHAR = "�";
+
+export function base64CompositionError(value: string): string | null {
+  const compact = value.replace(/\s/g, "");
+  if (!BASE64_RE.test(compact)) {
+    return "html is not valid base64 (it contains characters outside the base64 alphabet).";
+  }
+  // Node drops whatever it cannot align into a byte, so a corrupt string still decodes — just
+  // short. Re-encoding is the only way to see that characters were lost. Padding is optional,
+  // so compare without it.
+  const bytes = Buffer.from(compact, "base64");
+  const stripPadding = (value: string): string => value.replace(/=+$/, "");
+  if (stripPadding(bytes.toString("base64")) !== stripPadding(compact)) {
+    return `html is not valid base64: it decodes with data loss (${compact.length} characters), so the document is truncated and its trailing markup — usually the <script> that drives the timeline — never reaches the page. Re-encode the whole document.`;
+  }
+  const decoded = bytes.toString("utf-8");
+  if (decoded.includes(REPLACEMENT_CHAR)) {
+    return "html does not decode to valid UTF-8 — re-encode the document.";
+  }
+  if (!decoded.includes("data-composition-id")) {
+    return "html decodes without a `data-composition-id` root element — the decoded document looks wrong.";
+  }
+  return null;
+}

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { base64CompositionError } from "../lib/composition-checks.js";
 
 export const RESOLUTION = z.enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"]);
 
@@ -24,3 +25,14 @@ export const metadataArg = z
   })
   .optional()
   .describe("Publish metadata; if set, a <video>.json sidecar is written to the bucket too.");
+
+// Validate at the boundary: a mangled base64 document still renders, as a still frame.
+export const compositionHtml = (description: string) =>
+  z
+    .string()
+    .min(1)
+    .superRefine((value, ctx) => {
+      const error = base64CompositionError(value);
+      if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
+    })
+    .describe(description);

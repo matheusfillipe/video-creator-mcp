@@ -3,6 +3,7 @@ import {
   BLACK_OUTPUT_YMAX,
   blackOutputWarning,
   dropInapplicableFindings,
+  staticRenderWarning,
 } from "../../src/services/effects.js";
 
 describe("blackOutputWarning", () => {
@@ -58,5 +59,19 @@ describe("dropInapplicableFindings", () => {
     const kept = dropInapplicableFindings(gsapOnly, 'window.__timelines["main"] = tl;');
     expect(kept).not.toMatch(/missing_gsap_script/);
     expect(kept).toMatch(/0 error\(s\), 0 warning\(s\)/);
+  });
+});
+
+describe("staticRenderWarning", () => {
+  it("flags a 5s render frozen from the first frame", () => {
+    expect(staticRenderWarning([0.0666], 5)).toMatch(/NEVER CHANGES/);
+  });
+
+  it("ignores a freeze that only starts near the end (a held final frame)", () => {
+    expect(staticRenderWarning([4.2], 5)).toBeNull();
+  });
+
+  it("passes a render with no frozen span at all", () => {
+    expect(staticRenderWarning([], 5)).toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import { previewFrames } from "../services/preview.js";
 import { saveRender } from "../services/publish.js";
 import type { Resolution } from "../types.js";
 import { registerTool } from "./defineTool.js";
+import { compositionHtml } from "./shared.js";
 
 export function registerEffectsTools(server: McpServer): void {
   registerTool(server, {
@@ -14,7 +15,7 @@ export function registerEffectsTools(server: McpServer): void {
     description:
       "Validate a base64 HTML+GSAP composition for common authoring mistakes before rendering. Always lint before video_render.",
     inputSchema: {
-      html: z.string().min(1).describe("Base64-encoded HTML composition."),
+      html: compositionHtml("Base64-encoded HTML composition."),
     },
     annotations: { readOnlyHint: true },
     handler: ({ html }) => runOnEngine(() => lintComposition(html)),
