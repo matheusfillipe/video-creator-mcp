@@ -103,7 +103,7 @@ export function registerManimTools(server: McpServer): void {
           .enum(["auto", "cairo", "opengl"])
           .default("auto")
           .describe(
-            "Rendering backend. 'auto' (default) renders a 3D ThreeDScene on the GPU (OpenGL, ~3x faster) and 2D on the CPU (Cairo, most predictable). Force with 'opengl' or 'cairo'.",
+            "Rendering backend — leave unset. 'auto' (default) runs a 3D ThreeDScene on the GPU and 2D on the CPU, and falls back to the CPU by itself if the GPU can't run the scene. Forcing 'cairo' on a 3D scene costs minutes instead of seconds; only pass this to reproduce a specific backend.",
           ),
         ...musicArg,
         metadata: metadataArg,

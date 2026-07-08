@@ -16,7 +16,9 @@ geometry and proofs, transformations, 3D, number theory, vectors/fields, typogra
 - **Always pass `resolution=(24,24)`–`(32,32)` to `Surface`/`Torus`/`Sphere`.** The default is
   `(101,101)` — ~10k points re-transformed every frame — which turns a 20-second render into many
   minutes. `(24,24)` looks identical at short-video size.
-- **3D renders on the GPU automatically.** A `ThreeDScene` uses the OpenGL renderer (~3x faster than software); 2D stays on Cairo (most predictable). Override with the tool's `renderer` param (`auto` | `cairo` | `opengl`) if needed.
+- **Leave the tool's `renderer` param unset.** The server sends a `ThreeDScene` to the GPU (~10x
+  faster) and 2D to Cairo, and silently falls back to Cairo if the GPU can't run the scene. Forcing
+  `cairo` on a 3D scene turns a ~20s render into minutes.
 - **Do NOT add audio in code.** Pass `music_media_id` (from `video_download_media`) to the tool and the
   server loops it under the finished clip.
 
@@ -107,8 +109,10 @@ class S(Scene):
 - **Build a curve with `ParametricFunction`, never `VMobject.set_points_smoothly(points)`.** A
   many-point `set_points_smoothly` hangs the GPU renderer outright; the same curve as a
   `ParametricFunction(lambda t: …, t_range=[a, b])` draws in seconds.
-- `set_camera_orientation(phi=…, theta=…)` takes no `zoom=` on the GPU renderer — it aborts the
-  render and the scene re-renders on the slow CPU path. Scale the mobjects or move the camera instead.
+- **The 3D camera takes only `phi`, `theta` and `gamma`.** `set_camera_orientation(zoom=…)` /
+  `focal_distance=…`, and the matching `camera.set_zoom(…)` / `camera.set_focal_distance(…)`, exist
+  only on the CPU camera and abort a GPU render. To frame the shot, scale the mobjects
+  (`surface.scale(1.4)`) — don't reach for the camera and don't force `renderer="cairo"`.
 - Surface-family kwargs are not validated on the GPU renderer: a misspelled kwarg (e.g.
   `resolution_major=`) is silently ignored and the default `(101,101)` resolution applies — pass
   `resolution=(u,v)` exactly.
