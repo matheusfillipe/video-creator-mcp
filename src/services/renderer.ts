@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
+import { decodeComposition } from "../lib/composition-checks.js";
 import { sanitizedEnv, spawnStreaming } from "../lib/exec.js";
 import type { Resolution } from "../types.js";
 import { linkMediaToWorkdir } from "./media.js";
@@ -131,9 +132,7 @@ export async function renderComposition(
   await mkdir(assetsDir, { recursive: true });
 
   try {
-    let html = ensureDocument(
-      stripEscapedTagJunk(Buffer.from(params.htmlBase64, "base64").toString("utf-8")),
-    );
+    let html = ensureDocument(stripEscapedTagJunk(decodeComposition(params.htmlBase64)));
     await copyGsap(assetsDir);
     for (const item of params.media ?? []) {
       await linkMediaToWorkdir(item.media_id, workDir);

@@ -138,7 +138,7 @@ Validate a base64 HTML+GSAP composition for common authoring mistakes before ren
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `html` | string | yes |  | Base64-encoded HTML composition. |
+| `html` | string | yes |  | The HTML composition markup (plain text; base64 also accepted). |
 
 ## `video_loop`
 
@@ -166,7 +166,7 @@ Render a SINGLE PNG of how a composition will look at one or more timestamps —
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `html` | string | yes |  | Base64-encoded HTML+GSAP composition (same shape as video_render). |
+| `html` | string | yes |  | The composition markup, same shape as video_render (plain text; base64 also accepted). |
 | `at` | array | yes |  | Timestamps (seconds, within the composition's data-duration) to capture. |
 | `media` | array | no |  | media_ids referenced by the HTML (linked into assets/ before snapshot). |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution preset. |
@@ -182,11 +182,11 @@ AI background removal. Input is a media_id (from video_download_media) or a dire
 
 ## `video_render`
 
-Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll video_render_status until state is "done", then read result.url. Authoring rules (run video_lint first): - html must be base64-encoded and contain <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">. - All elements use position:absolute with top/left (never bottom). Canvas 1920x1080 landscape, 1080x1920 portrait — must match resolution. - GSAP: gsap.timeline({ paused: true }) registered on window.__timelines["main"]; add class="clip" + data-start/data-duration/data-track-index to timed elements. - anime.js v3 is loaded too and drives a composition just as well — its timelines go on window.__hfAnime. Read video_skill('animejs/authoring.md') for that contract. - No Math.random (use a seeded PRNG), no fetch/async during timeline setup. Animate a wrapper div around <video>; never call .play()/.pause(). - For multiple video clips use video_render_timeline instead (one <video> per composition). - Reference downloaded media as src="assets/<filename>" and pass its media_id in the media array. Reference: https://hyperframes.mintlify.app/llms.txt
+Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll video_render_status until state is "done", then read result.url. Authoring rules (run video_lint first): - html is the composition markup itself (plain text, not base64) and must contain <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">. - All elements use position:absolute with top/left (never bottom). Canvas 1920x1080 landscape, 1080x1920 portrait — must match resolution. - GSAP: gsap.timeline({ paused: true }) registered on window.__timelines["main"]; add class="clip" + data-start/data-duration/data-track-index to timed elements. - anime.js v3 is loaded too and drives a composition just as well — its timelines go on window.__hfAnime. Read video_skill('animejs/authoring.md') for that contract. - No Math.random (use a seeded PRNG), no fetch/async during timeline setup. Animate a wrapper div around <video>; never call .play()/.pause(). - For multiple video clips use video_render_timeline instead (one <video> per composition). - Reference downloaded media as src="assets/<filename>" and pass its media_id in the media array. Reference: https://hyperframes.mintlify.app/llms.txt
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `html` | string | yes |  | Base64-encoded HTML+GSAP composition. |
+| `html` | string | yes |  | The HTML+GSAP composition markup (plain text; base64 also accepted). |
 | `audio_base64` | string | no |  | Base64 WAV/MP3, injected as an <audio> track. |
 | `audio_volume` | number | no | `0.9` | Audio volume 0-1. |
 | `fps` | integer | no | `30` | Frames per second. |

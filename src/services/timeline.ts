@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "../config.js";
+import { decodeComposition } from "../lib/composition-checks.js";
 import { ExecError, run } from "../lib/exec.js";
 import { FONT_FILE } from "../lib/ffmpeg.js";
 import { Limiter } from "../lib/queue.js";
@@ -362,7 +363,7 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
   const preflightWarnings: string[] = [];
   for (const [index, segment] of params.segments.entries()) {
     if (segment.html) {
-      const decoded = Buffer.from(segment.html, "base64").toString("utf-8");
+      const decoded = decodeComposition(segment.html);
       if (!/<video\b/i.test(decoded)) {
         preflightWarnings.push(
           `segment ${index} has no <video> tag — it will render as a black background with text only. Documentaries/montages should have footage in every segment; reuse a media_id from another segment if you don't have enough clips.`,

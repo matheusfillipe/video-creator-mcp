@@ -3,6 +3,7 @@ import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promi
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "../config.js";
+import { decodeComposition } from "../lib/composition-checks.js";
 import { run } from "../lib/exec.js";
 import type { Resolution } from "../types.js";
 import { linkMediaToWorkdir } from "./media.js";
@@ -48,7 +49,7 @@ export async function previewFrames(params: PreviewParams): Promise<PreviewOutpu
   await mkdir(assetsDir, { recursive: true });
 
   try {
-    const html = ensureDocument(Buffer.from(params.htmlBase64, "base64").toString("utf-8"));
+    const html = ensureDocument(decodeComposition(params.htmlBase64));
     await copyFile(GSAP_SOURCE, join(assetsDir, "gsap.min.js"));
     await copyFile(ANIME_SOURCE, join(assetsDir, "anime.min.js"));
     for (const item of params.media ?? []) {

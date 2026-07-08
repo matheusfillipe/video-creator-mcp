@@ -7,6 +7,7 @@ already loaded on the page — reach for it when its syntax expresses the motion
 
 ## Contract with this server
 - `anime` is a **global**, injected as `assets/anime.min.js`. Never inline the library.
+- Pass the markup to `video_render` as **plain text** — do not base64-encode it yourself.
 - Build the timeline with **`autoplay: false`** and register it on **`window.__hfAnime`** (an array):
   ```js
   const tl = anime.timeline({ autoplay: false });

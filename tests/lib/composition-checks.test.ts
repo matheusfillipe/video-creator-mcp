@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { base64CompositionError, checkComposition } from "../../src/lib/composition-checks.js";
+import {
+  base64CompositionError,
+  checkComposition,
+  compositionInputError,
+  decodeComposition,
+} from "../../src/lib/composition-checks.js";
 
 describe("checkComposition", () => {
   it("flags a non-zero length that lost its unit", () => {
@@ -63,5 +68,35 @@ describe("base64CompositionError", () => {
   it("rejects a document with no composition root", () => {
     const noRoot = Buffer.from("<div>hello</div>").toString("base64");
     expect(base64CompositionError(noRoot)).toMatch(/data-composition-id/);
+  });
+});
+
+describe("plain-html input", () => {
+  const markup = '<div id="root" data-composition-id="main"></div>';
+
+  it("accepts markup passed directly", () => {
+    expect(compositionInputError(markup)).toBeNull();
+    expect(decodeComposition(markup)).toBe(markup);
+  });
+
+  it("still accepts (and decodes) base64", () => {
+    const encoded = Buffer.from(markup).toString("base64");
+    expect(compositionInputError(encoded)).toBeNull();
+    expect(decodeComposition(encoded)).toBe(markup);
+  });
+
+  it("rejects markup with no composition root", () => {
+    expect(compositionInputError("<div>hi</div>")).toMatch(/data-composition-id/);
+  });
+});
+
+describe("unbalanced css braces", () => {
+  it("flags the stray brace that discards the next rule", () => {
+    const html = "<style>body{margin:0}}\n#card{width:760px}</style>";
+    expect(checkComposition(html).join()).toMatch(/unbalanced_css_braces/);
+  });
+
+  it("accepts a balanced stylesheet", () => {
+    expect(checkComposition("<style>body{margin:0}\n#card{width:760px}</style>")).toEqual([]);
   });
 });

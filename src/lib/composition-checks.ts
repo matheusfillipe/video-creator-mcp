@@ -75,8 +75,21 @@ function unique(values: string[]): string[] {
   return [...new Set(values)];
 }
 
+const STYLE_BLOCK_RE = /<style[^>]*>([\s\S]*?)<\/style>/gi;
+
 export function checkComposition(html: string): string[] {
   const findings: string[] = [];
+
+  for (const match of html.matchAll(STYLE_BLOCK_RE)) {
+    const css = match[1] ?? "";
+    const opens = (css.match(/\{/g) ?? []).length;
+    const closes = (css.match(/\}/g) ?? []).length;
+    if (closes > opens) {
+      findings.push(
+        `✗ unbalanced_css_braces: the <style> block has ${closes} \`}\` for ${opens} \`{\`. A stray \`}\` makes the browser discard the rule that follows it, so that element renders with no size or background. Fix: remove the extra brace.`,
+      );
+    }
+  }
 
   const unitless = unique(
     [...html.matchAll(UNITLESS_LENGTH_RE)].map((match) => `${match[1]}:${match[2]}`),
@@ -120,6 +133,26 @@ export function checkComposition(html: string): string[] {
 // timeline — and the result is a still frame that no amount of downstream checking explains.
 const BASE64_RE = /^[A-Za-z0-9+/]+={0,2}$/;
 const REPLACEMENT_CHAR = "�";
+
+// Hand-encoding a whole document to base64 is a step an author gets wrong — a dropped character
+// truncates the document, and nothing downstream can tell. Accept the markup directly; base64 is
+// still honoured so existing recipes replay unchanged.
+export function looksLikeHtml(value: string): boolean {
+  return value.trimStart().startsWith("<");
+}
+
+export function decodeComposition(value: string): string {
+  return looksLikeHtml(value) ? value : Buffer.from(value, "base64").toString("utf-8");
+}
+
+export function compositionInputError(value: string): string | null {
+  if (looksLikeHtml(value)) {
+    return value.includes("data-composition-id")
+      ? null
+      : "html has no `data-composition-id` root element.";
+  }
+  return base64CompositionError(value);
+}
 
 export function base64CompositionError(value: string): string | null {
   const compact = value.replace(/\s/g, "");

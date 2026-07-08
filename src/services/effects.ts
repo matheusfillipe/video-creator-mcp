@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { decodeComposition } from "../lib/composition-checks.js";
 import { checkComposition } from "../lib/composition-checks.js";
 import { run } from "../lib/exec.js";
 import { buildTimedDrawtext } from "../lib/ffmpeg.js";
@@ -286,7 +287,7 @@ export function dropInapplicableFindings(lintOutput: string, html: string): stri
 export async function lintComposition(htmlBase64: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "vcm-lint-"));
   try {
-    const html = Buffer.from(htmlBase64, "base64").toString("utf-8");
+    const html = decodeComposition(htmlBase64);
     await writeFile(join(dir, "index.html"), html);
     const { stdout, stderr } = await run("hyperframes", ["lint", dir], {
       timeoutMs: 30_000,

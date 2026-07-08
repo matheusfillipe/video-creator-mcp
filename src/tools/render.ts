@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { decodeComposition } from "../lib/composition-checks.js";
 import { ExecError } from "../lib/exec.js";
 import {
   addAudioTrack,
@@ -39,7 +40,7 @@ const segmentMediaRef = z.object({
 const RENDER_RULES = `Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll video_render_status until state is "done", then read result.url.
 
 Authoring rules (run video_lint first):
-- html must be base64-encoded and contain <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">.
+- html is the composition markup itself (plain text, not base64) and must contain <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">.
 - All elements use position:absolute with top/left (never bottom). Canvas 1920x1080 landscape, 1080x1920 portrait — must match resolution.
 - GSAP: gsap.timeline({ paused: true }) registered on window.__timelines["main"]; add class="clip" + data-start/data-duration/data-track-index to timed elements.
 - anime.js v3 is loaded too and drives a composition just as well — its timelines go on window.__hfAnime. Read video_skill('animejs/authoring.md') for that contract.
@@ -77,7 +78,7 @@ export function registerRenderTools(server: McpServer): void {
     title: "Render Video",
     description: RENDER_RULES,
     inputSchema: {
-      html: compositionHtml("Base64-encoded HTML+GSAP composition."),
+      html: compositionHtml("The HTML+GSAP composition markup (plain text; base64 also accepted)."),
       audio_base64: z.string().optional().describe("Base64 WAV/MP3, injected as an <audio> track."),
       audio_volume: z.number().min(0).max(1).default(0.9).describe("Audio volume 0-1."),
       fps: z.number().int().min(1).max(60).default(30).describe("Frames per second."),
@@ -102,7 +103,7 @@ export function registerRenderTools(server: McpServer): void {
           tool: "video_render",
           args,
         });
-        const declared = DURATION_RE.exec(Buffer.from(html, "base64").toString("utf-8"));
+        const declared = DURATION_RE.exec(decodeComposition(html));
         const warnings = await renderWarnings(buffer, Number(declared?.[1] ?? 0));
         return warnings.length > 0 ? { ...saved, warnings } : saved;
       });
@@ -123,7 +124,9 @@ export function registerRenderTools(server: McpServer): void {
       segments: z
         .array(
           z.object({
-            html: compositionHtml("Base64 HTML+GSAP for this segment."),
+            html: compositionHtml(
+              "This segment's HTML+GSAP markup (plain text; base64 also accepted).",
+            ),
             duration: z.number().positive().describe("Segment duration, seconds."),
             media: z
               .array(segmentMediaRef)

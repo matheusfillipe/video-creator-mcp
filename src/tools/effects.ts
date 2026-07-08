@@ -15,7 +15,7 @@ export function registerEffectsTools(server: McpServer): void {
     description:
       "Validate a base64 HTML+GSAP composition for common authoring mistakes before rendering. Always lint before video_render.",
     inputSchema: {
-      html: compositionHtml("Base64-encoded HTML composition."),
+      html: compositionHtml("The HTML composition markup (plain text; base64 also accepted)."),
     },
     annotations: { readOnlyHint: true },
     handler: ({ html }) => runOnEngine(() => lintComposition(html)),
@@ -45,10 +45,9 @@ export function registerEffectsTools(server: McpServer): void {
     description:
       "Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_render or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.",
     inputSchema: {
-      html: z
-        .string()
-        .min(1)
-        .describe("Base64-encoded HTML+GSAP composition (same shape as video_render)."),
+      html: compositionHtml(
+        "The composition markup, same shape as video_render (plain text; base64 also accepted).",
+      ),
       at: z
         .array(z.number().min(0))
         .min(1)

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { base64CompositionError } from "../lib/composition-checks.js";
+import { compositionInputError } from "../lib/composition-checks.js";
 
 export const RESOLUTION = z.enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"]);
 
@@ -32,7 +32,7 @@ export const compositionHtml = (description: string) =>
     .string()
     .min(1)
     .superRefine((value, ctx) => {
-      const error = base64CompositionError(value);
+      const error = compositionInputError(value);
       if (error) ctx.addIssue({ code: z.ZodIssueCode.custom, message: error });
     })
     .describe(description);
