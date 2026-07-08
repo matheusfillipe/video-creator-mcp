@@ -165,10 +165,17 @@ async function findRenderedFile(mediaDir: string): Promise<string> {
   throw new Error("manim produced no mp4 output");
 }
 
+const RENDER_TIMEOUT_MS = 600_000;
+// The GPU attempt is speculative: a 3D scene that renders at all on OpenGL finishes in
+// well under a minute, and the renderer can deadlock outright on some scenes. Cut it off
+// early so the Cairo fallback still has its full budget instead of the request stalling.
+const OPENGL_ATTEMPT_TIMEOUT_MS = 120_000;
+
 async function runManimAttempt(
   sceneCode: string,
   sceneName: string,
   useGl: boolean,
+  timeoutMs: number = RENDER_TIMEOUT_MS,
 ): Promise<ManimRenderOutput> {
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `manim-${jobId}`);
@@ -189,7 +196,7 @@ async function runManimAttempt(
         scriptPath,
         sceneName,
       ],
-      { timeoutMs: 600_000, cwd: dir },
+      { timeoutMs, cwd: dir },
     );
     const outFile = await findRenderedFile(join(dir, "media"));
     const buffer = await readFile(outFile);
@@ -204,14 +211,14 @@ export async function renderManimScene(
   sceneName: string,
   renderer: ManimRenderer = "auto",
 ): Promise<ManimRenderOutput> {
-  // "auto" sends a ThreeDScene to the GPU (OpenGL) for speed, but parts of manim's 3D
-  // camera API (e.g. set_camera_orientation(zoom=...)) are unimplemented on the OpenGL
-  // renderer and abort the render within a few seconds. Fall back to the CPU (Cairo)
-  // renderer so the scene still produces a video. An explicit renderer choice is honoured
-  // as given, with no fallback.
+  // "auto" sends a ThreeDScene to the GPU (OpenGL) for speed, but the OpenGL renderer
+  // leaves parts of manim's 3D camera API unimplemented (set_camera_orientation(zoom=...)
+  // aborts) and deadlocks on some scenes. Fall back to the CPU (Cairo) renderer so the
+  // scene still produces a video. An explicit renderer choice is honoured as given, with
+  // no fallback.
   if (renderer === "auto" && useOpenGl("auto", sceneCode)) {
     try {
-      return await runManimAttempt(sceneCode, sceneName, true);
+      return await runManimAttempt(sceneCode, sceneName, true, OPENGL_ATTEMPT_TIMEOUT_MS);
     } catch (error) {
       if (!(error instanceof ExecError)) throw error;
       return runManimAttempt(sceneCode, sceneName, false);
