@@ -323,3 +323,46 @@ export async function extractFrame(params: {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+// A chrome render can "succeed" while its GSAP animations never fire, producing a video where
+// no frame ever contains a bright pixel — visually a black screen over the background gradient.
+// Sampling the per-frame luma maximum separates that from a legitimately dark scene: text or
+// line-work pushes YMAX near 255, a dead composition stays under ~30.
+const BLACK_OUTPUT_YMAX = 80;
+const YMAX_RE = /YMAX=(\d+)/g;
+
+export async function maxFrameLuma(buffer: Buffer): Promise<number> {
+  const dir = await mkdtemp(join(tmpdir(), "vcm-luma-"));
+  try {
+    const file = join(dir, "probe.mp4");
+    await writeFile(file, buffer);
+    const { stderr } = await run(
+      "ffmpeg",
+      [
+        "-v",
+        "info",
+        "-i",
+        file,
+        "-vf",
+        "select='not(mod(n\\,15))',signalstats,metadata=print:key=lavfi.signalstats.YMAX",
+        "-f",
+        "null",
+        "-",
+      ],
+      { timeoutMs: 120_000 },
+    );
+    let max = Number.NaN;
+    for (const m of stderr.matchAll(YMAX_RE)) {
+      const v = Number(m[1]);
+      if (Number.isNaN(max) || v > max) max = v;
+    }
+    return max;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+export function blackOutputWarning(maxLuma: number): string | null {
+  if (!(maxLuma < BLACK_OUTPUT_YMAX)) return null;
+  return `Rendered video looks BLACK/empty: no sampled frame has a pixel brighter than ${Math.round(maxLuma)}/255, so the composition's elements never became visible. Most common cause: GSAP tweens that never fire — give every element its initial state with gsap.set(...) and animate with .to(...) tweens, then re-render. Check a mid-scene frame with video_preview_frame before re-rendering.`;
+}

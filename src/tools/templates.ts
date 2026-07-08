@@ -124,7 +124,11 @@ export function registerTemplateTools(server: McpServer): void {
 
       const jobId = submitJob("tierlist", async () => {
         const { buffer, filename, warnings } = await assembleTimeline(params);
-        const saved = await saveRender(buffer, filename, args.metadata);
+        const { metadata, ...recipeArgs } = args;
+        const saved = await saveRender(buffer, filename, metadata, {
+          tool: "video_render_tierlist",
+          args: recipeArgs,
+        });
         return {
           ...saved,
           segments: segments.length,
@@ -273,7 +277,11 @@ export function registerTemplateTools(server: McpServer): void {
 
       const jobId = submitJob("slideshow", async () => {
         const { buffer, filename, warnings } = await assembleTimeline(params);
-        const saved = await saveRender(buffer, filename, args.metadata);
+        const { metadata, ...recipeArgs } = args;
+        const saved = await saveRender(buffer, filename, metadata, {
+          tool: "video_render_slideshow",
+          args: recipeArgs,
+        });
         return {
           ...saved,
           segments: timelineSegments.length,
@@ -315,7 +323,10 @@ export function registerTemplateTools(server: McpServer): void {
           fps,
           resolution: "1080p",
         });
-        return saveRender(buffer, filename, metadata);
+        return saveRender(buffer, filename, metadata, {
+          tool: "video_render_terminal",
+          args: { command, output, prompt, duration_seconds, fps },
+        });
       });
       return {
         job_id: jobId,
@@ -393,7 +404,11 @@ export function registerTemplateTools(server: McpServer): void {
           fps: args.fps,
           resolution: "1080p",
         });
-        return saveRender(buffer, filename, args.metadata);
+        const { metadata, ...recipeArgs } = args;
+        return saveRender(buffer, filename, metadata, {
+          tool: "video_render_chart",
+          args: recipeArgs,
+        });
       });
       return {
         job_id: jobId,

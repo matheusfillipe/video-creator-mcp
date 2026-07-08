@@ -1,6 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { addAudioTrack, captionMedia } from "../services/effects.js";
+import {
+  addAudioTrack,
+  blackOutputWarning,
+  captionMedia,
+  maxFrameLuma,
+} from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
 import { loopMedia, writeMediaFromBuffer } from "../services/media.js";
@@ -50,7 +55,8 @@ export function registerRenderTools(server: McpServer): void {
       media: z.array(mediaRef).optional().describe("Pre-downloaded media to include."),
       metadata: metadataArg,
     },
-    handler: ({ html, audio_base64, audio_volume, fps, resolution, media, metadata }) => {
+    handler: ({ metadata, ...args }) => {
+      const { html, audio_base64, audio_volume, fps, resolution, media } = args;
       const jobId = submitJob("render", async () => {
         const { buffer, filename } = await renderComposition({
           htmlBase64: html,
@@ -60,7 +66,12 @@ export function registerRenderTools(server: McpServer): void {
           audioVolume: audio_volume,
           media,
         });
-        return saveRender(buffer, filename, metadata);
+        const saved = await saveRender(buffer, filename, metadata, {
+          tool: "video_render",
+          args,
+        });
+        const warning = blackOutputWarning(await maxFrameLuma(buffer));
+        return warning ? { ...saved, warnings: [warning] } : saved;
       });
       return Promise.resolve({
         job_id: jobId,
@@ -104,7 +115,8 @@ export function registerRenderTools(server: McpServer): void {
       resolution: RESOLUTION.default("1080p").describe("Output resolution/orientation."),
       metadata: metadataArg,
     },
-    handler: ({ segments, audio, fps, resolution, metadata }) => {
+    handler: ({ metadata, ...args }) => {
+      const { segments, audio, fps, resolution } = args;
       const jobId = submitJob("timeline", async () => {
         const { buffer, filename, warnings } = await assembleTimeline({
           segments,
@@ -112,8 +124,14 @@ export function registerRenderTools(server: McpServer): void {
           fps,
           resolution,
         });
-        const saved = await saveRender(buffer, filename, metadata);
-        return { ...saved, segments: segments.length, warnings: warnings ?? [] };
+        const saved = await saveRender(buffer, filename, metadata, {
+          tool: "video_render_timeline",
+          args,
+        });
+        const allWarnings = [...(warnings ?? [])];
+        const blackWarning = blackOutputWarning(await maxFrameLuma(buffer));
+        if (blackWarning) allWarnings.push(blackWarning);
+        return { ...saved, segments: segments.length, warnings: allWarnings };
       });
       return Promise.resolve({
         job_id: jobId,
