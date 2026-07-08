@@ -238,22 +238,40 @@ export async function captionMedia(
 
 export type BackgroundFormat = "webm" | "mov" | "png";
 
-// hyperframes' linter only knows the GSAP timeline registry, but its runtime also seeks
-// anime.js and lottie timelines registered on their own globals. Reporting the GSAP-only
-// finding against those compositions makes an author rewrite a scene that already works.
+// hyperframes' linter checks a standalone project; two of its findings never apply to a
+// composition rendered through this server, and acting on them makes an author rewrite a scene
+// that already works. renderComposition wraps a bare composition in a full HTML document, and
+// the hyperframes runtime seeks anime.js timelines registered on window.__hfAnime — which the
+// GSAP-only registry check cannot see.
 const ADAPTER_REGISTRIES = ["__hfAnime", "__hfLottie"];
+const WRAPPER_FINDING = "root_composition_missing_html_wrapper";
 const GSAP_ONLY_FINDING = "missing_timeline_registry";
-const FINDING_START_RE = /^\s*[\u2717\u26a0]\s/;
+const FINDING_START_RE = /^\s*([\u2717\u26a0])\s/;
+const SUMMARY_RE = /^(\s*\u25c7\s+)\d+( error\(s\), )\d+( warning\(s\))/;
 
-export function dropGsapOnlyFindings(lintOutput: string, html: string): string {
-  if (!ADAPTER_REGISTRIES.some((registry) => html.includes(registry))) return lintOutput;
+export function dropInapplicableFindings(lintOutput: string, html: string): string {
+  const drivenByAdapter = ADAPTER_REGISTRIES.some((registry) => html.includes(registry));
   const kept: string[] = [];
+  let errors = 0;
+  let warnings = 0;
   let skipping = false;
   for (const line of lintOutput.split("\n")) {
-    if (FINDING_START_RE.test(line)) skipping = line.includes(GSAP_ONLY_FINDING);
+    const finding = FINDING_START_RE.exec(line);
+    if (finding) {
+      skipping =
+        line.includes(WRAPPER_FINDING) || (drivenByAdapter && line.includes(GSAP_ONLY_FINDING));
+      if (!skipping) {
+        if (finding[1] === "\u2717") errors += 1;
+        else warnings += 1;
+      }
+    }
     if (!skipping) kept.push(line);
   }
-  return kept.join("\n");
+  return kept
+    .map((line) =>
+      line.replace(SUMMARY_RE, (_m, head, mid, tail) => `${head}${errors}${mid}${warnings}${tail}`),
+    )
+    .join("\n");
 }
 
 export async function lintComposition(htmlBase64: string): Promise<string> {
@@ -267,7 +285,7 @@ export async function lintComposition(htmlBase64: string): Promise<string> {
     });
     const output = stdout || stderr;
     if (!output) return "Lint passed — no issues found.";
-    return dropGsapOnlyFindings(output, html);
+    return dropInapplicableFindings(output, html);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
