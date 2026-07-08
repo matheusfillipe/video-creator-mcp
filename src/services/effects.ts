@@ -238,19 +238,24 @@ export async function captionMedia(
 
 export type BackgroundFormat = "webm" | "mov" | "png";
 
-// hyperframes' linter checks a standalone project; two of its findings never apply to a
+// hyperframes' linter checks a standalone project, so some of its findings never apply to a
 // composition rendered through this server, and acting on them makes an author rewrite a scene
-// that already works. renderComposition wraps a bare composition in a full HTML document, and
-// the hyperframes runtime seeks anime.js timelines registered on window.__hfAnime — which the
-// GSAP-only registry check cannot see.
+// that already works: renderComposition wraps a bare composition in a full HTML document and
+// injects the animation libraries, and the hyperframes runtime seeks anime.js timelines
+// registered on window.__hfAnime — which the GSAP-only registry check cannot see.
 const ADAPTER_REGISTRIES = ["__hfAnime", "__hfLottie"];
-const WRAPPER_FINDING = "root_composition_missing_html_wrapper";
+const ALWAYS_INAPPLICABLE = ["root_composition_missing_html_wrapper", "missing_gsap_script"];
 const GSAP_ONLY_FINDING = "missing_timeline_registry";
 const FINDING_START_RE = /^\s*([\u2717\u26a0])\s/;
+const CONTINUATION_RE = /^\s{4,}\S/;
 const SUMMARY_RE = /^(\s*\u25c7\s+)\d+( error\(s\), )\d+( warning\(s\))/;
 
 export function dropInapplicableFindings(lintOutput: string, html: string): string {
   const drivenByAdapter = ADAPTER_REGISTRIES.some((registry) => html.includes(registry));
+  const inapplicable = (line: string): boolean =>
+    ALWAYS_INAPPLICABLE.some((finding) => line.includes(finding)) ||
+    (drivenByAdapter && line.includes(GSAP_ONLY_FINDING));
+
   const kept: string[] = [];
   let errors = 0;
   let warnings = 0;
@@ -258,12 +263,15 @@ export function dropInapplicableFindings(lintOutput: string, html: string): stri
   for (const line of lintOutput.split("\n")) {
     const finding = FINDING_START_RE.exec(line);
     if (finding) {
-      skipping =
-        line.includes(WRAPPER_FINDING) || (drivenByAdapter && line.includes(GSAP_ONLY_FINDING));
+      skipping = inapplicable(line);
       if (!skipping) {
         if (finding[1] === "\u2717") errors += 1;
         else warnings += 1;
       }
+    } else if (skipping && !CONTINUATION_RE.test(line)) {
+      // the finding's indented "Fix:" lines are its only continuation; anything else
+      // (the summary, a blank line) belongs to the report, not to the dropped finding.
+      skipping = false;
     }
     if (!skipping) kept.push(line);
   }
