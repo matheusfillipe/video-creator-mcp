@@ -40,6 +40,8 @@ function adjustResolutionForHtml(html: string, requested: Resolution): Resolutio
 }
 const here = dirname(fileURLToPath(import.meta.url));
 const GSAP_SOURCE = join(here, "..", "..", "gsap", "gsap.min.js");
+const ANIME_SOURCE = join(here, "..", "..", "animejs", "anime.min.js");
+const ANIME_TAG = '<script src="assets/anime.min.js"></script>';
 
 // Each `hyperframes render` boots a producer HTTP server (default port 9847) and writes
 // intermediate frames to a shared renders dir. Concurrent renders must not collide on
@@ -70,7 +72,7 @@ export interface RenderOutput {
 
 function ensureDocument(html: string): string {
   if (!html.includes("<!DOCTYPE") && !html.includes("<html")) {
-    return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n</head>\n<body>\n${html}\n</body>\n</html>`;
+    return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n${ANIME_TAG}\n</head>\n<body>\n${html}\n</body>\n</html>`;
   }
   let out = html;
   // chrome defaults to Latin-1 without an explicit <meta charset>; UTF-8 punctuation breaks.
@@ -79,6 +81,11 @@ function ensureDocument(html: string): string {
   }
   if (!out.includes("gsap")) {
     out = out.replace("<head>", '<head>\n<script src="assets/gsap.min.js"></script>');
+  }
+  // Both animation libraries ship as assets so a composition never inlines a minified bundle:
+  // hyperframes' linter would then flag the library's own Math.random/rAF as the author's.
+  if (!out.includes(ANIME_TAG)) {
+    out = out.replace("<head>", `<head>\n${ANIME_TAG}`);
   }
   return out;
 }
@@ -100,11 +107,16 @@ function stripEscapedTagJunk(html: string): string {
 }
 
 async function copyGsap(assetsDir: string): Promise<void> {
-  try {
-    await copyFile(GSAP_SOURCE, join(assetsDir, "gsap.min.js"));
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    throw new Error(`Bundled GSAP not found at ${GSAP_SOURCE}: ${detail}`);
+  for (const [source, name] of [
+    [GSAP_SOURCE, "gsap.min.js"],
+    [ANIME_SOURCE, "anime.min.js"],
+  ] as const) {
+    try {
+      await copyFile(source, join(assetsDir, name));
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`Bundled ${name} not found at ${source}: ${detail}`);
+    }
   }
 }
 

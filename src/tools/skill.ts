@@ -12,6 +12,7 @@ For a **custom HTML/GSAP composition** (\`video_render\` / \`video_render_timeli
 Two adaptations for THIS server (it renders HTML you author via \`video_render\` / \`video_render_timeline\`):
 - The skill's CLI commands (init/preview/render, design.md, inspect/validate) map to this server's tools — use \`video_lint\` then \`video_render\`; ignore raw \`npx hyperframes\` invocations.
 - GSAP is provided by the renderer: reference \`assets/gsap.min.js\` (never a CDN \`<script>\`, renders have no internet) or omit the script tag entirely.
+- anime.js v3 is provided the same way (\`assets/anime.min.js\`) and drives a composition just as well — its timelines register on \`window.__hfAnime\`. Read \`animejs/authoring.md\` before using it.
 
 Call \`video_skill\` with one of these \`doc\` paths to read it:
 `;

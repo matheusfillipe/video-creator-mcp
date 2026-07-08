@@ -71,6 +71,7 @@ RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable --path /o
 
 COPY --from=build /app/dist ./dist
 COPY gsap ./gsap
+COPY animejs ./animejs
 COPY python ./python
 COPY skills ./skills
 

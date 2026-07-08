@@ -238,6 +238,24 @@ export async function captionMedia(
 
 export type BackgroundFormat = "webm" | "mov" | "png";
 
+// hyperframes' linter only knows the GSAP timeline registry, but its runtime also seeks
+// anime.js and lottie timelines registered on their own globals. Reporting the GSAP-only
+// finding against those compositions makes an author rewrite a scene that already works.
+const ADAPTER_REGISTRIES = ["__hfAnime", "__hfLottie"];
+const GSAP_ONLY_FINDING = "missing_timeline_registry";
+const FINDING_START_RE = /^\s*[\u2717\u26a0]\s/;
+
+export function dropGsapOnlyFindings(lintOutput: string, html: string): string {
+  if (!ADAPTER_REGISTRIES.some((registry) => html.includes(registry))) return lintOutput;
+  const kept: string[] = [];
+  let skipping = false;
+  for (const line of lintOutput.split("\n")) {
+    if (FINDING_START_RE.test(line)) skipping = line.includes(GSAP_ONLY_FINDING);
+    if (!skipping) kept.push(line);
+  }
+  return kept.join("\n");
+}
+
 export async function lintComposition(htmlBase64: string): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "vcm-lint-"));
   try {
@@ -247,7 +265,9 @@ export async function lintComposition(htmlBase64: string): Promise<string> {
       timeoutMs: 30_000,
       allowNonZero: true,
     });
-    return stdout || stderr || "Lint passed — no issues found.";
+    const output = stdout || stderr;
+    if (!output) return "Lint passed — no issues found.";
+    return dropGsapOnlyFindings(output, html);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

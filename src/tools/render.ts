@@ -37,6 +37,7 @@ Authoring rules (run video_lint first):
 - html must be base64-encoded and contain <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">.
 - All elements use position:absolute with top/left (never bottom). Canvas 1920x1080 landscape, 1080x1920 portrait — must match resolution.
 - GSAP: gsap.timeline({ paused: true }) registered on window.__timelines["main"]; add class="clip" + data-start/data-duration/data-track-index to timed elements.
+- anime.js v3 is loaded too and drives a composition just as well — its timelines go on window.__hfAnime. Read video_skill('animejs/authoring.md') for that contract.
 - No Math.random (use a seeded PRNG), no fetch/async during timeline setup. Animate a wrapper div around <video>; never call .play()/.pause().
 - For multiple video clips use video_render_timeline instead (one <video> per composition).
 - Reference downloaded media as src="assets/<filename>" and pass its media_id in the media array.

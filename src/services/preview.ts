@@ -9,10 +9,12 @@ import { linkMediaToWorkdir } from "./media.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const GSAP_SOURCE = join(here, "..", "..", "gsap", "gsap.min.js");
+const ANIME_SOURCE = join(here, "..", "..", "animejs", "anime.min.js");
+const ANIME_TAG = '<script src="assets/anime.min.js"></script>';
 
 function ensureDocument(html: string): string {
   if (!html.includes("<!DOCTYPE") && !html.includes("<html")) {
-    return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n</head>\n<body>\n${html}\n</body>\n</html>`;
+    return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n${ANIME_TAG}\n</head>\n<body>\n${html}\n</body>\n</html>`;
   }
   let out = html;
   if (!/<meta[^>]+charset/i.test(out)) {
@@ -20,6 +22,9 @@ function ensureDocument(html: string): string {
   }
   if (!out.includes("gsap")) {
     out = out.replace("<head>", '<head>\n<script src="assets/gsap.min.js"></script>');
+  }
+  if (!out.includes(ANIME_TAG)) {
+    out = out.replace("<head>", `<head>\n${ANIME_TAG}`);
   }
   return out;
 }
@@ -45,6 +50,7 @@ export async function previewFrames(params: PreviewParams): Promise<PreviewOutpu
   try {
     const html = ensureDocument(Buffer.from(params.htmlBase64, "base64").toString("utf-8"));
     await copyFile(GSAP_SOURCE, join(assetsDir, "gsap.min.js"));
+    await copyFile(ANIME_SOURCE, join(assetsDir, "anime.min.js"));
     for (const item of params.media ?? []) {
       await linkMediaToWorkdir(item.media_id, workDir);
     }
