@@ -1,4 +1,5 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { readSkillDoc } from "./services/skills.js";
 
 const AUTHORING_GUIDE = `# Video editor — quick reference
 
@@ -156,6 +157,23 @@ Beyond the dedicated templates, this server can render any block from HeyGen's H
 Full Hyperframes reference: <https://hyperframes.mintlify.app/llms.txt>`;
 
 export function registerResources(server: McpServer): void {
+  // Served from the skill file so the doc has one source of truth. Registered as a resource
+  // (not just a video_skill doc) so the anime.js contract is always in an author's context.
+  server.registerResource(
+    "animejs-guide",
+    "guide://animejs",
+    {
+      title: "anime.js composition guide",
+      description: "Driving a composition with anime.js: the __hfAnime contract and canvas layout.",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [
+        { uri: uri.href, mimeType: "text/markdown", text: readSkillDoc("animejs/authoring.md") },
+      ],
+    }),
+  );
+
   server.registerResource(
     "authoring-guide",
     "guide://authoring",

@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { checkComposition } from "../lib/composition-checks.js";
 import { run } from "../lib/exec.js";
 import { buildTimedDrawtext } from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
@@ -291,9 +292,12 @@ export async function lintComposition(htmlBase64: string): Promise<string> {
       timeoutMs: 30_000,
       allowNonZero: true,
     });
-    const output = stdout || stderr;
-    if (!output) return "Lint passed — no issues found.";
-    return dropInapplicableFindings(output, html);
+    const report = dropInapplicableFindings(stdout || stderr, html);
+    const extra = checkComposition(html);
+    const combined = [report.trimEnd(), ...extra.map((finding) => `  ${finding}`)]
+      .filter(Boolean)
+      .join("\n");
+    return combined || "Lint passed — no issues found.";
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
