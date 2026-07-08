@@ -4,7 +4,7 @@ import {
   addAudioTrack,
   blackOutputWarning,
   captionMedia,
-  maxFrameLuma,
+  lumaProfile,
 } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
@@ -70,7 +70,7 @@ export function registerRenderTools(server: McpServer): void {
           tool: "video_render",
           args,
         });
-        const warning = blackOutputWarning(await maxFrameLuma(buffer));
+        const warning = blackOutputWarning(await lumaProfile(buffer));
         return warning ? { ...saved, warnings: [warning] } : saved;
       });
       return Promise.resolve({
@@ -129,7 +129,7 @@ export function registerRenderTools(server: McpServer): void {
           args,
         });
         const allWarnings = [...(warnings ?? [])];
-        const blackWarning = blackOutputWarning(await maxFrameLuma(buffer));
+        const blackWarning = blackOutputWarning(await lumaProfile(buffer));
         if (blackWarning) allWarnings.push(blackWarning);
         return { ...saved, segments: segments.length, warnings: allWarnings };
       });

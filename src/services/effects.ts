@@ -327,11 +327,19 @@ export async function extractFrame(params: {
 // A chrome render can "succeed" while its GSAP animations never fire, producing a video where
 // no frame ever contains a bright pixel — visually a black screen over the background gradient.
 // Sampling the per-frame luma maximum separates that from a legitimately dark scene: text or
-// line-work pushes YMAX near 255, a dead composition stays under ~30.
+// line-work pushes YMAX near 255, a dead composition stays under ~30. The check runs per
+// sampled frame (not just video-wide) so a dead SEGMENT inside an otherwise-bright timeline
+// is still caught.
 const BLACK_OUTPUT_YMAX = 80;
-const YMAX_RE = /YMAX=(\d+)/g;
+const BLACK_RUN_MIN_S = 3;
+const LUMA_SAMPLE_RE = /pts_time:([0-9.]+)[\s\S]*?YMAX=(\d+)/g;
 
-export async function maxFrameLuma(buffer: Buffer): Promise<number> {
+export interface LumaSample {
+  time: number;
+  ymax: number;
+}
+
+export async function lumaProfile(buffer: Buffer): Promise<LumaSample[]> {
   const dir = await mkdtemp(join(tmpdir(), "vcm-luma-"));
   try {
     const file = join(dir, "probe.mp4");
@@ -351,18 +359,45 @@ export async function maxFrameLuma(buffer: Buffer): Promise<number> {
       ],
       { timeoutMs: 120_000 },
     );
-    let max = Number.NaN;
-    for (const m of stderr.matchAll(YMAX_RE)) {
-      const v = Number(m[1]);
-      if (Number.isNaN(max) || v > max) max = v;
+    const samples: LumaSample[] = [];
+    for (const m of stderr.matchAll(LUMA_SAMPLE_RE)) {
+      samples.push({ time: Number(m[1]), ymax: Number(m[2]) });
     }
-    return max;
+    return samples;
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
 }
 
-export function blackOutputWarning(maxLuma: number): string | null {
-  if (!(maxLuma < BLACK_OUTPUT_YMAX)) return null;
-  return `Rendered video looks BLACK/empty: no sampled frame has a pixel brighter than ${Math.round(maxLuma)}/255, so the composition's elements never became visible. Most common cause: GSAP tweens that never fire — give every element its initial state with gsap.set(...) and animate with .to(...) tweens, then re-render. Check a mid-scene frame with video_preview_frame before re-rendering.`;
+function longestDarkRun(samples: LumaSample[]): { start: number; end: number } | null {
+  let best: { start: number; end: number } | null = null;
+  let runStart: number | null = null;
+  for (const [i, s] of samples.entries()) {
+    if (s.ymax < BLACK_OUTPUT_YMAX) {
+      runStart ??= s.time;
+      const end = samples[i + 1]?.time ?? s.time;
+      if (end - runStart >= BLACK_RUN_MIN_S && (!best || end - runStart > best.end - best.start)) {
+        best = { start: runStart, end };
+      }
+    } else {
+      runStart = null;
+    }
+  }
+  return best;
+}
+
+const GSAP_REMEDY =
+  "Most common cause: GSAP tweens that never fire — give every element its initial state with gsap.set(...) and animate with .to(...) tweens, then re-render. Check a mid-scene frame with video_preview_frame before re-rendering.";
+
+export function blackOutputWarning(samples: LumaSample[]): string | null {
+  if (samples.length === 0) return null;
+  const max = Math.max(...samples.map((s) => s.ymax));
+  if (max < BLACK_OUTPUT_YMAX) {
+    return `Rendered video looks BLACK/empty: no sampled frame has a pixel brighter than ${Math.round(max)}/255, so the composition's elements never became visible. ${GSAP_REMEDY}`;
+  }
+  const dark = longestDarkRun(samples);
+  if (dark) {
+    return `Rendered video has a BLACK/empty stretch from ~${dark.start.toFixed(1)}s to ~${dark.end.toFixed(1)}s: no pixel there gets brighter than ${BLACK_OUTPUT_YMAX}/255, so that segment's elements never became visible. ${GSAP_REMEDY}`;
+  }
+  return null;
 }
