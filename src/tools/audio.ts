@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -14,6 +14,91 @@ const MIN_VOICE_REFERENCE_SEC = 2;
 // A clone reference only needs a few seconds of clean speech. Cap the extracted clip so a
 // long video's audio track doesn't become a huge upload, and it's enough for a good clone.
 const CLONE_CLIP_SECONDS = 20;
+// Chatterbox caps a single generation at ~1000 tokens (~17-20s of speech), so anything longer
+// truncates. Split into chunks safely under that and stitch, keeping the same voice throughout.
+const MAX_TTS_CHUNK_CHARS = 220;
+
+function splitIntoChunks(text: string, maxChars: number): string[] {
+  const clean = text.trim().replace(/\s+/g, " ");
+  if (clean.length <= maxChars) return [clean];
+  const units = clean.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [clean];
+  const chunks: string[] = [];
+  let cur = "";
+  const flush = () => {
+    if (cur.trim()) chunks.push(cur.trim());
+    cur = "";
+  };
+  for (const raw of units) {
+    let unit = raw.trim();
+    if (!unit) continue;
+    while (unit.length > maxChars) {
+      const space = unit.lastIndexOf(" ", maxChars);
+      const cut = space > 0 ? space : maxChars;
+      flush();
+      chunks.push(unit.slice(0, cut).trim());
+      unit = unit.slice(cut).trim();
+    }
+    if (cur && `${cur} ${unit}`.length > maxChars) flush();
+    cur = cur ? `${cur} ${unit}` : unit;
+  }
+  flush();
+  return chunks;
+}
+
+async function concatWavs(parts: Buffer[]): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "vcm-tts-"));
+  try {
+    const files = await Promise.all(
+      parts.map(async (part, i) => {
+        const p = join(dir, `p${i}.wav`);
+        await writeFile(p, part);
+        return p;
+      }),
+    );
+    const listPath = join(dir, "list.txt");
+    await writeFile(listPath, files.map((f) => `file '${f}'`).join("\n"));
+    const out = join(dir, "out.wav");
+    await run("ffmpeg", [
+      "-nostdin",
+      "-y",
+      "-f",
+      "concat",
+      "-safe",
+      "0",
+      "-i",
+      listPath,
+      "-ar",
+      "24000",
+      "-ac",
+      "1",
+      "-c:a",
+      "pcm_s16le",
+      out,
+    ]);
+    return await readFile(out);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+interface SpeechParams {
+  text: string;
+  exaggeration: number;
+  cfgWeight: number;
+  temperature: number;
+  voice?: string;
+  voiceFile?: { buffer: Buffer; filename: string };
+}
+
+async function synthesizeSpeech(params: SpeechParams): Promise<Buffer> {
+  const chunks = splitIntoChunks(params.text, MAX_TTS_CHUNK_CHARS);
+  if (chunks.length === 1) return synthesizeChatterbox(params);
+  const parts: Buffer[] = [];
+  for (const chunk of chunks) {
+    parts.push(await synthesizeChatterbox({ ...params, text: chunk }));
+  }
+  return concatWavs(parts);
+}
 
 function describeActing(exaggeration: number, cfgWeight: number): string {
   const intensity =
@@ -132,7 +217,7 @@ export function registerAudioTools(server: McpServer): void {
         voiceLabel = voice;
       }
 
-      const buffer = await synthesizeChatterbox({
+      const buffer = await synthesizeSpeech({
         text,
         exaggeration,
         cfgWeight: cfg_weight,
