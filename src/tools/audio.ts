@@ -1,15 +1,19 @@
-import { readFile, stat } from "node:fs/promises";
-import { extname } from "node:path";
+import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { run } from "../lib/exec.js";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
 import { metadataSidecarName } from "../services/publish.js";
 import { storage } from "../services/storage.js";
 import { synthesizeChatterbox } from "../services/tts.js";
 import { registerTool } from "./defineTool.js";
 
-const MAX_VOICE_REFERENCE_BYTES = 25 * 1024 * 1024;
 const MIN_VOICE_REFERENCE_SEC = 2;
+// A clone reference only needs a few seconds of clean speech. Cap the extracted clip so a
+// long video's audio track doesn't become a huge upload, and it's enough for a good clone.
+const CLONE_CLIP_SECONDS = 20;
 
 function describeActing(exaggeration: number, cfgWeight: number): string {
   const intensity =
@@ -88,20 +92,40 @@ export function registerAudioTools(server: McpServer): void {
             `voice_reference ${voice_reference} is no longer cached; re-download it with video_download_media.`,
           );
         }
-        if (info.size > MAX_VOICE_REFERENCE_BYTES) {
-          throw new Error(
-            `voice_reference is ${(info.size / 1e6).toFixed(1)}MB; use a short clip (~5-15s, under 25MB) for cloning.`,
-          );
-        }
         if (!ref.duration || ref.duration < MIN_VOICE_REFERENCE_SEC) {
           throw new Error(
             `voice_reference is ${ref.duration ? `only ${ref.duration.toFixed(1)}s` : "not usable audio"}; cloning needs at least ${MIN_VOICE_REFERENCE_SEC}s of clear speech (5-15s is ideal).`,
           );
         }
-        voiceFile = {
-          buffer: await readFile(ref.path),
-          filename: `voice${extname(ref.path) || ".wav"}`,
-        };
+        // The reference can be a video (a downloaded YouTube clip) or a long/huge file, so extract
+        // just the leading mono audio: Chatterbox always gets clean, small speech regardless.
+        const clipDir = await mkdtemp(join(tmpdir(), "vcm-clone-"));
+        try {
+          const clipPath = join(clipDir, "ref.wav");
+          await run("ffmpeg", [
+            "-nostdin",
+            "-y",
+            "-i",
+            ref.path,
+            "-t",
+            String(CLONE_CLIP_SECONDS),
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "24000",
+            clipPath,
+          ]);
+          const clip = await readFile(clipPath);
+          if (clip.length < 2000) {
+            throw new Error(
+              `voice_reference ${voice_reference} has no usable audio track to clone from.`,
+            );
+          }
+          voiceFile = { buffer: clip, filename: "voice.wav" };
+        } finally {
+          await rm(clipDir, { recursive: true, force: true });
+        }
         voiceLabel = `cloned:${voice_reference}`;
       } else if (voice && voice !== "default") {
         voiceName = voice;
