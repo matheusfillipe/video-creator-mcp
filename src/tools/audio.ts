@@ -87,7 +87,6 @@ interface SpeechParams {
   exaggeration: number;
   cfgWeight: number;
   temperature: number;
-  voice?: string;
   voiceFile?: { buffer: Buffer; filename: string };
 }
 
@@ -126,19 +125,13 @@ export function registerAudioTools(server: McpServer): void {
         .string()
         .min(1)
         .describe(
-          "What the voice should say. Prep it for delivery: punctuation and short sentences shape the acting.",
-        ),
-      voice: z
-        .string()
-        .default("default")
-        .describe(
-          "A named voice known to the service, or 'default'. To clone an arbitrary voice use voice_reference instead.",
+          "What the voice should say. Pass the ENTIRE text in one call, however long a paragraph: this tool splits and stitches it in one voice itself. Do NOT split it across multiple video_tts calls. Prep it for delivery: punctuation and short sentences shape the acting.",
         ),
       voice_reference: z
         .string()
         .optional()
         .describe(
-          "media_id of a reference clip to clone ('use THIS voice'). Download the clip with video_download_media first. Overrides voice.",
+          "media_id of a reference clip to clone ('use THIS voice'). Download the clip with video_download_media first. Without it you get the default voice.",
         ),
       exaggeration: z
         .number()
@@ -161,8 +154,7 @@ export function registerAudioTools(server: McpServer): void {
         .default(0.8)
         .describe("Sampling randomness; higher = more varied delivery."),
     },
-    handler: async ({ text, voice, voice_reference, exaggeration, cfg_weight, temperature }) => {
-      let voiceName: string | undefined;
+    handler: async ({ text, voice_reference, exaggeration, cfg_weight, temperature }) => {
       let voiceFile: { buffer: Buffer; filename: string } | undefined;
       let voiceLabel = "default";
       if (voice_reference) {
@@ -213,9 +205,6 @@ export function registerAudioTools(server: McpServer): void {
           await rm(clipDir, { recursive: true, force: true });
         }
         voiceLabel = `cloned:${voice_reference}`;
-      } else if (voice && voice !== "default") {
-        voiceName = voice;
-        voiceLabel = voice;
       }
 
       // Generation is slow (chunked long text is minutes) and would blow the request timeout,
@@ -227,7 +216,6 @@ export function registerAudioTools(server: McpServer): void {
           exaggeration,
           cfgWeight: cfg_weight,
           temperature,
-          voice: voiceName,
           voiceFile,
         });
 

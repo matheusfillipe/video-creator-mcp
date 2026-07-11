@@ -20,13 +20,15 @@ services:
       - cache:/data/cache
     restart: unless-stopped
 
-  # Expressive TTS backend for video_tts. Optional, only starts under the `tts`
-  # profile. CPU only; generation is autoregressive and slow (~5x realtime).
+  # Expressive TTS backend for video_tts (Chatterbox Turbo). Optional, only starts
+  # under the `tts` profile. CPU only; generation is autoregressive and slow (~3-4x
+  # realtime). Built from ./tts, a thin wrapper over the chatterbox-tts library.
   chatterbox:
-    image: ghcr.io/matheusfillipe/chatterbox-tts:latest
+    build: ./tts
     profiles: ["tts"]
     environment:
       HF_HOME: /models
+      PORT: "8004"
     volumes:
       - chatterbox-models:/models
     restart: unless-stopped

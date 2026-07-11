@@ -16,6 +16,7 @@ Lay an audio track onto a finished video — the audio counterpart to video_capt
 | `volume` | number | no | `1` | Volume of the added track (for 'mix', relative to the existing audio). |
 | `existing_volume` | number | no | `1` | For 'mix' only: volume of the video's ORIGINAL audio. Set low (e.g. 0.2) to duck the footage under a narration track so the clip's own sound stays as quiet background. |
 | `loop` | boolean | no | `false` | Repeat the track to cover the whole video if it's shorter. Set true for BACKGROUND MUSIC so the video never goes silent before it ends; leave false for a one-shot voiceover you don't want repeated. |
+| `start_sec` | number | no | `0` | Delay this track by N seconds so it starts a beat in instead of at 0:00. Use a small lead-in (~1s) for a narration so the footage/music breathes before the voice comes in; the video is extended if the delayed track would run past its end. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_analyze_audio`
@@ -344,9 +345,8 @@ Generate an expressive narration/voice clip with Chatterbox. Handles long text (
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `text` | string | yes |  | What the voice should say. Prep it for delivery: punctuation and short sentences shape the acting. |
-| `voice` | string | no | `"default"` | A named voice known to the service, or 'default'. To clone an arbitrary voice use voice_reference instead. |
-| `voice_reference` | string | no |  | media_id of a reference clip to clone ('use THIS voice'). Download the clip with video_download_media first. Overrides voice. |
+| `text` | string | yes |  | What the voice should say. Pass the ENTIRE text in one call, however long a paragraph: this tool splits and stitches it in one voice itself. Do NOT split it across multiple video_tts calls. Prep it for delivery: punctuation and short sentences shape the acting. |
+| `voice_reference` | string | no |  | media_id of a reference clip to clone ('use THIS voice'). Download the clip with video_download_media first. Without it you get the default voice. |
 | `exaggeration` | number | no | `0.5` | Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic. |
 | `cfg_weight` | number | no | `0.5` | Pacing/guidance: lower = slower and more deliberate; ~0.35 stops intense lines rushing. |
 | `temperature` | number | no | `0.8` | Sampling randomness; higher = more varied delivery. |

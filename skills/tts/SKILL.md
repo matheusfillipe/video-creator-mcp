@@ -7,6 +7,8 @@ description: Direct expressive voice acting with video_tts (Chatterbox). Pick ex
 
 `video_tts` turns text into an expressive spoken clip. You are the director: the model does not read intent from the words, so you set the acting explicitly with two dials and shape delivery through the text itself.
 
+The model is **English-only**. Everything you pass MUST be English prose (transliterate foreign names into English spelling); any other language comes out as garbled noise.
+
 ## The two dials
 
 - **exaggeration** (0 to 2) is the emotional intensity.
@@ -41,6 +43,14 @@ Punctuation is direction. The model performs what you write:
 - Do NOT write stage directions like "(angrily)" into the text. They get spoken. Encode the emotion in the dials plus punctuation instead.
 - Spell tricky names phonetically if they come out wrong.
 
+## Emotion tags
+
+The voice performs inline paralinguistic tags written in square brackets, anywhere in the text. Use them for a real, human delivery:
+
+- `[laugh]` full laugh, `[chuckle]` a lighter laugh, `[sigh]`, `[gasp]`, `[cough]`, `[breath]` an audible breath, `[whisper]` for a hushed aside.
+
+Place a tag exactly where the sound should happen, e.g. `"Oh wow [laugh], you actually did it."` or `"... and then, [sigh] it was over."` Don't overuse them; one or two per few sentences reads natural, a tag every line reads like a parody. They work together with cloning and with the dials, so a cloned voice can laugh or sigh in character.
+
 ## Clone a voice
 
 To make it speak in a specific voice ("use THIS voice and say that"):
@@ -48,7 +58,7 @@ To make it speak in a specific voice ("use THIS voice and say that"):
 1. `video_download_media` the reference clip (5-15s of clean speech is plenty) to get a `media_id`.
 2. Pass that `media_id` as `voice_reference`. It overrides `voice` and clones zero-shot.
 
-The reference sets timbre and accent; you still drive the acting with the dials. A named `voice` (when the service ships preset voices) is the alternative to cloning.
+The reference sets timbre and accent; you still drive the acting with the dials. Without a `voice_reference` you get the default voice.
 
 ## Cost and timing (plan around it)
 
@@ -64,6 +74,6 @@ Generation is autoregressive on CPU: roughly **5x realtime** (a 3s line takes ~1
 Every call returns `duration_sec` and a downloadable `url`, plus a `tts-audio` JSON artifact describing the acting used. Two patterns:
 
 - **Audio only**: use the `url` / `media_id` directly. Nothing else needed.
-- **Narrate a video**: generate the voice first (so you know `duration_sec`), build or trim the visual to match, then `video_add_audio(media_id: <video>, audio_media_id: <tts media_id>, mode: "replace")`. Add music after with `mode: "mix"`.
+- **Narrate a video**: generate the voice FIRST so you know its `duration_sec`, then build the visual to be **at least that long** (the narration sets the length — extend or repeat footage, or hold on a shot, to cover it). Attach it with `video_add_audio(media_id: <video>, audio_media_id: <tts media_id>, mode: "replace", start_sec: 1)` — the small `start_sec` lead-in lets the footage breathe for a beat before the voice comes in, and the video is auto-extended so the whole narration is heard. Then lay background music with a second `video_add_audio(mode: "mix", loop: true, volume: 0.3)` so the music also fills that lead-in gap and plays under the voice. Do NOT put the narration in `video_edit`'s `music_media_id`: that slot is background music capped to the clip length, so a narration longer than the clips gets cut off mid-sentence.
 
-For a multi-line script, generate each line, then place them on a timeline at cumulative start times using each clip's `duration_sec`. That gives you exact segment timing without any alignment step.
+Pass the whole narration to `video_tts` in ONE call, however long: it splits into chunks and stitches them in one voice, and returns a `job_id` you poll with `video_render_status`. Only make separate calls when you want distinct scenes as individually-timed clips (then place each at cumulative start times using its `duration_sec`).

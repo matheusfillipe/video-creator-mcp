@@ -35,40 +35,65 @@ interface AudioMuxOptions {
   volume: number;
   existingVolume: number;
   loop: boolean;
+  startSec: number;
 }
 
 // ffmpeg args to mux an audio track onto a video, stream-copying the video. -stream_loop repeats a
 // short track so it covers the whole video; amix's duration=first already caps a mix at the video,
-// so -shortest is only needed to bound an otherwise-endless looped replace track.
+// so -shortest is only needed to bound an otherwise-endless looped replace track. `padVideoSeconds`
+// (a replace narration that outlasts the footage) freezes the last frame for that long so the whole
+// narration stays audible instead of being cut — that path re-encodes, since tpad can't stream-copy.
 function audioMuxArgs(
   videoPath: string,
   audioPath: string,
   opts: AudioMuxOptions,
   outFile: string,
+  padVideoSeconds = 0,
 ): string[] {
-  const filter =
+  const delay = opts.startSec > 0 ? `adelay=${Math.round(opts.startSec * 1000)}:all=1,` : "";
+  const audioFilter =
     opts.mode === "mix"
-      ? `[0:a]volume=${opts.existingVolume}[a0];[1:a]volume=${opts.volume}[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`
-      : `[1:a]volume=${opts.volume}[a]`;
+      ? `[0:a]volume=${opts.existingVolume}[a0];[1:a]${delay}volume=${opts.volume}[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`
+      : `[1:a]${delay}volume=${opts.volume}[a]`;
   const args = ["-y", "-i", videoPath];
   if (opts.loop) args.push("-stream_loop", "-1");
-  args.push(
-    "-i",
-    audioPath,
-    "-filter_complex",
-    filter,
-    "-map",
-    "0:v:0",
-    "-map",
-    "[a]",
-    "-c:v",
-    "copy",
-    "-c:a",
-    "aac",
-    "-movflags",
-    "+faststart",
-  );
-  if (opts.loop && opts.mode !== "mix") args.push("-shortest");
+  args.push("-i", audioPath);
+  if (padVideoSeconds > 0) {
+    args.push(
+      "-filter_complex",
+      `[0:v]tpad=stop_mode=clone:stop_duration=${padVideoSeconds.toFixed(3)}[v];${audioFilter}`,
+      "-map",
+      "[v]",
+      "-map",
+      "[a]",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+      "-c:a",
+      "aac",
+      "-movflags",
+      "+faststart",
+    );
+  } else {
+    args.push(
+      "-filter_complex",
+      audioFilter,
+      "-map",
+      "0:v:0",
+      "-map",
+      "[a]",
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-movflags",
+      "+faststart",
+    );
+    if (opts.loop && opts.mode !== "mix") args.push("-shortest");
+  }
   args.push(outFile);
   return args;
 }
@@ -97,7 +122,7 @@ export async function muxLoopedMusic(
       audioMuxArgs(
         videoPath,
         music.path,
-        { mode: "replace", volume, existingVolume: 1, loop: true },
+        { mode: "replace", volume, existingVolume: 1, loop: true, startSec: 0 },
         outFile,
       ),
       { timeoutMs: 300_000 },
@@ -120,6 +145,7 @@ export async function addAudioTrack(params: {
   volume: number;
   existingVolume: number;
   loop: boolean;
+  startSec?: number;
 }): Promise<{ buffer: Buffer; meta: MediaMeta }> {
   const video = await loadMeta(params.videoId);
   if (!video) {
@@ -136,6 +162,15 @@ export async function addAudioTrack(params: {
       `Video ${params.videoId} has no audio to mix under — use mode "replace" for the first track.`,
     );
   }
+  // A narration (replace, not a looped background track) that runs past the footage would be cut
+  // to the video length; hold the last frame so the whole voiceover plays. A lead-in delay pushes
+  // the track's end out too, so account for it.
+  const startSec = params.startSec ?? 0;
+  const audioEnd = startSec + audio.duration;
+  const padVideoSeconds =
+    params.mode === "replace" && !params.loop && audioEnd > video.duration + 0.1
+      ? audioEnd - video.duration
+      : 0;
   const dir = await mkdtemp(join(tmpdir(), "vcm-audio-"));
   try {
     const outFile = join(dir, "out.mp4");
@@ -149,8 +184,10 @@ export async function addAudioTrack(params: {
           volume: params.volume,
           existingVolume: params.existingVolume,
           loop: params.loop,
+          startSec,
         },
         outFile,
+        padVideoSeconds,
       ),
       { timeoutMs: 300_000 },
     );

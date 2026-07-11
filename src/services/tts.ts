@@ -21,7 +21,6 @@ export interface ChatterboxParams {
   exaggeration: number;
   cfgWeight: number;
   temperature: number;
-  voice?: string; // a named voice in the service's library
   voiceFile?: { buffer: Buffer; filename: string }; // reference clip to clone zero-shot
 }
 
@@ -74,7 +73,6 @@ export async function synthesizeChatterbox(params: ChatterboxParams): Promise<Bu
         exaggeration: params.exaggeration,
         cfg_weight: params.cfgWeight,
         temperature: params.temperature,
-        ...(params.voice ? { voice: params.voice } : {}),
       }),
     },
     base,

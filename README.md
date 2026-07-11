@@ -1,3 +1,5 @@
+> ⚠️ No code here was created or reviewed by a human. Use at your own risk.
+
 # video-creator-mcp
 
 **An AI agent's video studio, behind an API.**

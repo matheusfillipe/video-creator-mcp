@@ -319,9 +319,26 @@ export function registerRenderTools(server: McpServer): void {
         .describe(
           "Repeat the track to cover the whole video if it's shorter. Set true for BACKGROUND MUSIC so the video never goes silent before it ends; leave false for a one-shot voiceover you don't want repeated.",
         ),
+      start_sec: z
+        .number()
+        .min(0)
+        .max(30)
+        .default(0)
+        .describe(
+          "Delay this track by N seconds so it starts a beat in instead of at 0:00. Use a small lead-in (~1s) for a narration so the footage/music breathes before the voice comes in; the video is extended if the delayed track would run past its end.",
+        ),
       metadata: metadataArg,
     },
-    handler: ({ media_id, audio_media_id, mode, volume, existing_volume, loop, metadata }) => {
+    handler: ({
+      media_id,
+      audio_media_id,
+      mode,
+      volume,
+      existing_volume,
+      loop,
+      start_sec,
+      metadata,
+    }) => {
       const jobId = submitJob("add-audio", async () => {
         const { buffer, meta } = await addAudioTrack({
           videoId: media_id,
@@ -330,6 +347,7 @@ export function registerRenderTools(server: McpServer): void {
           volume,
           existingVolume: existing_volume,
           loop,
+          startSec: start_sec,
         });
         const saved = await saveRender(buffer, meta.filename, metadata);
         return { ...saved, media_id: meta.media_id, duration: meta.duration };
