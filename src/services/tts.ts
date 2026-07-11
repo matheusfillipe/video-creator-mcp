@@ -3,7 +3,7 @@ import { config } from "../config.js";
 export class ChatterboxNotConfiguredError extends Error {
   constructor() {
     super(
-      "TTS is not configured: set CHATTERBOX_URL to a reachable chatterbox-tts service (see compose.yaml).",
+      "TTS is not configured: set CHATTERBOX_URL to a reachable chatterbox-tts-api service (see compose.yaml).",
     );
     this.name = "ChatterboxNotConfiguredError";
   }
@@ -21,30 +21,15 @@ export interface ChatterboxParams {
   exaggeration: number;
   cfgWeight: number;
   temperature: number;
-  voice?: string; // a named voice known to the service (VOICES_DIR)
-  voiceB64?: string; // base64 reference clip to clone zero-shot
+  voice?: string; // a named voice in the service's library
+  voiceFile?: { buffer: Buffer; filename: string }; // reference clip to clone zero-shot
 }
 
-export async function synthesizeChatterbox(params: ChatterboxParams): Promise<Buffer> {
-  const base = config.chatterbox.url;
-  if (!base) throw new ChatterboxNotConfiguredError();
-
+async function post(url: string, init: RequestInit, base: string): Promise<Buffer> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), config.chatterbox.timeoutMs);
   try {
-    const res = await fetch(`${base.replace(/\/+$/, "")}/tts`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        text: params.text,
-        exaggeration: params.exaggeration,
-        cfg_weight: params.cfgWeight,
-        temperature: params.temperature,
-        voice: params.voice ?? null,
-        voice_b64: params.voiceB64 ?? null,
-      }),
-      signal: controller.signal,
-    });
+    const res = await fetch(url, { ...init, signal: controller.signal });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
       throw new ChatterboxRequestError(`chatterbox returned ${res.status}: ${body.slice(0, 300)}`);
@@ -62,4 +47,36 @@ export async function synthesizeChatterbox(params: ChatterboxParams): Promise<Bu
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function synthesizeChatterbox(params: ChatterboxParams): Promise<Buffer> {
+  const base = config.chatterbox.url;
+  if (!base) throw new ChatterboxNotConfiguredError();
+  const root = base.replace(/\/+$/, "");
+
+  if (params.voiceFile) {
+    const form = new FormData();
+    form.set("input", params.text);
+    form.set("exaggeration", String(params.exaggeration));
+    form.set("cfg_weight", String(params.cfgWeight));
+    form.set("temperature", String(params.temperature));
+    form.set("voice_file", new Blob([params.voiceFile.buffer]), params.voiceFile.filename);
+    return post(`${root}/v1/audio/speech/upload`, { method: "POST", body: form }, base);
+  }
+
+  return post(
+    `${root}/v1/audio/speech`,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        input: params.text,
+        exaggeration: params.exaggeration,
+        cfg_weight: params.cfgWeight,
+        temperature: params.temperature,
+        ...(params.voice ? { voice: params.voice } : {}),
+      }),
+    },
+    base,
+  );
 }

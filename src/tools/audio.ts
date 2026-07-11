@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { extname } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
@@ -71,7 +72,7 @@ export function registerAudioTools(server: McpServer): void {
     },
     handler: async ({ text, voice, voice_reference, exaggeration, cfg_weight, temperature }) => {
       let voiceName: string | undefined;
-      let voiceB64: string | undefined;
+      let voiceFile: { buffer: Buffer; filename: string } | undefined;
       let voiceLabel = "default";
       if (voice_reference) {
         const ref = await loadMeta(voice_reference);
@@ -91,7 +92,10 @@ export function registerAudioTools(server: McpServer): void {
             `voice_reference is ${(info.size / 1e6).toFixed(1)}MB; use a short clip (~5-15s, under 25MB) for cloning.`,
           );
         }
-        voiceB64 = (await readFile(ref.path)).toString("base64");
+        voiceFile = {
+          buffer: await readFile(ref.path),
+          filename: `voice${extname(ref.path) || ".wav"}`,
+        };
         voiceLabel = `cloned:${voice_reference}`;
       } else if (voice && voice !== "default") {
         voiceName = voice;
@@ -104,7 +108,7 @@ export function registerAudioTools(server: McpServer): void {
         cfgWeight: cfg_weight,
         temperature,
         voice: voiceName,
-        voiceB64,
+        voiceFile,
       });
 
       const meta = await writeMediaFromBuffer({
@@ -119,7 +123,7 @@ export function registerAudioTools(server: McpServer): void {
         media_id: meta.media_id,
         text,
         voice: voiceLabel,
-        cloned: Boolean(voiceB64),
+        cloned: Boolean(voiceFile),
         acting: {
           exaggeration,
           cfg_weight,
