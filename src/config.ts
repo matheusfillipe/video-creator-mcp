@@ -39,6 +39,10 @@ const EnvSchema = z.object({
     .string()
     .optional()
     .transform((value) => value === "1" || value === "true"),
+  // Optional Chatterbox TTS backend. When CHATTERBOX_URL is unset the video_tts
+  // tool is registered but every call fails fast. TTS is opt-in infrastructure.
+  CHATTERBOX_URL: z.string().url().optional(),
+  CHATTERBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
 });
 
 export interface S3Config {
@@ -62,6 +66,11 @@ export interface YtDlpConfig {
   format: string;
 }
 
+export interface ChatterboxConfig {
+  url: string | undefined;
+  timeoutMs: number;
+}
+
 export interface Config {
   transport: "http" | "stdio";
   port: number;
@@ -73,6 +82,7 @@ export interface Config {
   renderSegmentConcurrency: number;
   downloadConcurrency: number;
   ytdlp: YtDlpConfig;
+  chatterbox: ChatterboxConfig;
   allowPrivateNetwork: boolean;
   manimScenes: boolean;
 }
@@ -123,6 +133,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     renderSegmentConcurrency: parsed.RENDER_SEGMENT_CONCURRENCY,
     downloadConcurrency: parsed.DOWNLOAD_CONCURRENCY,
     ytdlp: { path: parsed.YTDLP_PATH, cookies: parsed.YTDLP_COOKIES, format: parsed.YTDLP_FORMAT },
+    chatterbox: { url: parsed.CHATTERBOX_URL, timeoutMs: parsed.CHATTERBOX_TIMEOUT_MS },
     allowPrivateNetwork: parsed.ALLOW_PRIVATE_NETWORK,
     manimScenes: parsed.MANIM_SCENES,
   };

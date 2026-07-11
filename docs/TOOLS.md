@@ -75,7 +75,7 @@ Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X,
 
 ## `video_edit`
 
-The fast path for cut editing: trim clips, join them (optionally with crossfades), stack groups side-by-side or top/bottom (shorts style), burn timed text, and lay music/narration over the result — all from one JSON spec, executed as plain ffmpeg. No HTML, no browser: a 60s edit renders in well under a minute. USE THIS for any brief shaped like 'take clip A from X-Y and clip B where he says Z, put them together / stack them / add this song'. groups is a list of tracks: layout single=1 group (clips play in sequence), vstack=2 groups (top/bottom halves — the classic shorts split), hstack=2 (left/right), pip=2 (second group as a corner inset), grid=4. Every clip is cover-cropped to its cell, so 16:9 sources drop cleanly into a portrait 9:16 canvas. With multiple groups the output stops at the shortest group. Asynchronous: returns a job_id — poll video_render_status.
+The fast path for cut editing: trim clips, join them (optionally with crossfades), stack groups side-by-side or top/bottom (shorts style), burn timed text, and lay music/narration over the result — all from one JSON spec, executed as plain ffmpeg. No HTML, no browser: a 60s edit renders in well under a minute. USE THIS for any brief shaped like 'take clip A from X-Y and clip B where he says Z, put them together / stack them / add this song'. groups is a list of tracks: layout single=1 group (clips play in sequence), vstack=2 groups (top/bottom halves — the classic shorts split), hstack=2 (left/right), pip=2 (second group as a corner inset), grid=4. Every clip is cover-cropped to its cell, so 16:9 sources drop cleanly into a portrait 9:16 canvas. With multiple groups the output stops at the shortest group. For continuous background music, pass music_media_id — ONE track laid across the whole edit (it replaces the clips' own audio). Do NOT bake music into the individual clips (e.g. music_media_id on each render, or clips that already carry the track): concatenating them restarts the music at every cut. Asynchronous: returns a job_id — poll video_render_status.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -83,6 +83,8 @@ The fast path for cut editing: trim clips, join them (optionally with crossfades
 | `groups` | array | yes |  | Array of GROUPS, where each group is itself an ARRAY of segments — so this is a list of lists, even for a single group. layout single = 1 group; vstack/hstack/pip = 2 groups; grid = 4. Segments within a group play in sequence; groups are the layout slots. Example vstack: [[{media_id:"top"}],[{media_id:"bottom"}]]. |
 | `text` | array | no |  | Timed text overlays burned onto the combined video. |
 | `audio` | array | no |  | Music/narration tracks laid over the edit. |
+| `music_media_id` | string | no |  | Background music for the WHOLE edit — one continuous track over every cut (replaces the clips' own audio). Prefer this over baking music into the clips, which restarts it at each cut. |
+| `music_volume` | number | no |  | Background-music volume (default 0.8). |
 | `fade` | number | no |  | Crossfade seconds between segments in a group (0 = hard cuts, the default). |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Canvas — use portrait for shorts. |
 | `fps` | integer | no | `30` |  |
@@ -338,11 +340,14 @@ Read the bundled HyperFrames authoring skill — the real HeyGen skill docs: com
 
 ## `video_tts`
 
-Generate narration audio from text (Kokoro voices, e.g. am_adam, af_heart, bf_emma, am_michael). Returns a media_id (and its duration in seconds) so you can lay the narration over a finished video with video_add_audio, or feed it into a video_render_timeline audio track. Also returns base64 WAV for video_render's audio_base64. To narrate a video: video_tts → video_add_audio(media_id: <video>, audio_media_id: <this>).
+Generate an expressive narration/voice clip with Chatterbox. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime (a 3s line takes ~15-20s) and requests serialize one at a time, so never fire dozens blindly. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip). Usable standalone (returns a downloadable `url` + a `tts-audio` JSON artifact) OR as a pre-step before a video: it returns `duration_sec` so you can size scenes or place the clip. Parallelize independent lines; await this when you need the length. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL) or every call fails. To narrate a video: video_tts → video_add_audio(media_id:<video>, audio_media_id:<this>, mode:'replace').
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `text` | string | yes |  | Text to speak. |
-| `voice` | string | no | `"am_adam"` | Voice id (e.g. am_adam, af_heart, bf_emma). |
-| `speed` | number | no | `1` | Speech speed multiplier. |
+| `text` | string | yes |  | What the voice should say. Prep it for delivery: punctuation and short sentences shape the acting. |
+| `voice` | string | no | `"default"` | A named voice known to the service, or 'default'. To clone an arbitrary voice use voice_reference instead. |
+| `voice_reference` | string | no |  | media_id of a reference clip to clone ('use THIS voice'). Download the clip with video_download_media first. Overrides voice. |
+| `exaggeration` | number | no | `0.5` | Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic. |
+| `cfg_weight` | number | no | `0.5` | Pacing/guidance: lower = slower and more deliberate; ~0.35 stops intense lines rushing. |
+| `temperature` | number | no | `0.8` | Sampling randomness; higher = more varied delivery. |
 

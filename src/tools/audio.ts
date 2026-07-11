@@ -1,36 +1,162 @@
+import { readFile, stat } from "node:fs/promises";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { runOnEngine } from "../services/engine.js";
-import { writeMediaFromBuffer } from "../services/media.js";
-import { synthesizeSpeech } from "../services/tts.js";
+import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
+import { metadataSidecarName } from "../services/publish.js";
+import { storage } from "../services/storage.js";
+import { synthesizeChatterbox } from "../services/tts.js";
 import { registerTool } from "./defineTool.js";
+
+const MAX_VOICE_REFERENCE_BYTES = 25 * 1024 * 1024;
+
+function describeActing(exaggeration: number, cfgWeight: number): string {
+  const intensity =
+    exaggeration < 0.35
+      ? "calm, restrained"
+      : exaggeration < 0.6
+        ? "natural, engaged"
+        : exaggeration < 0.85
+          ? "expressive, dramatic"
+          : "intense, over-the-top";
+  const pace =
+    cfgWeight < 0.4 ? "slow, deliberate" : cfgWeight > 0.65 ? "brisk, clipped" : "steady";
+  return `${intensity}; ${pace} pacing`;
+}
 
 export function registerAudioTools(server: McpServer): void {
   registerTool(server, {
     name: "video_tts",
-    title: "Text to Speech",
+    title: "Text to Speech (acting voice)",
     description:
-      "Generate narration audio from text (Kokoro voices, e.g. am_adam, af_heart, bf_emma, am_michael). Returns a media_id (and its duration in seconds) so you can lay the narration over a finished video with video_add_audio, or feed it into a video_render_timeline audio track. Also returns base64 WAV for video_render's audio_base64. To narrate a video: video_tts → video_add_audio(media_id: <video>, audio_media_id: <this>).",
+      "Generate an expressive narration/voice clip with Chatterbox. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime (a 3s line takes ~15-20s) and requests serialize one at a time, so never fire dozens blindly. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip). Usable standalone (returns a downloadable `url` + a `tts-audio` JSON artifact) OR as a pre-step before a video: it returns `duration_sec` so you can size scenes or place the clip. Parallelize independent lines; await this when you need the length. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL) or every call fails. To narrate a video: video_tts → video_add_audio(media_id:<video>, audio_media_id:<this>, mode:'replace').",
     inputSchema: {
-      text: z.string().min(1).describe("Text to speak."),
-      voice: z.string().default("am_adam").describe("Voice id (e.g. am_adam, af_heart, bf_emma)."),
-      speed: z.number().min(0.5).max(2).default(1).describe("Speech speed multiplier."),
+      text: z
+        .string()
+        .min(1)
+        .describe(
+          "What the voice should say. Prep it for delivery: punctuation and short sentences shape the acting.",
+        ),
+      voice: z
+        .string()
+        .default("default")
+        .describe(
+          "A named voice known to the service, or 'default'. To clone an arbitrary voice use voice_reference instead.",
+        ),
+      voice_reference: z
+        .string()
+        .optional()
+        .describe(
+          "media_id of a reference clip to clone ('use THIS voice'). Download the clip with video_download_media first. Overrides voice.",
+        ),
+      exaggeration: z
+        .number()
+        .min(0)
+        .max(2)
+        .default(0.5)
+        .describe("Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic."),
+      cfg_weight: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(0.5)
+        .describe(
+          "Pacing/guidance: lower = slower and more deliberate; ~0.35 stops intense lines rushing.",
+        ),
+      temperature: z
+        .number()
+        .min(0.1)
+        .max(1.5)
+        .default(0.8)
+        .describe("Sampling randomness; higher = more varied delivery."),
     },
-    handler: async ({ text, voice, speed }) => {
-      const buffer = await runOnEngine(() => synthesizeSpeech(text, voice, speed));
+    handler: async ({ text, voice, voice_reference, exaggeration, cfg_weight, temperature }) => {
+      let voiceName: string | undefined;
+      let voiceB64: string | undefined;
+      let voiceLabel = "default";
+      if (voice_reference) {
+        const ref = await loadMeta(voice_reference);
+        if (!ref) {
+          throw new Error(
+            `voice_reference not found: ${voice_reference}. Download the reference clip with video_download_media first and pass its media_id.`,
+          );
+        }
+        const info = await stat(ref.path).catch(() => null);
+        if (!info) {
+          throw new Error(
+            `voice_reference ${voice_reference} is no longer cached; re-download it with video_download_media.`,
+          );
+        }
+        if (info.size > MAX_VOICE_REFERENCE_BYTES) {
+          throw new Error(
+            `voice_reference is ${(info.size / 1e6).toFixed(1)}MB; use a short clip (~5-15s, under 25MB) for cloning.`,
+          );
+        }
+        voiceB64 = (await readFile(ref.path)).toString("base64");
+        voiceLabel = `cloned:${voice_reference}`;
+      } else if (voice && voice !== "default") {
+        voiceName = voice;
+        voiceLabel = voice;
+      }
+
+      const buffer = await synthesizeChatterbox({
+        text,
+        exaggeration,
+        cfgWeight: cfg_weight,
+        temperature,
+        voice: voiceName,
+        voiceB64,
+      });
+
       const meta = await writeMediaFromBuffer({
-        idSeed: `tts:${voice}:${speed}:${text}`,
+        idSeed: `tts:${voiceLabel}:${exaggeration}:${cfg_weight}:${temperature}:${text}`,
         buffer,
         ext: ".wav",
-        sourceUrl: `tts://${voice}`,
+        sourceUrl: `tts://chatterbox/${voiceLabel}`,
       });
-      return {
+
+      const artifact = {
+        kind: "tts-audio" as const,
         media_id: meta.media_id,
-        duration: meta.duration,
+        text,
+        voice: voiceLabel,
+        cloned: Boolean(voiceB64),
+        acting: {
+          exaggeration,
+          cfg_weight,
+          temperature,
+          description: describeActing(exaggeration, cfg_weight),
+        },
+        duration_sec: Number(meta.duration.toFixed(3)),
+        sample_rate: 24000,
         bytes: buffer.byteLength,
-        voice,
+        expensive: true as const,
+        note: "Autoregressive ~5x realtime, serialized. Generate lines up front; parallelize independent ones, await when you need duration_sec.",
+      };
+
+      // Publish the clip + a distinct audio-only JSON sidecar so it can be used standalone.
+      // Storage is optional (local dev without a bucket); the media_id + audio_base64 still work.
+      let url: string | null = null;
+      let metadata_url: string | null = null;
+      let publish_error: string | undefined;
+      try {
+        const filename = `tts-${meta.media_id}.wav`;
+        url = await storage().save(buffer, filename, "audio/wav");
+        metadata_url = await storage().save(
+          Buffer.from(JSON.stringify({ ...artifact, url }, null, 2)),
+          metadataSidecarName(filename),
+          "application/json",
+        );
+      } catch (error) {
+        publish_error = error instanceof Error ? error.message : String(error);
+      }
+
+      return {
+        ...artifact,
+        url,
+        metadata_url,
+        ...(publish_error ? { publish_error } : {}),
         audio_base64: buffer.toString("base64"),
-        compose_hint: `Lay this narration over a video: video_add_audio(media_id: "<video media_id>", audio_media_id: "${meta.media_id}", mode: "replace"). Add background music after with mode:"mix".`,
+        compose_hint: `Standalone: use url. Over a video: video_add_audio(media_id:"<video>", audio_media_id:"${meta.media_id}", mode:"replace"). This clip is ${artifact.duration_sec}s.`,
       };
     },
   });

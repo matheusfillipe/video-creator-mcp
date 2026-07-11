@@ -11,11 +11,27 @@ services:
       STORAGE_PATH: /data/output
       MEDIA_CACHE_DIR: /data/cache
       WORKDIR: /tmp/video-creator-jobs
+      # Optional: video_tts only works when this points at a chatterbox-tts service
+      # (start it with `docker compose --profile tts up`). Remove it to disable TTS
+      # so video_tts then fails fast with a clear "not configured" error.
+      CHATTERBOX_URL: http://chatterbox:8004
     volumes:
       - output:/data/output
       - cache:/data/cache
     restart: unless-stopped
 
+  # Expressive TTS backend for video_tts. Optional, only starts under the `tts`
+  # profile. CPU only; generation is autoregressive and slow (~5x realtime).
+  chatterbox:
+    image: ghcr.io/matheusfillipe/chatterbox-tts:latest
+    profiles: ["tts"]
+    environment:
+      HF_HOME: /models
+    volumes:
+      - chatterbox-models:/models
+    restart: unless-stopped
+
 volumes:
   output:
   cache:
+  chatterbox-models:

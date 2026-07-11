@@ -1,21 +1,65 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { run } from "../lib/exec.js";
+import { config } from "../config.js";
 
-export async function synthesizeSpeech(
-  text: string,
-  voice: string,
-  speed: number,
-): Promise<Buffer> {
-  const dir = await mkdtemp(join(tmpdir(), "vcm-tts-"));
+export class ChatterboxNotConfiguredError extends Error {
+  constructor() {
+    super(
+      "TTS is not configured: set CHATTERBOX_URL to a reachable chatterbox-tts service (see compose.yaml).",
+    );
+    this.name = "ChatterboxNotConfiguredError";
+  }
+}
+
+export class ChatterboxRequestError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ChatterboxRequestError";
+  }
+}
+
+export interface ChatterboxParams {
+  text: string;
+  exaggeration: number;
+  cfgWeight: number;
+  temperature: number;
+  voice?: string; // a named voice known to the service (VOICES_DIR)
+  voiceB64?: string; // base64 reference clip to clone zero-shot
+}
+
+export async function synthesizeChatterbox(params: ChatterboxParams): Promise<Buffer> {
+  const base = config.chatterbox.url;
+  if (!base) throw new ChatterboxNotConfiguredError();
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.chatterbox.timeoutMs);
   try {
-    const outPath = join(dir, "tts.wav");
-    await run("hyperframes", ["tts", "-o", outPath, "-v", voice, "-s", String(speed), text], {
-      timeoutMs: 120_000,
+    const res = await fetch(`${base.replace(/\/+$/, "")}/tts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        text: params.text,
+        exaggeration: params.exaggeration,
+        cfg_weight: params.cfgWeight,
+        temperature: params.temperature,
+        voice: params.voice ?? null,
+        voice_b64: params.voiceB64 ?? null,
+      }),
+      signal: controller.signal,
     });
-    return await readFile(outPath);
+    if (!res.ok) {
+      const body = await res.text().catch(() => "");
+      throw new ChatterboxRequestError(`chatterbox returned ${res.status}: ${body.slice(0, 300)}`);
+    }
+    return Buffer.from(await res.arrayBuffer());
+  } catch (error) {
+    if (error instanceof ChatterboxRequestError) throw error;
+    if (controller.signal.aborted) {
+      throw new ChatterboxRequestError(
+        `chatterbox timed out after ${config.chatterbox.timeoutMs}ms (generation is slow; raise CHATTERBOX_TIMEOUT_MS for long text).`,
+      );
+    }
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new ChatterboxRequestError(`chatterbox unreachable at ${base}: ${reason}`);
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    clearTimeout(timer);
   }
 }
