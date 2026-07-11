@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 31 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 32 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -352,4 +352,13 @@ Generate an expressive narration/voice clip with Chatterbox. Handles long text (
 | `exaggeration` | number | no | `0.5` | Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic. |
 | `cfg_weight` | number | no | `0.5` | Pacing/guidance: lower = slower and more deliberate; ~0.35 stops intense lines rushing. |
 | `temperature` | number | no | `0.8` | Sampling randomness; higher = more varied delivery. |
+
+## `video_tts_estimate`
+
+Predict how long a narration will take to speak, WITHOUT generating it (instant, free). Use this to fit a narration to a target length before the slow video_tts call: pass `target_sec` to get a word budget, or pass `text` to get its spoken length, or both to see exactly how many words to trim/add. Chatterbox speaks ~2.9 words/second (steady regardless of the acting dials). Draft → estimate → trim → video_tts, so the video comes out the length you intended.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `text` | string | no |  | Narration draft to estimate the spoken length of. |
+| `target_sec` | number | no |  | Desired spoken length in seconds; returns the word budget to write to. |
 

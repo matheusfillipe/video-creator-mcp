@@ -64,8 +64,9 @@ The reference sets timbre and accent; you still drive the acting with the dials.
 
 Generation is autoregressive on CPU: roughly **5x realtime** (a 3s line takes ~15-20s) and the backend serializes requests one at a time. So:
 
+- **Hit a target length up front with `video_tts_estimate`** (instant, free — no generation): call it with `target_sec` to get the exact **word budget** (Chatterbox speaks ~2.9 words/sec, so 25s ≈ 72 words), write the narration to that budget, then optionally call it again with your `text` to confirm it fits before generating. Do this whenever the user asks for a specific length — don't eyeball the word count.
 - A single continuous narration is **ONE** `video_tts` call, however long — even for a whole video. It chunks and stitches internally. Do NOT split one voiceover into per-scene calls: each is a separate slow job, so three calls take three times as long for no benefit.
-- Do NOT regenerate to tweak length. Get the narration once, read its `duration_sec`, and size the VIDEO to it — never re-run `video_tts` to make the words shorter/longer.
+- Do NOT regenerate to tweak length — use `video_tts_estimate` to get it right BEFORE generating. After generating, read the real `duration_sec` and size the VIDEO to it.
 - **Parallelize** only genuinely distinct clips (different characters/scenes that become separate media), never the pieces of one narration.
 - Reuse: the same text + voice + dials returns the same `media_id`, so an identical re-request is free.
 

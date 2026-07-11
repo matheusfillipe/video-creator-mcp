@@ -18,6 +18,13 @@ const CLONE_CLIP_SECONDS = 20;
 // Chatterbox caps a single generation at ~1000 tokens (~17-20s of speech), so anything longer
 // truncates. Split into chunks safely under that and stitch, keeping the same voice throughout.
 const MAX_TTS_CHUNK_CHARS = 220;
+// Chatterbox's measured speaking rate is very steady (~2.84-3.01 words/s across lengths, barely
+// moved by cfg_weight), so word count predicts the spoken length within a few tenths of a second.
+const TTS_WORDS_PER_SEC = 2.9;
+
+function countWords(text: string): number {
+  return text.trim().split(/\s+/).filter(Boolean).length;
+}
 
 function splitIntoChunks(text: string, maxChars: number): string[] {
   const clean = text.trim().replace(/\s+/g, " ");
@@ -278,6 +285,45 @@ export function registerAudioTools(server: McpServer): void {
         state: "queued",
         poll_with: `video_render_status with job_id "${jobId}"`,
       };
+    },
+  });
+
+  registerTool(server, {
+    name: "video_tts_estimate",
+    title: "Estimate narration length",
+    description:
+      "Predict how long a narration will take to speak, WITHOUT generating it (instant, free). Use this to fit a narration to a target length before the slow video_tts call: pass `target_sec` to get a word budget, or pass `text` to get its spoken length, or both to see exactly how many words to trim/add. Chatterbox speaks ~2.9 words/second (steady regardless of the acting dials). Draft → estimate → trim → video_tts, so the video comes out the length you intended.",
+    inputSchema: {
+      text: z.string().optional().describe("Narration draft to estimate the spoken length of."),
+      target_sec: z
+        .number()
+        .positive()
+        .optional()
+        .describe("Desired spoken length in seconds; returns the word budget to write to."),
+    },
+    annotations: { readOnlyHint: true },
+    handler: ({ text, target_sec }) => {
+      if (!text && target_sec === undefined) {
+        throw new Error("Pass text, target_sec, or both.");
+      }
+      const wordCount = text ? countWords(text) : undefined;
+      const estimatedSec =
+        wordCount !== undefined ? Number((wordCount / TTS_WORDS_PER_SEC).toFixed(1)) : undefined;
+      const targetWords =
+        target_sec !== undefined ? Math.round(target_sec * TTS_WORDS_PER_SEC) : undefined;
+      const compare =
+        wordCount !== undefined && targetWords !== undefined
+          ? {
+              words_to_trim: wordCount - targetWords,
+              fits: Math.abs(wordCount - targetWords) <= Math.max(3, targetWords * 0.1),
+            }
+          : {};
+      return Promise.resolve({
+        words_per_sec: TTS_WORDS_PER_SEC,
+        ...(wordCount !== undefined ? { word_count: wordCount, estimated_sec: estimatedSec } : {}),
+        ...(targetWords !== undefined ? { target_sec, target_words: targetWords } : {}),
+        ...compare,
+      });
     },
   });
 }
