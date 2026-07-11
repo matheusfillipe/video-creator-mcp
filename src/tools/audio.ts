@@ -144,7 +144,7 @@ export function registerAudioTools(server: McpServer): void {
       };
 
       // Publish the clip + a distinct audio-only JSON sidecar so it can be used standalone.
-      // Storage is optional (local dev without a bucket); the media_id + audio_base64 still work.
+      // Storage is optional (local dev without a bucket); the media_id still resolves locally.
       let url: string | null = null;
       let metadata_url: string | null = null;
       let publish_error: string | undefined;
@@ -160,12 +160,14 @@ export function registerAudioTools(server: McpServer): void {
         publish_error = error instanceof Error ? error.message : String(error);
       }
 
+      // Deliberately NOT returning audio_base64: a long clip is megabytes of base64 that
+      // would bloat an agent's context (and broke a caller's next LLM turn). Callers use
+      // the url or the media_id; fetch the url if raw bytes are needed.
       return {
         ...artifact,
         url,
         metadata_url,
         ...(publish_error ? { publish_error } : {}),
-        audio_base64: buffer.toString("base64"),
         compose_hint: `Standalone: use url. Over a video: video_add_audio(media_id:"<video>", audio_media_id:"${meta.media_id}", mode:"replace"). This clip is ${artifact.duration_sec}s.`,
       };
     },
