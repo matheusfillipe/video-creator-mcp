@@ -204,6 +204,93 @@ export async function addAudioTrack(params: {
   }
 }
 
+// Compose a narration over a music bed in ONE deterministic pass: the music plays from 0:00 at a low
+// level and is sidechain-ducked whenever the narration speaks, so the voice is always clearly on top
+// and the lead-in keeps the music. Avoids the ordering traps of chaining two separate mux calls. The
+// video is held on its last frame if the narration runs past it, so nothing is cut.
+export async function narrateOverMusic(params: {
+  videoId: string;
+  narrationId: string;
+  musicId: string;
+  leadInSec: number;
+  musicVolume: number;
+  narrationVolume: number;
+}): Promise<{ buffer: Buffer; meta: MediaMeta }> {
+  const video = await loadMeta(params.videoId);
+  if (!video) {
+    throw new Error(`Unknown video media_id "${params.videoId}" — render or download it first.`);
+  }
+  const narration = await loadMeta(params.narrationId);
+  if (!narration) {
+    throw new Error(`Unknown narration media_id "${params.narrationId}" — get it from video_tts.`);
+  }
+  const music = await loadMeta(params.musicId);
+  if (!music) {
+    throw new Error(
+      `Unknown music media_id "${params.musicId}" — download it with video_download_media first.`,
+    );
+  }
+
+  const leadMs = Math.round(params.leadInSec * 1000);
+  const narrationEnd = params.leadInSec + narration.duration;
+  const total = Math.max(video.duration, narrationEnd);
+  const padVideo = narrationEnd > video.duration + 0.1 ? total - video.duration : 0;
+  const filter = [
+    `[1:a]volume=${params.musicVolume}[mus]`,
+    `[2:a]adelay=${leadMs}:all=1,volume=${params.narrationVolume},asplit=2[nar1][nar2]`,
+    "[mus][nar1]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=400[musd]",
+    "[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]",
+  ].join(";");
+
+  const args = [
+    "-y",
+    "-i",
+    video.path,
+    "-stream_loop",
+    "-1",
+    "-i",
+    music.path,
+    "-i",
+    narration.path,
+  ];
+  if (padVideo > 0) {
+    args.push(
+      "-filter_complex",
+      `[0:v]tpad=stop_mode=clone:stop_duration=${padVideo.toFixed(3)}[v];${filter}`,
+      "-map",
+      "[v]",
+      "-map",
+      "[a]",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+    );
+  } else {
+    args.push("-filter_complex", filter, "-map", "0:v:0", "-map", "[a]", "-c:v", "copy");
+  }
+  args.push("-c:a", "aac", "-t", total.toFixed(3), "-movflags", "+faststart");
+
+  const dir = await mkdtemp(join(tmpdir(), "vcm-narr-"));
+  try {
+    const outFile = join(dir, "out.mp4");
+    args.push(outFile);
+    await run("ffmpeg", args, { timeoutMs: 300_000 });
+    const buffer = await readFile(outFile);
+    const meta = await writeMediaFromBuffer({
+      idSeed: `narrate:${params.videoId}:${params.narrationId}:${params.musicId}:${params.leadInSec}:${params.musicVolume}:${params.narrationVolume}`,
+      buffer,
+      ext: ".mp4",
+      sourceUrl: `narrate://${params.videoId}`,
+    });
+    return { buffer, meta };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 // Burn timed text onto a clip with a single ffmpeg drawtext pass — the cheap path for
 // "loop a clip and talk to the viewer with rotating subtitles": libx264 re-encodes once
 // in roughly real time, versus a headless-chrome composition rendering every frame in

@@ -11,6 +11,7 @@ import {
   captionMedia,
   freezeStarts,
   maxFrameLumaOfFile,
+  narrateOverMusic,
   staticRenderWarning,
 } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
@@ -284,7 +285,7 @@ export function registerRenderTools(server: McpServer): void {
     name: "video_add_audio",
     title: "Add / Mix Audio onto a Video",
     description:
-      "Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. Chain to layer: replace the narration first, then mix in music. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. To lay a NARRATION AND BACKGROUND MUSIC together, do it in ONE call: pass audio_media_id (the narration) AND music_media_id — the music plays from 0:00, is auto-ducked (sidechain) whenever the voice speaks so the narration stays clearly on top, and start_sec gives the lead-in; the video is held on its last frame if the narration runs longer. Prefer this over chaining a replace + a mix. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id to poll with video_render_status.",
     inputSchema: {
       media_id: z.string().min(1).describe("Video media_id to add audio to."),
       audio_media_id: z
@@ -327,6 +328,20 @@ export function registerRenderTools(server: McpServer): void {
         .describe(
           "Delay this track by N seconds so it starts a beat in instead of at 0:00. Use a small lead-in (~1s) for a narration so the footage/music breathes before the voice comes in; the video is extended if the delayed track would run past its end.",
         ),
+      music_media_id: z
+        .string()
+        .optional()
+        .describe(
+          "Optional background music to lay UNDER audio_media_id (the narration) in the same call: music plays from 0:00 and is sidechain-ducked when the voice speaks, so the narration stays clearly on top and the lead-in (start_sec) keeps the music. Download it with video_download_media first.",
+        ),
+      music_volume: z
+        .number()
+        .min(0)
+        .max(2)
+        .default(0.25)
+        .describe(
+          "Base volume of the music bed (it also ducks under the narration). Only used with music_media_id.",
+        ),
       metadata: metadataArg,
     },
     handler: ({
@@ -337,18 +352,29 @@ export function registerRenderTools(server: McpServer): void {
       existing_volume,
       loop,
       start_sec,
+      music_media_id,
+      music_volume,
       metadata,
     }) => {
       const jobId = submitJob("add-audio", async () => {
-        const { buffer, meta } = await addAudioTrack({
-          videoId: media_id,
-          audioId: audio_media_id,
-          mode,
-          volume,
-          existingVolume: existing_volume,
-          loop,
-          startSec: start_sec,
-        });
+        const { buffer, meta } = music_media_id
+          ? await narrateOverMusic({
+              videoId: media_id,
+              narrationId: audio_media_id,
+              musicId: music_media_id,
+              leadInSec: start_sec,
+              musicVolume: music_volume,
+              narrationVolume: volume,
+            })
+          : await addAudioTrack({
+              videoId: media_id,
+              audioId: audio_media_id,
+              mode,
+              volume,
+              existingVolume: existing_volume,
+              loop,
+              startSec: start_sec,
+            });
         const saved = await saveRender(buffer, meta.filename, metadata);
         return { ...saved, media_id: meta.media_id, duration: meta.duration };
       });

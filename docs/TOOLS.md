@@ -6,7 +6,7 @@ The agent drives these 31 MCP tools. Auto-generated from the live server's `tool
 
 ## `video_add_audio`
 
-Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. Chain to layer: replace the narration first, then mix in music. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id to poll with video_render_status.
+Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. To lay a NARRATION AND BACKGROUND MUSIC together, do it in ONE call: pass audio_media_id (the narration) AND music_media_id — the music plays from 0:00, is auto-ducked (sidechain) whenever the voice speaks so the narration stays clearly on top, and start_sec gives the lead-in; the video is held on its last frame if the narration runs longer. Prefer this over chaining a replace + a mix. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id to poll with video_render_status.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -17,6 +17,8 @@ Lay an audio track onto a finished video — the audio counterpart to video_capt
 | `existing_volume` | number | no | `1` | For 'mix' only: volume of the video's ORIGINAL audio. Set low (e.g. 0.2) to duck the footage under a narration track so the clip's own sound stays as quiet background. |
 | `loop` | boolean | no | `false` | Repeat the track to cover the whole video if it's shorter. Set true for BACKGROUND MUSIC so the video never goes silent before it ends; leave false for a one-shot voiceover you don't want repeated. |
 | `start_sec` | number | no | `0` | Delay this track by N seconds so it starts a beat in instead of at 0:00. Use a small lead-in (~1s) for a narration so the footage/music breathes before the voice comes in; the video is extended if the delayed track would run past its end. |
+| `music_media_id` | string | no |  | Optional background music to lay UNDER audio_media_id (the narration) in the same call: music plays from 0:00 and is sidechain-ducked when the voice speaks, so the narration stays clearly on top and the lead-in (start_sec) keeps the music. Download it with video_download_media first. |
+| `music_volume` | number | no | `0.25` | Base volume of the music bed (it also ducks under the narration). Only used with music_media_id. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_analyze_audio`
