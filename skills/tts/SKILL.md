@@ -64,16 +64,20 @@ The reference sets timbre and accent; you still drive the acting with the dials.
 
 Generation is autoregressive on CPU: roughly **5x realtime** (a 3s line takes ~15-20s) and the backend serializes requests one at a time. So:
 
-- Do NOT generate dozens of lines blindly. Batch the script into the lines you actually need.
-- **Parallelize** independent lines when order and exact timing do not matter, firing them together and collecting results.
-- **Await** a line when you need its length before continuing (e.g. to size a scene to the narration).
-- Reuse: the same text + voice + dials returns the same `media_id`, so regenerating is free.
+- A single continuous narration is **ONE** `video_tts` call, however long — even for a whole video. It chunks and stitches internally. Do NOT split one voiceover into per-scene calls: each is a separate slow job, so three calls take three times as long for no benefit.
+- Do NOT regenerate to tweak length. Get the narration once, read its `duration_sec`, and size the VIDEO to it — never re-run `video_tts` to make the words shorter/longer.
+- **Parallelize** only genuinely distinct clips (different characters/scenes that become separate media), never the pieces of one narration.
+- Reuse: the same text + voice + dials returns the same `media_id`, so an identical re-request is free.
 
 ## Compose with video
 
 Every call returns `duration_sec` and a downloadable `url`, plus a `tts-audio` JSON artifact describing the acting used. Two patterns:
 
 - **Audio only**: use the `url` / `media_id` directly. Nothing else needed.
-- **Narrate a video**: generate the voice FIRST so you know its `duration_sec`, then build the visual to be **at least that long** (the narration sets the length — extend or repeat footage, or hold on a shot, to cover it). Attach it with `video_add_audio(media_id: <video>, audio_media_id: <tts media_id>, mode: "replace", start_sec: 1)` — the small `start_sec` lead-in lets the footage breathe for a beat before the voice comes in, and the video is auto-extended so the whole narration is heard. Then lay background music with a second `video_add_audio(mode: "mix", loop: true, volume: 0.3)` so the music also fills that lead-in gap and plays under the voice. Do NOT put the narration in `video_edit`'s `music_media_id`: that slot is background music capped to the clip length, so a narration longer than the clips gets cut off mid-sentence.
+- **Narrate a video**: generate the voice FIRST so you know its `duration_sec`, then build the visual to be **at least `duration_sec` + 1s long** (the narration sets the length — extend/repeat footage or hold a shot to cover it). Then compose the audio in TWO steps, **music first so it plays under everything**:
+  1. Lay the music bed: `video_add_audio(media_id: <video>, audio_media_id: <music>, mode: "replace", loop: true, volume: 0.3)` — this fills 0:00 to the end.
+  2. Mix the narration over it with the lead-in: `video_add_audio(media_id: <step-1 result>, audio_media_id: <tts media_id>, mode: "mix", start_sec: 1, volume: 1.0)` — the music breathes for a beat, then the voice comes in over the (quiet) music.
+
+  Order matters: music as the base, narration mixed on top. Do NOT lay the narration with `replace` after the music (that wipes the music and leaves a silent lead-in), and do NOT put the narration in `video_edit`'s `music_media_id` (that slot caps to the clip length and cuts a long narration). If there is no music, just `video_add_audio(mode: "replace", start_sec: 1)` the narration — the video auto-extends to hold the last frame so nothing is cut.
 
 Pass the whole narration to `video_tts` in ONE call, however long: it splits into chunks and stitches them in one voice, and returns a `job_id` you poll with `video_render_status`. Only make separate calls when you want distinct scenes as individually-timed clips (then place each at cumulative start times using its `duration_sec`).
