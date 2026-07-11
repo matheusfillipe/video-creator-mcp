@@ -9,6 +9,7 @@ import { synthesizeChatterbox } from "../services/tts.js";
 import { registerTool } from "./defineTool.js";
 
 const MAX_VOICE_REFERENCE_BYTES = 25 * 1024 * 1024;
+const MIN_VOICE_REFERENCE_SEC = 2;
 
 function describeActing(exaggeration: number, cfgWeight: number): string {
   const intensity =
@@ -90,6 +91,11 @@ export function registerAudioTools(server: McpServer): void {
         if (info.size > MAX_VOICE_REFERENCE_BYTES) {
           throw new Error(
             `voice_reference is ${(info.size / 1e6).toFixed(1)}MB; use a short clip (~5-15s, under 25MB) for cloning.`,
+          );
+        }
+        if (!ref.duration || ref.duration < MIN_VOICE_REFERENCE_SEC) {
+          throw new Error(
+            `voice_reference is ${ref.duration ? `only ${ref.duration.toFixed(1)}s` : "not usable audio"}; cloning needs at least ${MIN_VOICE_REFERENCE_SEC}s of clear speech (5-15s is ideal).`,
           );
         }
         voiceFile = {
