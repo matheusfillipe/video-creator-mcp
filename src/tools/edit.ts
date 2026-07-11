@@ -24,7 +24,7 @@ export function registerEditTools(server: McpServer): void {
     name: "video_edit",
     title: "Cut, Stack and Mix Clips (fast, no HTML)",
     description:
-      "The fast path for cut editing: trim clips, join them (optionally with crossfades), stack groups side-by-side or top/bottom (shorts style), burn timed text, and lay music/narration over the result — all from one JSON spec, executed as plain ffmpeg. No HTML, no browser: a 60s edit renders in well under a minute. USE THIS for any brief shaped like 'take clip A from X-Y and clip B where he says Z, put them together / stack them / add this song'. groups is a list of tracks: layout single=1 group (clips play in sequence), vstack=2 groups (top/bottom halves — the classic shorts split), hstack=2 (left/right), pip=2 (second group as a corner inset), grid=4. Every clip is cover-cropped to its cell, so 16:9 sources drop cleanly into a portrait 9:16 canvas. With multiple groups the output stops at the shortest group. Asynchronous: returns a job_id — poll video_render_status.",
+      "The fast path for cut editing: trim clips, join them (optionally with crossfades), stack groups side-by-side or top/bottom (shorts style), burn timed text, and lay music/narration over the result, all from one JSON spec, executed as plain ffmpeg. No HTML, no browser: a 60s edit renders in well under a minute. USE THIS for any brief shaped like 'take clip A from X-Y and clip B where he says Z, put them together / stack them / add this song'. groups is a list of tracks: layout single=1 group (clips play in sequence), vstack=2 groups (top/bottom halves, the classic shorts split), hstack=2 (left/right), pip=2 (second group as a corner inset), grid=4. Every clip is cover-cropped to its cell, so 16:9 sources drop cleanly into a portrait 9:16 canvas. With multiple groups the output stops at the shortest group. For continuous background music, pass music_media_id: ONE track laid across the whole edit (it replaces the clips' own audio). Do NOT bake music into the individual clips (e.g. music_media_id on each render, or clips that already carry the track): concatenating them restarts the music at every cut. Asynchronous: returns a job_id, then poll video_render_status.",
     inputSchema: {
       layout: z
         .enum(["single", "vstack", "hstack", "pip", "grid"])
@@ -67,6 +67,18 @@ export function registerEditTools(server: McpServer): void {
         )
         .optional()
         .describe("Music/narration tracks laid over the edit."),
+      music_media_id: z
+        .string()
+        .optional()
+        .describe(
+          "Background music for the WHOLE edit: one continuous track over every cut (replaces the clips' own audio). Prefer this over baking music into the clips, which restarts it at each cut.",
+        ),
+      music_volume: z
+        .number()
+        .min(0)
+        .max(2)
+        .optional()
+        .describe("Background-music volume (default 0.8)."),
       fade: z
         .number()
         .min(0)
@@ -78,14 +90,26 @@ export function registerEditTools(server: McpServer): void {
       metadata: metadataArg,
     },
     handler: async ({ metadata, ...args }) => {
-      const { layout, groups, text, audio, fade, resolution, fps } = args;
+      const { layout, groups, text, audio, music_media_id, music_volume, fade, resolution, fps } =
+        args;
+      // music_media_id is sugar for one "replace" track over the whole edit: replace drops the
+      // clips' own audio, so a single continuous soundtrack plays across every cut instead of the
+      // per-clip audio restarting.
+      const audioTracks = [...(audio ?? [])];
+      if (music_media_id) {
+        audioTracks.push({
+          media_id: music_media_id,
+          volume: music_volume ?? 0.8,
+          mode: "replace",
+        });
+      }
       const spec: EditSpec = {
         layout,
         groups,
         resolution,
         fps,
         ...(text ? { text } : {}),
-        ...(audio ? { audio } : {}),
+        ...(audioTracks.length ? { audio: audioTracks } : {}),
         ...(fade !== undefined ? { fade } : {}),
       };
       const jobId = submitJob("edit", async () => {
