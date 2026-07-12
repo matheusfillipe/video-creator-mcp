@@ -326,10 +326,7 @@ export async function narratedScenes(params: {
     for (const [i, scene] of params.scenes.entries()) {
       const clipDur = i === 0 ? scene.duration + params.leadInSec : scene.duration;
       const out = join(dir, `scene${i}.mp4`);
-      // The caption is burned onto this scene's own clip, which is already cut to the line's
-      // measured length — so it is on screen exactly while its line is spoken (synced by
-      // construction) and clears at the cut (no overlap into the next scene). Scene 0 waits out
-      // the lead-in so the words appear with the voice, not during the intro breath.
+      // Scene 0's caption waits out the lead-in so the words land with the voice, not the intro.
       let vf = `${coverFilter(w, h)},fps=${fps}`;
       const caption = scene.caption?.trim();
       if (caption) {

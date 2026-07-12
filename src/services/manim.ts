@@ -61,6 +61,7 @@ export interface MathShortSpec {
   scenes: MathScene[];
   resolution?: Resolution;
   accent_color?: string;
+  quick_reveal?: boolean;
 }
 
 function pyExpr(expr: string): string {
@@ -87,6 +88,10 @@ function pyRawStr(s: string): string {
 export function mathShortScene(spec: MathShortSpec): string {
   const { width, height } = dimsFor(spec.resolution ?? "portrait");
   const accent = spec.accent_color ?? "#58C4DD";
+  // quick_reveal shows the formula/graph immediately instead of animating them in. A narrated
+  // scene is cut to its spoken line, so a ~2s reveal would eat a short line before the formula
+  // is even visible; the narrated path wants the math on screen for the whole line.
+  const quick = spec.quick_reveal ?? false;
   const lines: string[] = [
     "import numpy as np",
     "from manim import *",
@@ -100,7 +105,7 @@ export function mathShortScene(spec: MathShortSpec): string {
     `        self.camera.background_color = "#0b0f14"`,
     `        title = Text(${pyStr(spec.title)}, font_size=52, weight=BOLD, color="${accent}")`,
     "        title.to_edge(UP, buff=0.9)",
-    "        self.play(Write(title), run_time=1.0)",
+    quick ? "        self.add(title)" : "        self.play(Write(title), run_time=1.0)",
   ];
   for (const [i, scene] of spec.scenes.entries()) {
     const duration = scene.duration ?? 6;
@@ -110,7 +115,9 @@ export function mathShortScene(spec: MathShortSpec): string {
       "",
       `        formula${i} = MathTex(${pyRawStr(scene.latex)}, font_size=50)`,
       `        formula${i}.next_to(title, DOWN, buff=0.5)`,
-      `        self.play(FadeIn(formula${i}), run_time=0.8)`,
+      quick
+        ? `        self.add(formula${i})`
+        : `        self.play(FadeIn(formula${i}), run_time=0.8)`,
     );
     if (scene.plot_expr) {
       lines.push(
@@ -119,15 +126,17 @@ export function mathShortScene(spec: MathShortSpec): string {
         `        graph${i} = axes${i}.plot(lambda x: ${pyExpr(scene.plot_expr)}, x_range=[${xr[0]}, ${xr[1]}, 0.01], color="${accent}", stroke_width=5)`,
         `        dot${i} = Dot(color="${accent}", radius=0.09)`,
         `        dot${i}.move_to(graph${i}.get_start())`,
-        `        self.play(Create(axes${i}), run_time=1.0)`,
-        `        self.play(Create(graph${i}), MoveAlongPath(dot${i}, graph${i}), run_time=${Math.max(1, duration - 3).toFixed(1)}, rate_func=linear)`,
+        `        self.play(Create(axes${i}), run_time=${quick ? "0.4" : "1.0"})`,
+        `        self.play(Create(graph${i}), MoveAlongPath(dot${i}, graph${i}), run_time=${Math.max(1, duration - (quick ? 0.8 : 3)).toFixed(1)}, rate_func=linear)`,
         "        self.wait(0.8)",
-        `        self.play(FadeOut(formula${i}), FadeOut(axes${i}), FadeOut(graph${i}), FadeOut(dot${i}), run_time=0.6)`,
+        quick
+          ? ""
+          : `        self.play(FadeOut(formula${i}), FadeOut(axes${i}), FadeOut(graph${i}), FadeOut(dot${i}), run_time=0.6)`,
       );
     } else {
       lines.push(
         `        self.wait(${duration.toFixed(1)})`,
-        `        self.play(FadeOut(formula${i}), run_time=0.6)`,
+        quick ? "" : `        self.play(FadeOut(formula${i}), run_time=0.6)`,
       );
     }
   }

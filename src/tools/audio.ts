@@ -6,7 +6,7 @@ import { z } from "zod";
 import { run } from "../lib/exec.js";
 import { narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
-import { renderMathShort, validatePlotExpr } from "../services/manim.js";
+import { renderMathShort } from "../services/manim.js";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
 import { metadataSidecarName, saveRender } from "../services/publish.js";
 import { storage } from "../services/storage.js";
@@ -489,12 +489,6 @@ export function registerAudioTools(server: McpServer): void {
           const onScreen = duration + (i === 0 ? lead_in_sec : 0);
           let footagePath: string;
           if (scene.math) {
-            if (scene.math.plot_expr) {
-              const plotError = validatePlotExpr(scene.math.plot_expr);
-              if (plotError) {
-                throw new Error(`scene ${i + 1} math plot_expr: ${plotError}`);
-              }
-            }
             const { buffer } = await renderMathShort({
               title: scene.math.title ?? "",
               scenes: [
@@ -507,6 +501,7 @@ export function registerAudioTools(server: McpServer): void {
                 },
               ],
               resolution,
+              quick_reveal: true,
               ...(scene.math.accent_color ? { accent_color: scene.math.accent_color } : {}),
             });
             const mathMeta = await writeMediaFromBuffer({

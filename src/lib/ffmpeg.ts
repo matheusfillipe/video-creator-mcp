@@ -72,15 +72,27 @@ export function wrapText(text: string, maxCharsPerLine: number): string {
   const words = text.split(/\s+/).filter(Boolean);
   const lines: string[] = [];
   let current = "";
+  const flush = () => {
+    if (current) {
+      lines.push(current);
+      current = "";
+    }
+  };
   for (const word of words) {
-    if (!current) current = word;
-    else if (`${current} ${word}`.length <= maxCharsPerLine) current += ` ${word}`;
+    let rest = word;
+    while (rest.length > maxCharsPerLine) {
+      flush();
+      lines.push(rest.slice(0, maxCharsPerLine));
+      rest = rest.slice(maxCharsPerLine);
+    }
+    if (!current) current = rest;
+    else if (`${current} ${rest}`.length <= maxCharsPerLine) current += ` ${rest}`;
     else {
       lines.push(current);
-      current = word;
+      current = rest;
     }
   }
-  if (current) lines.push(current);
+  flush();
   return lines.join("\n");
 }
 
