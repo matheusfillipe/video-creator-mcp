@@ -7,6 +7,7 @@ import { run } from "../lib/exec.js";
 import { buildTimedDrawtext, charsPerLine, coverFilter, wrapText } from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
+import type { Cue } from "./captions.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
 import { saveRender } from "./publish.js";
 
@@ -301,7 +302,6 @@ export async function narrateOverMusic(params: {
 export interface NarratedScene {
   footagePath: string;
   duration: number;
-  caption?: string;
 }
 
 // Build a narrated montage that stays in sync BY CONSTRUCTION: each scene's footage is cut to the
@@ -314,6 +314,8 @@ export async function narratedScenes(params: {
   narration: Buffer;
   leadInSec: number;
   music?: { path: string; volume: number };
+  captions?: Cue[];
+  captionColor?: string;
   width: number;
   height: number;
   fps: number;
@@ -326,24 +328,6 @@ export async function narratedScenes(params: {
     for (const [i, scene] of params.scenes.entries()) {
       const clipDur = i === 0 ? scene.duration + params.leadInSec : scene.duration;
       const out = join(dir, `scene${i}.mp4`);
-      // Scene 0's caption waits out the lead-in so the words land with the voice, not the intro.
-      let vf = `${coverFilter(w, h)},fps=${fps}`;
-      const caption = scene.caption?.trim();
-      if (caption) {
-        const fontSize = Math.max(24, Math.round(h / 22));
-        const captionFile = join(dir, `caption${i}.txt`);
-        await writeFile(captionFile, wrapText(caption, charsPerLine(w, fontSize)));
-        vf += `,${buildTimedDrawtext({
-          textFile: captionFile,
-          start: i === 0 ? params.leadInSec : 0,
-          end: clipDur,
-          position: "bottom",
-          fontSize,
-          color: "white",
-          box: true,
-          margin: Math.round(h * 0.08),
-        })}`;
-      }
       await run(
         "ffmpeg",
         [
@@ -356,7 +340,7 @@ export async function narratedScenes(params: {
           "-t",
           clipDur.toFixed(3),
           "-vf",
-          vf,
+          `${coverFilter(w, h)},fps=${fps}`,
           "-an",
           "-c:v",
           "libx264",
@@ -384,6 +368,15 @@ export async function narratedScenes(params: {
     const leadMs = Math.round(params.leadInSec * 1000);
     const delay = leadMs > 0 ? `adelay=${leadMs}:all=1,` : "";
 
+    // Captions burn in the same pass as the audio mux (one re-encode). Each cue draws only over
+    // its own [start,end], wrapped and pinned in a bottom safe band above which the scene content
+    // lives, so it never overlaps.
+    const captionChain = params.captions?.length
+      ? await captionFilterChain(dir, params.captions, w, h, params.captionColor ?? "white")
+      : "";
+    const videoPre = captionChain ? `[0:v]${captionChain}[v];` : "";
+    const videoMap = captionChain ? "[v]" : "0:v:0";
+
     const outFile = join(dir, "out.mp4");
     const args = ["-nostdin", "-y", "-i", silentVideo];
     if (params.music) {
@@ -395,9 +388,9 @@ export async function narratedScenes(params: {
         "-i",
         narration,
         "-filter_complex",
-        `[1:a]${MUSIC_HEAD_TRIM},volume=${params.music.volume}[mus];[2:a]${delay}asplit=2[nar1][nar2];[mus][nar1]${SIDECHAIN_DUCK}[musd];[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]`,
+        `${videoPre}[1:a]${MUSIC_HEAD_TRIM},volume=${params.music.volume}[mus];[2:a]${delay}asplit=2[nar1][nar2];[mus][nar1]${SIDECHAIN_DUCK}[musd];[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]`,
         "-map",
-        "0:v:0",
+        videoMap,
         "-map",
         "[a]",
       );
@@ -406,16 +399,17 @@ export async function narratedScenes(params: {
         "-i",
         narration,
         "-filter_complex",
-        `[1:a]${delay}anull[a]`,
+        `${videoPre}[1:a]${delay}anull[a]`,
         "-map",
-        "0:v:0",
+        videoMap,
         "-map",
         "[a]",
       );
     }
     args.push(
-      "-c:v",
-      "copy",
+      ...(captionChain
+        ? ["-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-pix_fmt", "yuv420p"]
+        : ["-c:v", "copy"]),
       "-c:a",
       "aac",
       "-t",
@@ -428,7 +422,7 @@ export async function narratedScenes(params: {
 
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${params.music?.volume ?? "none"}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}#${s.caption ?? ""}`).join(",")}`,
+      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${params.music?.volume ?? "none"}:${params.captionColor ?? ""}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}`).join(",")}:${(params.captions ?? []).map((c) => `${c.start.toFixed(2)}-${c.end.toFixed(2)}:${c.text}`).join("|")}`,
       buffer,
       ext: ".mp4",
       sourceUrl: "scenes://narrated",
@@ -437,6 +431,36 @@ export async function narratedScenes(params: {
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+}
+
+// Comma-joined drawtext chain for a caption cue track: each cue wrapped to the frame width and
+// shown only over its own [start,end], sized to the frame and pinned in a bottom safe band.
+async function captionFilterChain(
+  dir: string,
+  cues: Cue[],
+  width: number,
+  height: number,
+  color: string,
+): Promise<string> {
+  const fontSize = Math.max(22, Math.round(height / 26));
+  const filters: string[] = [];
+  for (const [i, cue] of cues.entries()) {
+    const file = join(dir, `cue${i}.txt`);
+    await writeFile(file, wrapText(cue.text, charsPerLine(width, fontSize)));
+    filters.push(
+      buildTimedDrawtext({
+        textFile: file,
+        start: cue.start,
+        end: cue.end,
+        position: "bottom",
+        fontSize,
+        color,
+        box: true,
+        margin: Math.round(height * 0.08),
+      }),
+    );
+  }
+  return filters.join(",");
 }
 
 // Burn timed text onto a clip with a single ffmpeg drawtext pass — the cheap path for

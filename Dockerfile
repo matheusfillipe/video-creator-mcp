@@ -51,6 +51,13 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true \
 COPY package*.json ./
 RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 
+# Bake the forced-alignment model (wav2vec2-base CTC, ~100MB) into the image so a cold pod never
+# fetches it from the network on first use. It runs in-process via transformers.js/onnxruntime
+# (no PyTorch, no extra service); this RUN also fail-fasts if the runtime can't load the model.
+ENV HF_CACHE_DIR=/app/.hf-cache \
+    ALIGN_MODEL=Xenova/wav2vec2-base-960h
+RUN node -e "(async()=>{const t=await import('@huggingface/transformers');t.env.cacheDir=process.env.HF_CACHE_DIR;const m=process.env.ALIGN_MODEL;await t.AutoModelForCTC.from_pretrained(m);await t.AutoProcessor.from_pretrained(m);await t.AutoTokenizer.from_pretrained(m);console.log('baked align model',m);})().catch(e=>{console.error(e);process.exit(1)})"
+
 # Bake the Hyperframes render engine into the image (its native sharp dep resolves a Linux
 # prebuilt here, unlike on dev machines). System chromium is reused via PUPPETEER_EXECUTABLE_PATH.
 RUN npm install -g hyperframes@0.6.81 && npm cache clean --force \

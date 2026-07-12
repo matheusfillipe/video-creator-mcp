@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 33 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 34 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -20,6 +20,17 @@ Lay an audio track onto a finished video — the audio counterpart to video_capt
 | `music_media_id` | string | no |  | Optional background music to lay UNDER audio_media_id (the narration) in the same call: music plays from 0:00 and is sidechain-ducked when the voice speaks, so the narration stays clearly on top and the lead-in (start_sec) keeps the music. Download it with video_download_media first. |
 | `music_volume` | number | no | `0.25` | Base volume of the music bed (it also ducks under the narration). Only used with music_media_id. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
+
+## `video_align`
+
+Force-align a KNOWN transcript to its spoken audio and return exact word timings plus grouped phrase cues — the timetable for perfectly-synced subtitles, karaoke word-highlighting, cutting to 'where he says X', or trimming dead air. Runs in-process (wav2vec2 CTC, CPU, ~real-time); it is NOT transcription — you supply the exact text, so the words are always right. Input: the audio's media_id (from video_tts or video_download_media) plus the exact words spoken. ASYNCHRONOUS: returns a job_id to poll with video_render_status; result has words [{word,start,end}] and cues [{text,start,end}].
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `audio_media_id` | string | yes |  | media_id of the spoken audio (from video_tts or video_download_media). |
+| `text` | string | yes |  | The exact words spoken in the audio. |
+| `max_words_per_cue` | integer | no | `12` | Cue length cap in words (phrase cues, not word-by-word). |
+| `max_chars_per_cue` | integer | no | `60` | Cue length cap in characters. |
 
 ## `video_analyze_audio`
 
@@ -167,7 +178,7 @@ List cached media, or remove one cached item by media_id.
 
 ## `video_narrated_scenes`
 
-THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage documentary, math explainer, or a mix, one call. Give ordered scenes; each has a narration `line` plus a visual that is EITHER `media_id` (footage/image from video_download_media) OR `math` (a formula/graph rendered for you). It narrates each line, measures its real spoken length, fits that scene's visual to it, burns a synced caption, and stitches them — so when scene N is on screen, line N is heard and captioned. No timestamps, no alignment, no cut-off voice, sync guaranteed by construction, any length. Captions wrap and sit in a safe margin (no crop/overlap); output defaults to landscape. Add `music_media_id` for a bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat first) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_render_math / video_tts / video_add_audio whenever visuals must line up with narration. Keep the scene count to the request's real scope (one per beat — a short / '3 moments' is ~3-5 scenes, not a dozen): each scene is a separate narration generated one at a time (and a math scene also renders manim), so scene count is the dominant cost.
+THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage documentary, math explainer, or a mix, one call. Give ordered scenes; each has a narration `line` plus a visual that is EITHER `media_id` (footage/image from video_download_media) OR `math` (a formula/graph rendered for you). It narrates each line, measures its real spoken length, fits that scene's visual to it, and stitches them — so when scene N is on screen, line N is heard. No cut-off voice, sync guaranteed by construction, any length. Subtitles are ON by default: the narration is force-aligned to the audio and shown as rolling word-synced phrase cues (whole clauses, wrapped) in a bottom safe band — they flow with the speech, not one block per scene, and never overlap the scene content above. Output defaults to landscape. Add `music_media_id` for a bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat first) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_render_math / video_tts / video_add_audio whenever visuals must line up with narration. Keep the scene count to the request's real scope (one per beat — a short / '3 moments' is ~3-5 scenes, not a dozen): each scene is a separate narration generated one at a time (and a math scene also renders manim), so scene count is the dominant cost.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -179,7 +190,8 @@ THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage
 | `music_media_id` | string | no |  | Background music (from video_download_media); plays from 0:00, ducked under the voice. |
 | `music_volume` | number | no | `0.25` | Music bed volume (also ducks under narration). |
 | `lead_in_sec` | number | no | `1` | Seconds the footage/music play before the first line comes in. |
-| `burn_captions` | boolean | no | `true` | Burn a subtitle of each line onto its scene (synced by construction, wrapped, safe-margin). Default on — leave on for narrated explainers/shorts; set false only for a caption-free montage. |
+| `burn_captions` | boolean | no | `true` | Burn word-synced subtitles: the narration is force-aligned to the audio and shown as rolling phrase cues in a bottom safe band (wrapped, never overlapping the scene content above). Default on for narrated explainers/shorts; set false only for a caption-free montage. |
+| `caption_color` | string | no | `"white"` | Caption text color — hex (#RRGGBB) or a basic color name. |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"landscape"` | Output resolution/orientation. Default landscape (16:9); use a portrait/vertical value ONLY for a short/reel/TikTok/story. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
