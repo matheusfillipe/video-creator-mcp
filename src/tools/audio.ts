@@ -9,6 +9,7 @@ import { submitJob } from "../services/jobs.js";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
 import { metadataSidecarName, saveRender } from "../services/publish.js";
 import { storage } from "../services/storage.js";
+import { dimsFor } from "../services/timeline.js";
 import { synthesizeChatterbox } from "../services/tts.js";
 import { registerTool } from "./defineTool.js";
 import { RESOLUTION, metadataArg } from "./shared.js";
@@ -178,15 +179,6 @@ async function extractCloneClip(
     await rm(clipDir, { recursive: true, force: true });
   }
 }
-
-const RESOLUTION_DIMS: Record<string, { w: number; h: number }> = {
-  "1080p": { w: 1920, h: 1080 },
-  landscape: { w: 1920, h: 1080 },
-  "4k": { w: 3840, h: 2160 },
-  uhd: { w: 3840, h: 2160 },
-  portrait: { w: 1080, h: 1920 },
-  square: { w: 1080, h: 1080 },
-};
 
 export function registerAudioTools(server: McpServer): void {
   registerTool(server, {
@@ -441,12 +433,13 @@ export function registerAudioTools(server: McpServer): void {
             temperature,
             voiceFile,
           });
-          resolved.push({
-            footagePath: footage.path,
-            narrationWav,
-            duration: wavDurationSec(narrationWav),
-            line: scene.line,
-          });
+          const duration = wavDurationSec(narrationWav);
+          if (!(duration > 0.1 && duration < 600)) {
+            throw new Error(
+              `narration for a scene came out ${duration.toFixed(1)}s (line: "${scene.line.slice(0, 40)}...") — bad audio, aborting.`,
+            );
+          }
+          resolved.push({ footagePath: footage.path, narrationWav, duration, line: scene.line });
         }
         let music: { path: string; volume: number } | undefined;
         if (music_media_id) {
@@ -458,9 +451,10 @@ export function registerAudioTools(server: McpServer): void {
           }
           music = { path: musicMeta.path, volume: music_volume };
         }
-        const { w, h } = RESOLUTION_DIMS[resolution] ?? { w: 1080, h: 1920 };
+        const { width: w, height: h } = dimsFor(resolution);
         const { buffer, meta } = await narratedScenes({
-          scenes: resolved,
+          scenes: resolved.map((s) => ({ footagePath: s.footagePath, duration: s.duration })),
+          narration: await concatWavs(resolved.map((s) => s.narrationWav)),
           leadInSec: lead_in_sec,
           music,
           width: w,
