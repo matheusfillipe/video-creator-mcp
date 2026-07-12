@@ -126,7 +126,10 @@ export function buildAss(
   const marginV = Math.round(height * 0.07);
   const marginLR = Math.round(width * 0.06);
   const primary = toAssColor(style.color);
-  const secondary = karaoke ? "&H00FFFFFF" : primary;
+  // Karaoke draws each word in the secondary colour, then fills it to the primary as it is spoken.
+  // A dim grey secondary keeps the sweep visible even when the primary (highlight) is the default
+  // white, so word-highlight never looks like a static caption.
+  const secondary = karaoke ? "&H00B4B4B4" : primary;
   const borderStyle = style.box ? 3 : 1;
   const outline = style.box ? 0 : Math.max(2, Math.round(fontSize / 14));
   const lines: string[] = [
