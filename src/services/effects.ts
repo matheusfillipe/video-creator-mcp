@@ -15,6 +15,9 @@ const IMAGE_RE = /\.(jpg|jpeg|png|webp)$/i;
 // Sidechain-compressor settings that duck a music bed under a narration — the tuned "feel" that
 // keeps the voice on top. Shared by every narration-over-music mux so it only lives in one place.
 const SIDECHAIN_DUCK = "sidechaincompress=threshold=0.04:ratio=8:attack=15:release=400";
+// Trim a music track's leading silence so a bed that fades in from quiet still fills a lead-in
+// (otherwise the intro's silence lands exactly where the footage/music are meant to breathe).
+const MUSIC_HEAD_TRIM = "silenceremove=start_periods=1:start_threshold=-50dB";
 
 export interface Caption {
   text: string;
@@ -240,7 +243,7 @@ export async function narrateOverMusic(params: {
   const total = Math.max(video.duration, narrationEnd);
   const padVideo = narrationEnd > video.duration + 0.1 ? total - video.duration : 0;
   const filter = [
-    `[1:a]volume=${params.musicVolume}[mus]`,
+    `[1:a]${MUSIC_HEAD_TRIM},volume=${params.musicVolume}[mus]`,
     `[2:a]adelay=${leadMs}:all=1,volume=${params.narrationVolume},asplit=2[nar1][nar2]`,
     `[mus][nar1]${SIDECHAIN_DUCK}[musd]`,
     "[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]",
@@ -373,7 +376,7 @@ export async function narratedScenes(params: {
         "-i",
         narration,
         "-filter_complex",
-        `[1:a]volume=${params.music.volume}[mus];[2:a]${delay}asplit=2[nar1][nar2];[mus][nar1]${SIDECHAIN_DUCK}[musd];[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]`,
+        `[1:a]${MUSIC_HEAD_TRIM},volume=${params.music.volume}[mus];[2:a]${delay}asplit=2[nar1][nar2];[mus][nar1]${SIDECHAIN_DUCK}[musd];[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]`,
         "-map",
         "0:v:0",
         "-map",
