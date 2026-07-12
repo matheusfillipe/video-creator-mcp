@@ -60,7 +60,12 @@ export function registerManimTools(server: McpServer): void {
         .min(1)
         .max(12)
         .describe("Scenes shown in sequence, each fading out before the next."),
-      resolution: z.enum(["1080p", "landscape", "portrait", "square"]).default("portrait"),
+      resolution: z
+        .enum(["1080p", "landscape", "portrait", "square"])
+        .default("landscape")
+        .describe(
+          "Output orientation. Default landscape (16:9); use portrait/square ONLY for a short/reel/story.",
+        ),
       accent_color: z.string().optional().describe("Hex color for formulas/graphs."),
       ...musicArg,
       metadata: metadataArg,

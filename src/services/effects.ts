@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { decodeComposition } from "../lib/composition-checks.js";
 import { checkComposition } from "../lib/composition-checks.js";
 import { run } from "../lib/exec.js";
-import { buildTimedDrawtext, coverFilter } from "../lib/ffmpeg.js";
+import { buildTimedDrawtext, charsPerLine, coverFilter, wrapText } from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
@@ -301,6 +301,7 @@ export async function narrateOverMusic(params: {
 export interface NarratedScene {
   footagePath: string;
   duration: number;
+  caption?: string;
 }
 
 // Build a narrated montage that stays in sync BY CONSTRUCTION: each scene's footage is cut to the
@@ -325,6 +326,27 @@ export async function narratedScenes(params: {
     for (const [i, scene] of params.scenes.entries()) {
       const clipDur = i === 0 ? scene.duration + params.leadInSec : scene.duration;
       const out = join(dir, `scene${i}.mp4`);
+      // The caption is burned onto this scene's own clip, which is already cut to the line's
+      // measured length — so it is on screen exactly while its line is spoken (synced by
+      // construction) and clears at the cut (no overlap into the next scene). Scene 0 waits out
+      // the lead-in so the words appear with the voice, not during the intro breath.
+      let vf = `${coverFilter(w, h)},fps=${fps}`;
+      const caption = scene.caption?.trim();
+      if (caption) {
+        const fontSize = Math.max(24, Math.round(h / 22));
+        const captionFile = join(dir, `caption${i}.txt`);
+        await writeFile(captionFile, wrapText(caption, charsPerLine(w, fontSize)));
+        vf += `,${buildTimedDrawtext({
+          textFile: captionFile,
+          start: i === 0 ? params.leadInSec : 0,
+          end: clipDur,
+          position: "bottom",
+          fontSize,
+          color: "white",
+          box: true,
+          margin: Math.round(h * 0.08),
+        })}`;
+      }
       await run(
         "ffmpeg",
         [
@@ -337,7 +359,7 @@ export async function narratedScenes(params: {
           "-t",
           clipDur.toFixed(3),
           "-vf",
-          `${coverFilter(w, h)},fps=${fps}`,
+          vf,
           "-an",
           "-c:v",
           "libx264",
@@ -409,7 +431,7 @@ export async function narratedScenes(params: {
 
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${params.music?.volume ?? "none"}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}`).join(",")}`,
+      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${params.music?.volume ?? "none"}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}#${s.caption ?? ""}`).join(",")}`,
       buffer,
       ext: ".mp4",
       sourceUrl: "scenes://narrated",

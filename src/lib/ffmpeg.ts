@@ -57,6 +57,7 @@ export interface TimedDrawtext {
   fontSize: number;
   color: string;
   box: boolean;
+  margin?: number;
 }
 
 function yExpression(position: TextPosition, margin: number): string {
@@ -65,8 +66,32 @@ function yExpression(position: TextPosition, margin: number): string {
   return `h-text_h-${margin}`;
 }
 
+// Greedy word-wrap so a caption never runs past the frame edge (long lines cropping is the
+// most common subtitle defect). ffmpeg drawtext renders the embedded newlines as stacked lines.
+export function wrapText(text: string, maxCharsPerLine: number): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  let current = "";
+  for (const word of words) {
+    if (!current) current = word;
+    else if (`${current} ${word}`.length <= maxCharsPerLine) current += ` ${word}`;
+    else {
+      lines.push(current);
+      current = word;
+    }
+  }
+  if (current) lines.push(current);
+  return lines.join("\n");
+}
+
+// Chars that fit on one line for LiberationSans-Bold at the given font size, using ~0.52em average
+// glyph width and keeping 90% of the width as a safe margin.
+export function charsPerLine(width: number, fontSize: number): number {
+  return Math.max(12, Math.floor((width * 0.9) / (fontSize * 0.52)));
+}
+
 export function buildTimedDrawtext(opts: TimedDrawtext): string {
-  const margin = Math.round(opts.fontSize * 0.9);
+  const margin = opts.margin ?? Math.round(opts.fontSize * 0.9);
   const parts = [
     `fontfile=${FONT_FILE}`,
     `textfile=${opts.textFile}`,

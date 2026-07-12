@@ -6,6 +6,7 @@ import { z } from "zod";
 import { run } from "../lib/exec.js";
 import { narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
+import { renderMathShort, validatePlotExpr } from "../services/manim.js";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
 import { metadataSidecarName, saveRender } from "../services/publish.js";
 import { storage } from "../services/storage.js";
@@ -343,26 +344,67 @@ export function registerAudioTools(server: McpServer): void {
 
   registerTool(server, {
     name: "video_narrated_scenes",
-    title: "Narrated scenes (synced by construction)",
+    title: "Narrated video (any visual, synced by construction)",
     description:
-      "Build a narrated video that stays PERFECTLY in sync, the reliable way: give it ordered scenes, each a narration `line` + the `media_id` of footage to show while that line is spoken. It generates each line, cuts that scene's footage to the line's exact spoken length, and stitches them — so when scene N is on screen, line N is heard. No timestamps, no alignment, sync guaranteed by construction, works for any length. Add `music_media_id` for a background bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat before the first line) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_tts + video_add_audio whenever visuals must line up with the narration. Keep the scene count to the request's real scope (one scene per beat — a short / '3 moments' video is ~3-5 scenes, not a dozen): each scene is a separate cloned narration generated one at a time, so scene count is the dominant cost.",
+      "THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage documentary, math explainer, or a mix, one call. Give ordered scenes; each has a narration `line` plus a visual that is EITHER `media_id` (footage/image from video_download_media) OR `math` (a formula/graph rendered for you). It narrates each line, measures its real spoken length, fits that scene's visual to it, burns a synced caption, and stitches them — so when scene N is on screen, line N is heard and captioned. No timestamps, no alignment, no cut-off voice, sync guaranteed by construction, any length. Captions wrap and sit in a safe margin (no crop/overlap); output defaults to landscape. Add `music_media_id` for a bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat first) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_render_math / video_tts / video_add_audio whenever visuals must line up with narration. Keep the scene count to the request's real scope (one per beat — a short / '3 moments' is ~3-5 scenes, not a dozen): each scene is a separate narration generated one at a time (and a math scene also renders manim), so scene count is the dominant cost.",
     inputSchema: {
       scenes: z
         .array(
-          z.object({
-            line: z.string().min(1).describe("The narration spoken during this scene."),
-            media_id: z
-              .string()
-              .min(1)
-              .describe(
-                "Footage for this scene (from video_download_media); cut to the line's length.",
-              ),
-          }),
+          z
+            .object({
+              line: z.string().min(1).describe("The narration spoken during this scene."),
+              media_id: z
+                .string()
+                .min(1)
+                .optional()
+                .describe(
+                  "Footage/image visual for this scene (from video_download_media), cut to the line's length. Give EITHER this OR math.",
+                ),
+              math: z
+                .object({
+                  latex: z
+                    .string()
+                    .min(1)
+                    .describe("LaTeX formula shown this scene, e.g. 'a^2 + b^2 = c^2'."),
+                  plot_expr: z
+                    .string()
+                    .optional()
+                    .describe("Optional numpy expression to graph, e.g. 'sin(x)' or '3*x**2'."),
+                  x_range: z
+                    .array(z.number())
+                    .length(2)
+                    .optional()
+                    .describe("[min, max] x-axis. Default [-5, 5]."),
+                  y_range: z
+                    .array(z.number())
+                    .length(2)
+                    .optional()
+                    .describe("[min, max] y-axis. Default [-3, 3]."),
+                  title: z.string().optional().describe("Heading above the formula this scene."),
+                  accent_color: z
+                    .string()
+                    .optional()
+                    .describe("Hex (#RRGGBB) or basic color for the formula/graph."),
+                })
+                .optional()
+                .describe(
+                  "Render a math visual (formula + optional graph) for this scene INSTEAD of footage. Give EITHER this OR media_id.",
+                ),
+              caption: z
+                .string()
+                .optional()
+                .describe(
+                  'On-screen caption for this scene. Omit to caption with the spoken line verbatim (recommended); set to "" for no caption on this scene.',
+                ),
+            })
+            .refine((scene) => Boolean(scene.media_id) !== Boolean(scene.math), {
+              message: "each scene needs exactly one of media_id or math",
+            }),
         )
         .min(1)
         .max(40)
         .describe(
-          "Ordered beats: each pairs a narration line with the footage shown while it plays.",
+          "Ordered beats: each pairs a narration line with the visual (footage or math) shown while it plays.",
         ),
       voice_reference: z
         .string()
@@ -401,7 +443,15 @@ export function registerAudioTools(server: McpServer): void {
         .max(10)
         .default(1)
         .describe("Seconds the footage/music play before the first line comes in."),
-      resolution: RESOLUTION.default("portrait").describe("Output resolution/orientation."),
+      burn_captions: z
+        .boolean()
+        .default(true)
+        .describe(
+          "Burn a subtitle of each line onto its scene (synced by construction, wrapped, safe-margin). Default on — leave on for narrated explainers/shorts; set false only for a caption-free montage.",
+        ),
+      resolution: RESOLUTION.default("landscape").describe(
+        "Output resolution/orientation. Default landscape (16:9); use a portrait/vertical value ONLY for a short/reel/TikTok/story.",
+      ),
       metadata: metadataArg,
     },
     handler: ({
@@ -413,19 +463,14 @@ export function registerAudioTools(server: McpServer): void {
       music_media_id,
       music_volume,
       lead_in_sec,
+      burn_captions,
       resolution,
       metadata,
     }) => {
       const jobId = submitJob("narrated-scenes", async () => {
         const voiceFile = voice_reference ? await extractCloneClip(voice_reference) : undefined;
         const resolved = [];
-        for (const scene of scenes) {
-          const footage = await loadMeta(scene.media_id);
-          if (!footage) {
-            throw new Error(
-              `scene footage not found: ${scene.media_id} — download it with video_download_media first.`,
-            );
-          }
+        for (const [i, scene] of scenes.entries()) {
           const narrationWav = await synthesizeSpeech({
             text: scene.line,
             exaggeration,
@@ -439,7 +484,49 @@ export function registerAudioTools(server: McpServer): void {
               `narration for a scene came out ${duration.toFixed(1)}s (line: "${scene.line.slice(0, 40)}...") — bad audio, aborting.`,
             );
           }
-          resolved.push({ footagePath: footage.path, narrationWav, duration, line: scene.line });
+          // The visual must be at least as long as its on-screen time (the line, plus the lead-in
+          // on the first scene) so the synced builder trims it to the line instead of looping it.
+          const onScreen = duration + (i === 0 ? lead_in_sec : 0);
+          let footagePath: string;
+          if (scene.math) {
+            if (scene.math.plot_expr) {
+              const plotError = validatePlotExpr(scene.math.plot_expr);
+              if (plotError) {
+                throw new Error(`scene ${i + 1} math plot_expr: ${plotError}`);
+              }
+            }
+            const { buffer } = await renderMathShort({
+              title: scene.math.title ?? "",
+              scenes: [
+                {
+                  latex: scene.math.latex,
+                  ...(scene.math.plot_expr ? { plot_expr: scene.math.plot_expr } : {}),
+                  ...(scene.math.x_range ? { x_range: scene.math.x_range } : {}),
+                  ...(scene.math.y_range ? { y_range: scene.math.y_range } : {}),
+                  duration: onScreen + 1,
+                },
+              ],
+              resolution,
+              ...(scene.math.accent_color ? { accent_color: scene.math.accent_color } : {}),
+            });
+            const mathMeta = await writeMediaFromBuffer({
+              idSeed: `narrated-math:${resolution}:${onScreen.toFixed(2)}:${JSON.stringify(scene.math)}`,
+              buffer,
+              ext: ".mp4",
+              sourceUrl: "math://narrated-scene",
+            });
+            footagePath = mathMeta.path;
+          } else {
+            const footage = scene.media_id ? await loadMeta(scene.media_id) : null;
+            if (!footage) {
+              throw new Error(
+                `scene footage not found: ${scene.media_id ?? "(missing)"} — download it with video_download_media first.`,
+              );
+            }
+            footagePath = footage.path;
+          }
+          const caption = burn_captions ? (scene.caption ?? scene.line) : undefined;
+          resolved.push({ footagePath, narrationWav, duration, line: scene.line, caption });
         }
         let music: { path: string; volume: number } | undefined;
         if (music_media_id) {
@@ -453,7 +540,11 @@ export function registerAudioTools(server: McpServer): void {
         }
         const { width: w, height: h } = dimsFor(resolution);
         const { buffer, meta } = await narratedScenes({
-          scenes: resolved.map((s) => ({ footagePath: s.footagePath, duration: s.duration })),
+          scenes: resolved.map((s) => ({
+            footagePath: s.footagePath,
+            duration: s.duration,
+            caption: s.caption,
+          })),
           narration: await concatWavs(resolved.map((s) => s.narrationWav)),
           leadInSec: lead_in_sec,
           music,

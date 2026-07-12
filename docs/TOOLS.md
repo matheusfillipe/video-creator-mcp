@@ -167,11 +167,11 @@ List cached media, or remove one cached item by media_id.
 
 ## `video_narrated_scenes`
 
-Build a narrated video that stays PERFECTLY in sync, the reliable way: give it ordered scenes, each a narration `line` + the `media_id` of footage to show while that line is spoken. It generates each line, cuts that scene's footage to the line's exact spoken length, and stitches them — so when scene N is on screen, line N is heard. No timestamps, no alignment, sync guaranteed by construction, works for any length. Add `music_media_id` for a background bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat before the first line) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_tts + video_add_audio whenever visuals must line up with the narration. Keep the scene count to the request's real scope (one scene per beat — a short / '3 moments' video is ~3-5 scenes, not a dozen): each scene is a separate cloned narration generated one at a time, so scene count is the dominant cost.
+THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage documentary, math explainer, or a mix, one call. Give ordered scenes; each has a narration `line` plus a visual that is EITHER `media_id` (footage/image from video_download_media) OR `math` (a formula/graph rendered for you). It narrates each line, measures its real spoken length, fits that scene's visual to it, burns a synced caption, and stitches them — so when scene N is on screen, line N is heard and captioned. No timestamps, no alignment, no cut-off voice, sync guaranteed by construction, any length. Captions wrap and sit in a safe margin (no crop/overlap); output defaults to landscape. Add `music_media_id` for a bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat first) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_render_math / video_tts / video_add_audio whenever visuals must line up with narration. Keep the scene count to the request's real scope (one per beat — a short / '3 moments' is ~3-5 scenes, not a dozen): each scene is a separate narration generated one at a time (and a math scene also renders manim), so scene count is the dominant cost.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `scenes` | array | yes |  | Ordered beats: each pairs a narration line with the footage shown while it plays. |
+| `scenes` | array | yes |  | Ordered beats: each pairs a narration line with the visual (footage or math) shown while it plays. |
 | `voice_reference` | string | no |  | media_id to clone one narrator voice across every line (download the clip first). |
 | `exaggeration` | number | no | `0.5` | Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic. |
 | `cfg_weight` | number | no | `0.5` | Pacing: lower = slower/more deliberate. |
@@ -179,7 +179,8 @@ Build a narrated video that stays PERFECTLY in sync, the reliable way: give it o
 | `music_media_id` | string | no |  | Background music (from video_download_media); plays from 0:00, ducked under the voice. |
 | `music_volume` | number | no | `0.25` | Music bed volume (also ducks under narration). |
 | `lead_in_sec` | number | no | `1` | Seconds the footage/music play before the first line comes in. |
-| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"portrait"` | Output resolution/orientation. |
+| `burn_captions` | boolean | no | `true` | Burn a subtitle of each line onto its scene (synced by construction, wrapped, safe-margin). Default on — leave on for narrated explainers/shorts; set false only for a caption-free montage. |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"landscape"` | Output resolution/orientation. Default landscape (16:9); use a portrait/vertical value ONLY for a short/reel/TikTok/story. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_preview_frame`
@@ -253,7 +254,7 @@ Render a math-animation video in the classic manim style: dark background, a tit
 |---|---|---|---|---|
 | `title` | string | yes |  | Title shown at the top throughout. |
 | `scenes` | array | yes |  | Scenes shown in sequence, each fading out before the next. |
-| `resolution` | `"1080p"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"portrait"` |  |
+| `resolution` | `"1080p"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"landscape"` | Output orientation. Default landscape (16:9); use portrait/square ONLY for a short/reel/story. |
 | `accent_color` | string | no |  | Hex color for formulas/graphs. |
 | `music_media_id` | string | no |  | Background-music media_id from video_download_media. Looped to cover the whole video and baked in here, so a math short with music is ONE call — no separate video_add_audio. |
 | `music_volume` | number | no | `0.8` | Music volume (default 0.8). |

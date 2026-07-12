@@ -21,6 +21,52 @@ geometry and proofs, transformations, 3D, number theory, vectors/fields, typogra
   `cairo` on a 3D scene turns a ~20s render into minutes.
 - **Do NOT add audio in code.** Pass `music_media_id` (from `video_download_media`) to the tool and the
   server loops it under the finished clip.
+- **Background music.** If the brief includes a music URL, `video_download_media` it and pass the
+  returned `media_id` as `music_media_id`. Otherwise source a royalty-free track
+  (`video_search_youtube "no copyright ambient/lofi/cinematic music"` → `video_download_media` a slice
+  → `music_media_id`).
+
+## Layout: reserve zones, never overlap (read this — it is the #1 defect)
+
+The frame is **8 units tall** (`y` from `-4` to `+4`). The single most common failure is content
+colliding with the title, with a bottom caption, or with itself, because coordinates were **hardcoded**
+(`set_y(1.5)`, `move_to([x, 1.5, 0])`, an arrow drawn to a literal `y=3.3`) without accounting for
+element heights. A title at `to_edge(UP)` occupies roughly `y > 2.6`; a bottom caption occupies
+`y < -2.8`. **Every other mobject — including arrows and a floating `\infty` — must stay strictly
+between those lines.**
+
+Rules that prevent it:
+- **Reserve the top for the title *and any persistent subtitle*.** If you keep a "Step N — …" label
+  under the title, body content must stay below the *subtitle's* bottom, not just the title's.
+- **Lay out relatively, not by absolute `y`.** Build each step's content as ONE
+  `VGroup(...).arrange(DOWN, buff=…)` / `.arrange(RIGHT, buff=…)`, then place the whole group with
+  `.next_to(anchor, DOWN)` / `.move_to(...)` / the `fit_body` helper below. Avoid per-row `set_y`.
+- **A rising arrow or `\infty` ends *below* the reserved top**, never at a literal `3.x`.
+- **Pin a stack's bottom above the caption**: `stack.next_to([0, BOT, 0], UP, buff=0)`.
+- **Fit anything that might be too wide/tall**: `.scale_to_fit_width(min(g.width, 12.5))` (landscape) or
+  `4.2` (portrait); `.scale_to_fit_height(TOP - BOT)` if it's too tall.
+- **Clear a scene before the next**: `self.play(FadeOut(prev_a, prev_b, …))`.
+- **Self-check before you finish.** A cheap `assert` on bounding boxes turns a silent visual overlap into
+  a loud error the tool reports back to you — fix the coordinates and re-render:
+  `assert body.get_top()[1] < TOP and body.get_bottom()[1] > BOT`.
+
+Copy-paste skeleton (landscape; for portrait use `TOP≈3.0`, width cap `4.2`, `x` within ±2.2):
+```python
+title = Text("…", font_size=46, weight=BOLD).to_edge(UP, buff=0.5)
+subtitle = Text("Step 1 — …", font_size=34, weight=BOLD).next_to(title, DOWN, buff=0.3)  # optional
+self.add(title, subtitle)
+TOP = subtitle.get_bottom()[1] - 0.35   # no subtitle → title.get_bottom()[1] - 0.35
+BOT = -2.6                              # leave room for a bottom caption
+
+def fit_body(m):
+    m.scale_to_fit_width(min(m.width, 12.5))
+    if m.height > TOP - BOT: m.scale_to_fit_height(TOP - BOT)
+    return m.move_to([0, (TOP + BOT) / 2, 0])
+
+body = VGroup(a, b, c).arrange(DOWN, buff=0.6)   # or arrange(RIGHT, ...) for a row
+fit_body(body); self.add(body)
+assert body.get_top()[1] < TOP and body.get_bottom()[1] > BOT   # catch a collision early
+```
 
 ## What manim can do here (capability tour)
 - **2D geometry / proofs** — `Polygon`, `Circle`, `Line`, `Angle`, `RightAngle`, `Arc`, `Dot`, `Brace`; label with `MathTex`/`Text`; animate `Create`, `DrawBorderThenFill`.
@@ -120,4 +166,5 @@ class S(Scene):
 - 3D needs `ThreeDScene` (not `Scene`) and a camera orientation, or you see the surface edge-on.
 - In a `ThreeDScene`, a title/label made with `Text`/`MathTex` tilts and warps with the camera. Keep 2D text flat and readable by registering it with `self.add_fixed_in_frame_mobjects(label)` (position it with `to_edge`/`to_corner` first), and add it with `self.add(...)` — don't let it live in the rotating 3D space.
 - `MathTex`/`Tex` render through LaTeX; keep expressions valid and in raw strings so backslashes survive.
-- A tall shape can collide with a top title — give the title `to_edge(UP, buff=~1)` and keep the figure below it.
+- Overlap with the title/caption is the most common defect — follow "Layout: reserve zones" above; keep
+  every mobject (arrows and `\infty` included) between the reserved top and bottom, and self-check with an assert.
