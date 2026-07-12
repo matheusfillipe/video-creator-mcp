@@ -60,3 +60,104 @@ export function offsetCues(cues: Cue[], delta: number): Cue[] {
     words: cue.words.map((w) => ({ word: w.word, start: w.start + delta, end: w.end + delta })),
   }));
 }
+
+export type CaptionPosition = "bottom" | "center" | "top";
+
+export interface CaptionStyle {
+  color: string; // highlight/primary color: hex #RRGGBB or a basic name
+  position: CaptionPosition;
+  fontScale: number; // multiplier on the resolution-derived base size
+  box: boolean;
+}
+
+const NAME_TO_HEX: Record<string, string> = {
+  white: "FFFFFF",
+  black: "000000",
+  red: "FF0000",
+  green: "008000",
+  blue: "0000FF",
+  yellow: "FFFF00",
+  cyan: "00FFFF",
+  magenta: "FF00FF",
+  orange: "FFA500",
+  pink: "FFC0CB",
+  gold: "FFD700",
+  lime: "00FF00",
+};
+
+// ASS colours are &HAABBGGRR (alpha, then blue/green/red). A CSS #RRGGBB or basic name in, an
+// opaque ASS colour out.
+function toAssColor(color: string): string {
+  const named = NAME_TO_HEX[color.toLowerCase()];
+  const hex = named ?? color.replace("#", "");
+  if (!/^[0-9a-fA-F]{6}$/.test(hex)) return "&H00FFFFFF";
+  const r = hex.slice(0, 2);
+  const g = hex.slice(2, 4);
+  const b = hex.slice(4, 6);
+  return `&H00${b}${g}${r}`.toUpperCase();
+}
+
+function assTime(sec: number): string {
+  const cs = Math.max(0, Math.round(sec * 100));
+  const h = Math.floor(cs / 360000);
+  const m = Math.floor((cs % 360000) / 6000);
+  const s = Math.floor((cs % 6000) / 100);
+  const c = cs % 100;
+  return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(c).padStart(2, "0")}`;
+}
+
+function assEscape(text: string): string {
+  return text.replace(/[{}]/g, "").replace(/\r?\n/g, "\\N");
+}
+
+// Build an ASS subtitle document for the cue track, rendered by ffmpeg's libass `subtitles` filter.
+// `karaoke` sweeps each word from the secondary (upcoming) colour to the primary as it is spoken,
+// using the per-word timings; otherwise each cue is a static styled phrase. libass owns wrapping
+// and the safe-area margins, so text never leaves the frame.
+export function buildAss(
+  cues: Cue[],
+  width: number,
+  height: number,
+  style: CaptionStyle,
+  karaoke: boolean,
+): string {
+  const fontSize = Math.max(18, Math.round((height / 22) * style.fontScale));
+  const alignment = style.position === "top" ? 8 : style.position === "center" ? 5 : 2;
+  const marginV = Math.round(height * 0.07);
+  const marginLR = Math.round(width * 0.06);
+  const primary = toAssColor(style.color);
+  const secondary = karaoke ? "&H00FFFFFF" : primary;
+  const borderStyle = style.box ? 3 : 1;
+  const outline = style.box ? 0 : Math.max(2, Math.round(fontSize / 14));
+  const lines: string[] = [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${width}`,
+    `PlayResY: ${height}`,
+    "WrapStyle: 0",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    `Style: Cap,Liberation Sans,${fontSize},${primary},${secondary},&H00000000,&H96000000,1,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},${marginLR},${marginLR},${marginV},1`,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+  ];
+  for (const cue of cues) {
+    let text: string;
+    if (karaoke) {
+      const parts: string[] = [];
+      for (const [i, word] of cue.words.entries()) {
+        const next = cue.words[i + 1];
+        const spanSec = (next ? next.start : word.end) - word.start;
+        const durCs = Math.max(1, Math.round(spanSec * 100));
+        parts.push(`{\\k${durCs}}${assEscape(word.word)} `);
+      }
+      text = parts.join("").trimEnd();
+    } else {
+      text = assEscape(cue.text);
+    }
+    lines.push(`Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},Cap,,0,0,0,,${text}`);
+  }
+  return lines.join("\n");
+}

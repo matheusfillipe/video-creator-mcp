@@ -7,7 +7,7 @@ import { run } from "../lib/exec.js";
 import { buildTimedDrawtext, charsPerLine, coverFilter, wrapText } from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
-import type { Cue } from "./captions.js";
+import { type CaptionStyle, type Cue, buildAss } from "./captions.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
 import { saveRender } from "./publish.js";
 
@@ -315,18 +315,26 @@ export async function narratedScenes(params: {
   leadInSec: number;
   music?: { path: string; volume: number };
   captions?: Cue[];
-  captionColor?: string;
+  captionStyle?: CaptionStyle;
+  captionMode?: "block" | "karaoke";
+  tailSec?: number;
   width: number;
   height: number;
   fps: number;
 }): Promise<{ buffer: Buffer; meta: MediaMeta }> {
   const { width: w, height: h, fps } = params;
-  const total = params.leadInSec + params.scenes.reduce((sum, s) => sum + s.duration, 0);
+  const tailSec = params.tailSec ?? 0;
+  const lastIndex = params.scenes.length - 1;
+  const total = params.leadInSec + params.scenes.reduce((sum, s) => sum + s.duration, 0) + tailSec;
   const dir = await mkdtemp(join(tmpdir(), "vcm-scenes-"));
   try {
     const sceneFiles: string[] = [];
     for (const [i, scene] of params.scenes.entries()) {
-      const clipDur = i === 0 ? scene.duration + params.leadInSec : scene.duration;
+      // The last scene holds a little longer than its line so the video (and music) breathe out
+      // instead of hard-cutting the instant the last word ends.
+      const clipDur =
+        (i === 0 ? scene.duration + params.leadInSec : scene.duration) +
+        (i === lastIndex ? tailSec : 0);
       const out = join(dir, `scene${i}.mp4`);
       await run(
         "ffmpeg",
@@ -368,12 +376,22 @@ export async function narratedScenes(params: {
     const leadMs = Math.round(params.leadInSec * 1000);
     const delay = leadMs > 0 ? `adelay=${leadMs}:all=1,` : "";
 
-    // Captions burn in the same pass as the audio mux (one re-encode). Each cue draws only over
-    // its own [start,end], wrapped and pinned in a bottom safe band above which the scene content
-    // lives, so it never overlaps.
-    const captionChain = params.captions?.length
-      ? await captionFilterChain(dir, params.captions, w, h, params.captionColor ?? "white")
-      : "";
+    // Captions burn in the same pass as the audio mux (one re-encode), pinned in a safe band above
+    // which the scene content lives. "block" = static phrase cues via drawtext; "karaoke" = ASS
+    // (libass) that sweeps each word to the highlight colour as it is spoken, using per-word times.
+    const captionStyle: CaptionStyle = params.captionStyle ?? {
+      color: "white",
+      position: "bottom",
+      fontScale: 1,
+      box: true,
+    };
+    let captionChain = "";
+    if (params.captions?.length) {
+      captionChain =
+        params.captionMode === "karaoke"
+          ? await karaokeSubtitleFilter(dir, params.captions, w, h, captionStyle)
+          : await captionFilterChain(dir, params.captions, w, h, captionStyle);
+    }
     const videoPre = captionChain ? `[0:v]${captionChain}[v];` : "";
     const videoMap = captionChain ? "[v]" : "0:v:0";
 
@@ -422,7 +440,7 @@ export async function narratedScenes(params: {
 
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${params.music?.volume ?? "none"}:${params.captionColor ?? ""}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}`).join(",")}:${(params.captions ?? []).map((c) => `${c.start.toFixed(2)}-${c.end.toFixed(2)}:${c.text}`).join("|")}`,
+      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${tailSec}:${params.music?.volume ?? "none"}:${params.captionMode ?? "block"}:${JSON.stringify(params.captionStyle ?? {})}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}`).join(",")}:${(params.captions ?? []).map((c) => `${c.start.toFixed(2)}-${c.end.toFixed(2)}:${c.text}`).join("|")}`,
       buffer,
       ext: ".mp4",
       sourceUrl: "scenes://narrated",
@@ -433,16 +451,16 @@ export async function narratedScenes(params: {
   }
 }
 
-// Comma-joined drawtext chain for a caption cue track: each cue wrapped to the frame width and
-// shown only over its own [start,end], sized to the frame and pinned in a bottom safe band.
+// Comma-joined drawtext chain for a static ("block") caption cue track: each cue wrapped to the
+// frame width and shown only over its own [start,end], sized to the frame and pinned in a safe band.
 async function captionFilterChain(
   dir: string,
   cues: Cue[],
   width: number,
   height: number,
-  color: string,
+  style: CaptionStyle,
 ): Promise<string> {
-  const fontSize = Math.max(22, Math.round(height / 26));
+  const fontSize = Math.max(20, Math.round((height / 26) * style.fontScale));
   const filters: string[] = [];
   for (const [i, cue] of cues.entries()) {
     const file = join(dir, `cue${i}.txt`);
@@ -452,15 +470,31 @@ async function captionFilterChain(
         textFile: file,
         start: cue.start,
         end: cue.end,
-        position: "bottom",
+        position: style.position,
         fontSize,
-        color,
-        box: true,
+        color: style.color,
+        box: style.box,
         margin: Math.round(height * 0.08),
       }),
     );
   }
   return filters.join(",");
+}
+
+// Write the cue track as an ASS document and return the libass `subtitles` filter for it. Used for
+// karaoke: libass sweeps each word to the highlight colour as it is spoken (per-word timings) and
+// owns wrapping + safe margins itself.
+async function karaokeSubtitleFilter(
+  dir: string,
+  cues: Cue[],
+  width: number,
+  height: number,
+  style: CaptionStyle,
+): Promise<string> {
+  const assPath = join(dir, "captions.ass");
+  await writeFile(assPath, buildAss(cues, width, height, style, true));
+  const escaped = assPath.replace(/\\/g, "\\\\").replace(/:/g, "\\:");
+  return `subtitles=${escaped}`;
 }
 
 // Burn timed text onto a clip with a single ffmpeg drawtext pass — the cheap path for

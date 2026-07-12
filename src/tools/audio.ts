@@ -449,7 +449,35 @@ export function registerAudioTools(server: McpServer): void {
       caption_color: z
         .string()
         .default("white")
-        .describe("Caption text color — hex (#RRGGBB) or a basic color name."),
+        .describe(
+          "Caption color — hex (#RRGGBB) or a basic color name. In karaoke mode this is the highlight color words sweep to.",
+        ),
+      caption_mode: z
+        .enum(["block", "karaoke"])
+        .default("block")
+        .describe(
+          "block = static phrase cues (readable subtitles). karaoke = each word highlights to caption_color as it is spoken (word-by-word animation).",
+        ),
+      caption_position: z
+        .enum(["bottom", "center", "top"])
+        .default("bottom")
+        .describe("Where captions sit. Default bottom."),
+      caption_size: z
+        .enum(["small", "medium", "large"])
+        .default("medium")
+        .describe("Caption font size."),
+      caption_box: z
+        .boolean()
+        .default(true)
+        .describe("Draw a translucent box behind captions for legibility (else outline only)."),
+      tail_sec: z
+        .number()
+        .min(0)
+        .max(5)
+        .default(0.6)
+        .describe(
+          "Seconds the last scene (and music) hold after the final word, so the video breathes out instead of hard-cutting.",
+        ),
       resolution: RESOLUTION.default("landscape").describe(
         "Output resolution/orientation. Default landscape (16:9); use a portrait/vertical value ONLY for a short/reel/TikTok/story.",
       ),
@@ -466,6 +494,11 @@ export function registerAudioTools(server: McpServer): void {
       lead_in_sec,
       burn_captions,
       caption_color,
+      caption_mode,
+      caption_position,
+      caption_size,
+      caption_box,
+      tail_sec,
       resolution,
       metadata,
     }) => {
@@ -558,13 +591,21 @@ export function registerAudioTools(server: McpServer): void {
             await rm(alignDir, { recursive: true, force: true });
           }
         }
+        const fontScale = caption_size === "small" ? 0.8 : caption_size === "large" ? 1.3 : 1;
         const { buffer, meta } = await narratedScenes({
           scenes: resolved.map((s) => ({ footagePath: s.footagePath, duration: s.duration })),
           narration: narrationBuf,
           leadInSec: lead_in_sec,
           music,
           captions,
-          captionColor: caption_color,
+          captionStyle: {
+            color: caption_color,
+            position: caption_position,
+            fontScale,
+            box: caption_box,
+          },
+          captionMode: caption_mode,
+          tailSec: tail_sec,
           width: w,
           height: h,
           fps: 30,

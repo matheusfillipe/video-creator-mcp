@@ -191,7 +191,12 @@ THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage
 | `music_volume` | number | no | `0.25` | Music bed volume (also ducks under narration). |
 | `lead_in_sec` | number | no | `1` | Seconds the footage/music play before the first line comes in. |
 | `burn_captions` | boolean | no | `true` | Burn word-synced subtitles: the narration is force-aligned to the audio and shown as rolling phrase cues in a bottom safe band (wrapped, never overlapping the scene content above). Default on for narrated explainers/shorts; set false only for a caption-free montage. |
-| `caption_color` | string | no | `"white"` | Caption text color — hex (#RRGGBB) or a basic color name. |
+| `caption_color` | string | no | `"white"` | Caption color — hex (#RRGGBB) or a basic color name. In karaoke mode this is the highlight color words sweep to. |
+| `caption_mode` | `"block"` \| `"karaoke"` | no | `"block"` | block = static phrase cues (readable subtitles). karaoke = each word highlights to caption_color as it is spoken (word-by-word animation). |
+| `caption_position` | `"bottom"` \| `"center"` \| `"top"` | no | `"bottom"` | Where captions sit. Default bottom. |
+| `caption_size` | `"small"` \| `"medium"` \| `"large"` | no | `"medium"` | Caption font size. |
+| `caption_box` | boolean | no | `true` | Draw a translucent box behind captions for legibility (else outline only). |
+| `tail_sec` | number | no | `0.6` | Seconds the last scene (and music) hold after the final word, so the video breathes out instead of hard-cutting. |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"landscape"` | Output resolution/orientation. Default landscape (16:9); use a portrait/vertical value ONLY for a short/reel/TikTok/story. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
