@@ -4,12 +4,14 @@ import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { run } from "../lib/exec.js";
+import { narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
-import { metadataSidecarName } from "../services/publish.js";
+import { metadataSidecarName, saveRender } from "../services/publish.js";
 import { storage } from "../services/storage.js";
 import { synthesizeChatterbox } from "../services/tts.js";
 import { registerTool } from "./defineTool.js";
+import { RESOLUTION, metadataArg } from "./shared.js";
 
 const MIN_VOICE_REFERENCE_SEC = 2;
 // A clone reference only needs a few seconds of clean speech. Cap the extracted clip so a
@@ -121,6 +123,71 @@ function describeActing(exaggeration: number, cfgWeight: number): string {
   return `${intensity}; ${pace} pacing`;
 }
 
+// Length of a PCM WAV buffer without shelling out: the "data" subchunk size over the byte rate.
+function wavDurationSec(buffer: Buffer): number {
+  const dataIdx = buffer.indexOf("data", 12, "ascii");
+  const byteRate = buffer.readUInt32LE(28);
+  if (dataIdx < 0 || byteRate <= 0) return 0;
+  return buffer.readUInt32LE(dataIdx + 4) / byteRate;
+}
+
+// A clone reference may be a video / long / huge file, so extract just the leading mono audio:
+// Chatterbox always gets clean, small speech. Shared by video_tts and video_narrated_scenes.
+async function extractCloneClip(
+  voiceReference: string,
+): Promise<{ buffer: Buffer; filename: string }> {
+  const ref = await loadMeta(voiceReference);
+  if (!ref) {
+    throw new Error(
+      `voice_reference not found: ${voiceReference}. Download the reference clip with video_download_media first and pass its media_id.`,
+    );
+  }
+  if (!(await stat(ref.path).catch(() => null))) {
+    throw new Error(
+      `voice_reference ${voiceReference} is no longer cached; re-download it with video_download_media.`,
+    );
+  }
+  if (!ref.duration || ref.duration < MIN_VOICE_REFERENCE_SEC) {
+    throw new Error(
+      `voice_reference is ${ref.duration ? `only ${ref.duration.toFixed(1)}s` : "not usable audio"}; cloning needs at least ${MIN_VOICE_REFERENCE_SEC}s of clear speech (5-15s is ideal).`,
+    );
+  }
+  const clipDir = await mkdtemp(join(tmpdir(), "vcm-clone-"));
+  try {
+    const clipPath = join(clipDir, "ref.wav");
+    await run("ffmpeg", [
+      "-nostdin",
+      "-y",
+      "-i",
+      ref.path,
+      "-t",
+      String(CLONE_CLIP_SECONDS),
+      "-vn",
+      "-ac",
+      "1",
+      "-ar",
+      "24000",
+      clipPath,
+    ]);
+    const clip = await readFile(clipPath);
+    if (clip.length < 2000) {
+      throw new Error(`voice_reference ${voiceReference} has no usable audio track to clone from.`);
+    }
+    return { buffer: clip, filename: "voice.wav" };
+  } finally {
+    await rm(clipDir, { recursive: true, force: true });
+  }
+}
+
+const RESOLUTION_DIMS: Record<string, { w: number; h: number }> = {
+  "1080p": { w: 1920, h: 1080 },
+  landscape: { w: 1920, h: 1080 },
+  "4k": { w: 3840, h: 2160 },
+  uhd: { w: 3840, h: 2160 },
+  portrait: { w: 1080, h: 1920 },
+  square: { w: 1080, h: 1080 },
+};
+
 export function registerAudioTools(server: McpServer): void {
   registerTool(server, {
     name: "video_tts",
@@ -165,52 +232,7 @@ export function registerAudioTools(server: McpServer): void {
       let voiceFile: { buffer: Buffer; filename: string } | undefined;
       let voiceLabel = "default";
       if (voice_reference) {
-        const ref = await loadMeta(voice_reference);
-        if (!ref) {
-          throw new Error(
-            `voice_reference not found: ${voice_reference}. Download the reference clip with video_download_media first and pass its media_id.`,
-          );
-        }
-        const info = await stat(ref.path).catch(() => null);
-        if (!info) {
-          throw new Error(
-            `voice_reference ${voice_reference} is no longer cached; re-download it with video_download_media.`,
-          );
-        }
-        if (!ref.duration || ref.duration < MIN_VOICE_REFERENCE_SEC) {
-          throw new Error(
-            `voice_reference is ${ref.duration ? `only ${ref.duration.toFixed(1)}s` : "not usable audio"}; cloning needs at least ${MIN_VOICE_REFERENCE_SEC}s of clear speech (5-15s is ideal).`,
-          );
-        }
-        // The reference can be a video (a downloaded YouTube clip) or a long/huge file, so extract
-        // just the leading mono audio: Chatterbox always gets clean, small speech regardless.
-        const clipDir = await mkdtemp(join(tmpdir(), "vcm-clone-"));
-        try {
-          const clipPath = join(clipDir, "ref.wav");
-          await run("ffmpeg", [
-            "-nostdin",
-            "-y",
-            "-i",
-            ref.path,
-            "-t",
-            String(CLONE_CLIP_SECONDS),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "24000",
-            clipPath,
-          ]);
-          const clip = await readFile(clipPath);
-          if (clip.length < 2000) {
-            throw new Error(
-              `voice_reference ${voice_reference} has no usable audio track to clone from.`,
-            );
-          }
-          voiceFile = { buffer: clip, filename: "voice.wav" };
-        } finally {
-          await rm(clipDir, { recursive: true, force: true });
-        }
+        voiceFile = await extractCloneClip(voice_reference);
         voiceLabel = `cloned:${voice_reference}`;
       }
 
@@ -323,6 +345,150 @@ export function registerAudioTools(server: McpServer): void {
         ...(wordCount !== undefined ? { word_count: wordCount, estimated_sec: estimatedSec } : {}),
         ...(targetWords !== undefined ? { target_sec, target_words: targetWords } : {}),
         ...compare,
+      });
+    },
+  });
+
+  registerTool(server, {
+    name: "video_narrated_scenes",
+    title: "Narrated scenes (synced by construction)",
+    description:
+      "Build a narrated video that stays PERFECTLY in sync, the reliable way: give it ordered scenes, each a narration `line` + the `media_id` of footage to show while that line is spoken. It generates each line, cuts that scene's footage to the line's exact spoken length, and stitches them — so when scene N is on screen, line N is heard. No timestamps, no alignment, sync guaranteed by construction, works for any length. Add `music_media_id` for a background bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat before the first line) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_tts + video_add_audio whenever visuals must line up with the narration.",
+    inputSchema: {
+      scenes: z
+        .array(
+          z.object({
+            line: z.string().min(1).describe("The narration spoken during this scene."),
+            media_id: z
+              .string()
+              .min(1)
+              .describe(
+                "Footage for this scene (from video_download_media); cut to the line's length.",
+              ),
+          }),
+        )
+        .min(1)
+        .max(40)
+        .describe(
+          "Ordered beats: each pairs a narration line with the footage shown while it plays.",
+        ),
+      voice_reference: z
+        .string()
+        .optional()
+        .describe(
+          "media_id to clone one narrator voice across every line (download the clip first).",
+        ),
+      exaggeration: z
+        .number()
+        .min(0)
+        .max(2)
+        .default(0.5)
+        .describe("Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic."),
+      cfg_weight: z
+        .number()
+        .min(0)
+        .max(1)
+        .default(0.5)
+        .describe("Pacing: lower = slower/more deliberate."),
+      temperature: z.number().min(0.1).max(1.5).default(0.8).describe("Delivery variation."),
+      music_media_id: z
+        .string()
+        .optional()
+        .describe(
+          "Background music (from video_download_media); plays from 0:00, ducked under the voice.",
+        ),
+      music_volume: z
+        .number()
+        .min(0)
+        .max(2)
+        .default(0.25)
+        .describe("Music bed volume (also ducks under narration)."),
+      lead_in_sec: z
+        .number()
+        .min(0)
+        .max(10)
+        .default(1)
+        .describe("Seconds the footage/music play before the first line comes in."),
+      resolution: RESOLUTION.default("portrait").describe("Output resolution/orientation."),
+      metadata: metadataArg,
+    },
+    handler: ({
+      scenes,
+      voice_reference,
+      exaggeration,
+      cfg_weight,
+      temperature,
+      music_media_id,
+      music_volume,
+      lead_in_sec,
+      resolution,
+      metadata,
+    }) => {
+      const jobId = submitJob("narrated-scenes", async () => {
+        const voiceFile = voice_reference ? await extractCloneClip(voice_reference) : undefined;
+        const resolved = [];
+        for (const scene of scenes) {
+          const footage = await loadMeta(scene.media_id);
+          if (!footage) {
+            throw new Error(
+              `scene footage not found: ${scene.media_id} — download it with video_download_media first.`,
+            );
+          }
+          const narrationWav = await synthesizeSpeech({
+            text: scene.line,
+            exaggeration,
+            cfgWeight: cfg_weight,
+            temperature,
+            voiceFile,
+          });
+          resolved.push({
+            footagePath: footage.path,
+            narrationWav,
+            duration: wavDurationSec(narrationWav),
+            line: scene.line,
+          });
+        }
+        let music: { path: string; volume: number } | undefined;
+        if (music_media_id) {
+          const musicMeta = await loadMeta(music_media_id);
+          if (!musicMeta) {
+            throw new Error(
+              `music_media_id not found: ${music_media_id} — download it with video_download_media first.`,
+            );
+          }
+          music = { path: musicMeta.path, volume: music_volume };
+        }
+        const { w, h } = RESOLUTION_DIMS[resolution] ?? { w: 1080, h: 1920 };
+        const { buffer, meta } = await narratedScenes({
+          scenes: resolved,
+          leadInSec: lead_in_sec,
+          music,
+          width: w,
+          height: h,
+          fps: 30,
+        });
+        const saved = await saveRender(buffer, meta.filename, metadata);
+        let cursor = lead_in_sec;
+        const timeline = resolved.map((scene) => {
+          const start = cursor;
+          cursor += scene.duration;
+          return {
+            line: scene.line,
+            start: Number(start.toFixed(2)),
+            end: Number(cursor.toFixed(2)),
+          };
+        });
+        return {
+          ...saved,
+          media_id: meta.media_id,
+          duration_sec: Number(meta.duration.toFixed(3)),
+          scenes: timeline,
+        };
+      });
+      return Promise.resolve({
+        job_id: jobId,
+        state: "queued",
+        poll_with: `video_render_status with job_id "${jobId}"`,
       });
     },
   });

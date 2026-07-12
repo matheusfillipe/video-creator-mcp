@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 32 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 33 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -164,6 +164,23 @@ List cached media, or remove one cached item by media_id.
 |---|---|---|---|---|
 | `action` | `"list"` \| `"remove"` | no | `"list"` | List all, or remove one. |
 | `media_id` | string | no |  | Required when action=remove. |
+
+## `video_narrated_scenes`
+
+Build a narrated video that stays PERFECTLY in sync, the reliable way: give it ordered scenes, each a narration `line` + the `media_id` of footage to show while that line is spoken. It generates each line, cuts that scene's footage to the line's exact spoken length, and stitches them — so when scene N is on screen, line N is heard. No timestamps, no alignment, sync guaranteed by construction, works for any length. Add `music_media_id` for a background bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat before the first line) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_tts + video_add_audio whenever visuals must line up with the narration.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `scenes` | array | yes |  | Ordered beats: each pairs a narration line with the footage shown while it plays. |
+| `voice_reference` | string | no |  | media_id to clone one narrator voice across every line (download the clip first). |
+| `exaggeration` | number | no | `0.5` | Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic. |
+| `cfg_weight` | number | no | `0.5` | Pacing: lower = slower/more deliberate. |
+| `temperature` | number | no | `0.8` | Delivery variation. |
+| `music_media_id` | string | no |  | Background music (from video_download_media); plays from 0:00, ducked under the voice. |
+| `music_volume` | number | no | `0.25` | Music bed volume (also ducks under narration). |
+| `lead_in_sec` | number | no | `1` | Seconds the footage/music play before the first line comes in. |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"portrait"` | Output resolution/orientation. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_preview_frame`
 

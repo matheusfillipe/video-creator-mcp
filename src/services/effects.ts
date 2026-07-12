@@ -291,6 +291,166 @@ export async function narrateOverMusic(params: {
   }
 }
 
+export interface NarratedScene {
+  footagePath: string;
+  narrationWav: Buffer;
+  duration: number;
+}
+
+// Build a narrated montage that stays in sync BY CONSTRUCTION: each scene's footage is cut to the
+// exact length of its own narration line, so when scene N plays, line N plays — no alignment, no
+// timestamps, just the real per-line durations. Scenes are cover-cropped to WxH, concatenated, the
+// narration lines concatenated (with an optional lead-in of music-only silence at the head), and an
+// optional music bed laid under it sidechain-ducked so the voice stays on top.
+export async function narratedScenes(params: {
+  scenes: NarratedScene[];
+  leadInSec: number;
+  music?: { path: string; volume: number };
+  width: number;
+  height: number;
+  fps: number;
+}): Promise<{ buffer: Buffer; meta: MediaMeta }> {
+  const { width: w, height: h, fps } = params;
+  const total = params.leadInSec + params.scenes.reduce((sum, s) => sum + s.duration, 0);
+  const dir = await mkdtemp(join(tmpdir(), "vcm-scenes-"));
+  try {
+    const sceneFiles: string[] = [];
+    for (const [i, scene] of params.scenes.entries()) {
+      const clipDur = i === 0 ? scene.duration + params.leadInSec : scene.duration;
+      const out = join(dir, `scene${i}.mp4`);
+      await run(
+        "ffmpeg",
+        [
+          "-nostdin",
+          "-y",
+          "-stream_loop",
+          "-1",
+          "-i",
+          scene.footagePath,
+          "-t",
+          clipDur.toFixed(3),
+          "-vf",
+          `scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},setsar=1,fps=${fps}`,
+          "-an",
+          "-c:v",
+          "libx264",
+          "-preset",
+          "veryfast",
+          "-pix_fmt",
+          "yuv420p",
+          out,
+        ],
+        { timeoutMs: 300_000 },
+      );
+      sceneFiles.push(out);
+    }
+    const videoList = join(dir, "videos.txt");
+    await writeFile(videoList, sceneFiles.map((f) => `file '${f}'`).join("\n"));
+    const silentVideo = join(dir, "video.mp4");
+    await run(
+      "ffmpeg",
+      ["-nostdin", "-y", "-f", "concat", "-safe", "0", "-i", videoList, "-c", "copy", silentVideo],
+      { timeoutMs: 300_000 },
+    );
+
+    const audioParts: string[] = [];
+    if (params.leadInSec > 0) {
+      const silence = join(dir, "lead.wav");
+      await run(
+        "ffmpeg",
+        [
+          "-nostdin",
+          "-y",
+          "-f",
+          "lavfi",
+          "-i",
+          "anullsrc=r=24000:cl=mono",
+          "-t",
+          params.leadInSec.toFixed(3),
+          "-c:a",
+          "pcm_s16le",
+          silence,
+        ],
+        { timeoutMs: 60_000 },
+      );
+      audioParts.push(silence);
+    }
+    for (const [i, scene] of params.scenes.entries()) {
+      const p = join(dir, `line${i}.wav`);
+      await writeFile(p, scene.narrationWav);
+      audioParts.push(p);
+    }
+    const audioList = join(dir, "audio.txt");
+    await writeFile(audioList, audioParts.map((f) => `file '${f}'`).join("\n"));
+    const narration = join(dir, "narration.wav");
+    await run(
+      "ffmpeg",
+      [
+        "-nostdin",
+        "-y",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-i",
+        audioList,
+        "-ar",
+        "24000",
+        "-ac",
+        "1",
+        "-c:a",
+        "pcm_s16le",
+        narration,
+      ],
+      { timeoutMs: 120_000 },
+    );
+
+    const outFile = join(dir, "out.mp4");
+    const args = ["-nostdin", "-y", "-i", silentVideo];
+    if (params.music) {
+      args.push(
+        "-stream_loop",
+        "-1",
+        "-i",
+        params.music.path,
+        "-i",
+        narration,
+        "-filter_complex",
+        `[1:a]volume=${params.music.volume}[mus];[2:a]asplit=2[nar1][nar2];[mus][nar1]sidechaincompress=threshold=0.04:ratio=8:attack=15:release=400[musd];[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]`,
+        "-map",
+        "0:v:0",
+        "-map",
+        "[a]",
+      );
+    } else {
+      args.push("-i", narration, "-map", "0:v:0", "-map", "1:a");
+    }
+    args.push(
+      "-c:v",
+      "copy",
+      "-c:a",
+      "aac",
+      "-t",
+      total.toFixed(3),
+      "-movflags",
+      "+faststart",
+      outFile,
+    );
+    await run("ffmpeg", args, { timeoutMs: 300_000 });
+
+    const buffer = await readFile(outFile);
+    const meta = await writeMediaFromBuffer({
+      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${params.music?.volume ?? "none"}:${params.scenes.map((s) => s.duration.toFixed(2)).join(",")}`,
+      buffer,
+      ext: ".mp4",
+      sourceUrl: "scenes://narrated",
+    });
+    return { buffer, meta };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 // Burn timed text onto a clip with a single ffmpeg drawtext pass — the cheap path for
 // "loop a clip and talk to the viewer with rotating subtitles": libx264 re-encodes once
 // in roughly real time, versus a headless-chrome composition rendering every frame in
