@@ -1,6 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { run } from "../lib/exec.js";
@@ -17,7 +17,7 @@ import { combineSceneVisuals } from "../services/edit.js";
 import { type NarratedScene, narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { renderMathShortCached } from "../services/manim.js";
-import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
+import { fetchMediaToId, loadMeta, writeMediaFromBuffer } from "../services/media.js";
 import {
   TTS_WORDS_PER_SEC,
   concatWavs,
@@ -28,7 +28,9 @@ import {
   wavDurationSec,
 } from "../services/narration.js";
 import { saveRender } from "../services/publish.js";
+import { storage } from "../services/storage.js";
 import { dimsFor } from "../services/timeline.js";
+import type { MediaMeta } from "../types.js";
 import { registerTool } from "./defineTool.js";
 import { RESOLUTION, metadataArg } from "./shared.js";
 
@@ -223,6 +225,12 @@ const COMPOSITION = z
       .array(OUTER_TRACK)
       .min(1)
       .describe("One track of scene compositions (sequential) + optionally one music track."),
+    media: z
+      .record(z.string(), z.string().url())
+      .optional()
+      .describe(
+        "media_id -> durable url, copied from a prior render's recipe sidecar. Lets media_ids this composition references be fetched back into the cache when they're missing locally (e.g. a reopened recipe on a fresh pod).",
+      ),
   })
   .strict();
 
@@ -342,8 +350,24 @@ function sceneSpanEstimate(scene: ResolvedScene): number {
   return Math.max(voiceSpanEstimate(scene.voice, scene.index === 0), scene.explicitDuration ?? 0);
 }
 
-async function mediaExists(mediaId: string): Promise<boolean> {
-  return Boolean(await loadMeta(mediaId));
+// Resolves a media_id against the local cache, falling back to the composition's `media`
+// map (id -> durable url) when it's missing locally — the mechanism that lets a composition
+// reopened from a stored recipe re-resolve sources that only ever lived in a since-dead
+// pod's cache. Returns null when the id is neither cached nor fetchable.
+async function ensureMedia(
+  mediaId: string,
+  media: Record<string, string> | undefined,
+): Promise<MediaMeta | null> {
+  const cached = await loadMeta(mediaId);
+  if (cached) return cached;
+  const url = media?.[mediaId];
+  if (!url) return null;
+  try {
+    return await fetchMediaToId(mediaId, url);
+  } catch (error) {
+    console.error(`[compose] failed to fetch media "${mediaId}" from recipe url:`, error);
+    return null;
+  }
 }
 
 // Resolve + validate a composition without rendering: cascade the defaults, classify the
@@ -388,7 +412,7 @@ async function resolveComposition(comp: Composition): Promise<ResolvedCompositio
         });
         continue;
       }
-      if (!(await mediaExists(clip.media_id))) {
+      if (!(await ensureMedia(clip.media_id, comp.media))) {
         findings.push({
           path: `tracks[${ti}].clips[${ci}].media_id`,
           severity: "error",
@@ -455,7 +479,7 @@ async function resolveScene(
     for (const [ci, clip] of track.clips.entries()) {
       const clipPath = `${path}.tracks[${ti}].clips[${ci}]`;
       if (clip.type === "video") {
-        const media = await loadMeta(clip.media_id);
+        const media = await ensureMedia(clip.media_id, comp.media);
         if (!media) {
           findings.push({
             path: `${clipPath}.media_id`,
@@ -569,7 +593,7 @@ async function resolveScene(
   let voice: ResolvedVoice | undefined;
   if (voiceEntry) {
     const params = mergeVoice(comp.defaults?.voice, scene.defaults?.voice, voiceEntry.clip.voice);
-    if (params.referenceId && !(await mediaExists(params.referenceId))) {
+    if (params.referenceId && !(await ensureMedia(params.referenceId, comp.media))) {
       findings.push({
         path: `${voiceEntry.path}.voice.reference_media_id`,
         severity: "error",
@@ -721,7 +745,7 @@ const PRESET = `{
   ]
 }`;
 
-const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) combines multiple visual clips into one view: vstack/hstack/pip need exactly 2 visual clips, grid takes 2-4. Fill this preset:
+const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) combines multiple visual clips into one view: vstack/hstack/pip need exactly 2 visual clips, grid takes 2-4. A composition may include a top-level media map (media_id -> url) copied from a prior render's recipe sidecar, so referenced media_ids missing from the local cache are fetched back in automatically. Fill this preset:
 ${PRESET}`;
 
 export function registerComposeTools(server: McpServer): void {
@@ -742,7 +766,7 @@ export function registerComposeTools(server: McpServer): void {
   registerTool(server, {
     name: "video_compose",
     title: "Render a composition (narrated video, synced by construction)",
-    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later). Requires CHATTERBOX_URL. ${LANGUAGE_RULES}`,
+    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later — the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Requires CHATTERBOX_URL. ${LANGUAGE_RULES}`,
     inputSchema: {
       composition: COMPOSITION.describe("The declarative composition to render."),
       metadata: metadataArg,
@@ -848,6 +872,63 @@ async function resolveVisualPath(
   return visual.in !== undefined || visual.out !== undefined
     ? await trimVideoSource(footage.path, footage.media_id, visual.in ?? 0, visual.out)
     : footage.path;
+}
+
+// Extensions this server ever writes into the media cache, mapped to a content type for the
+// upload (storage.save defaults to video/mp4 when the caller omits one).
+const MEDIA_CONTENT_TYPES: Record<string, string> = {
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
+  ".webm": "video/webm",
+  ".mkv": "video/x-matroska",
+  ".mp3": "audio/mpeg",
+  ".wav": "audio/wav",
+  ".m4a": "audio/mp4",
+  ".ogg": "audio/ogg",
+  ".flac": "audio/flac",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".png": "image/png",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
+
+function contentTypeFor(ext: string): string {
+  return MEDIA_CONTENT_TYPES[ext.toLowerCase()] ?? "application/octet-stream";
+}
+
+// Every source media_id a resolved composition actually references — video/image sources by
+// their original id (not a derived trim or math render), the music bed, and any voice clone
+// reference — the same ids that appear in the composition JSON stored as the recipe.
+function referencedMediaIds(resolved: ResolvedComposition): Set<string> {
+  const ids = new Set<string>();
+  for (const scene of resolved.scenes) {
+    for (const visual of scene.visuals) {
+      if (visual.kind === "video") ids.add(visual.mediaId);
+    }
+    if (scene.voice?.referenceId) ids.add(scene.voice.referenceId);
+  }
+  if (resolved.music) ids.add(resolved.music.mediaId);
+  return ids;
+}
+
+// Uploads every source media the composition references to the bucket under a stable
+// `media/<id><ext>` key, so the sidecar recipe can carry a durable url for each one — the
+// pod-local cache that produced this render dies with the pod, but the recipe must keep
+// resolving. Uploads unconditionally: storage.save is an idempotent put by key, and there's
+// no cheap existence check that would make skipping a redundant one worthwhile.
+async function publishReferencedMedia(
+  resolved: ResolvedComposition,
+): Promise<Record<string, string>> {
+  const media: Record<string, string> = {};
+  for (const mediaId of referencedMediaIds(resolved)) {
+    const meta = await loadMeta(mediaId);
+    if (!meta) continue;
+    const buffer = await readFile(meta.path);
+    const ext = extname(meta.path) || extname(meta.filename);
+    media[mediaId] = await storage().save(buffer, `media/${mediaId}${ext}`, contentTypeFor(ext));
+  }
+  return media;
 }
 
 async function renderComposition(
@@ -1011,9 +1092,12 @@ async function renderComposition(
 
   // The sidecar's recipe is the project file: the exact composition that made this video,
   // reloadable via video_get_recipe for later (agent or human editor) tweaks + re-renders.
+  // Its media map carries a durable url for every source this composition references, since
+  // those sources only ever lived in this pod's local cache.
+  const referencedMedia = await publishReferencedMedia(resolved);
   const saved = await saveRender(buffer, meta.filename, metadata, {
     tool: "video_compose",
-    args: { composition },
+    args: { composition, media: referencedMedia },
   });
 
   let absCursor = leadInSec;

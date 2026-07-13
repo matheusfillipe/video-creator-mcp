@@ -348,6 +348,48 @@ export async function downloadMedia(params: {
   });
 }
 
+// Fetches a url directly into the cache under a caller-given media_id, instead of a hash
+// derived from the content — this is how a media_id referenced by a stored composition
+// recipe resolves back to the SAME id it was rendered with, once the recipe's media map
+// supplies a durable url for it (see compose.ts's ensureMedia).
+export async function fetchMediaToId(mediaId: string, url: string): Promise<MediaMeta> {
+  await assertSafeUrl(url);
+  return withLock(mediaId, async () => {
+    const cached = await getCached(mediaId);
+    if (cached) return cached;
+
+    await mkdir(config.mediaCacheDir, { recursive: true });
+    const ext = extname(url.split("?")[0] ?? "").toLowerCase() || ".bin";
+    const filePath = cachePath(mediaId, ext);
+    await run("curl", ["-sL", "--max-redirs", "5", "-o", filePath, "--max-time", "300", url]);
+
+    const fileStat = await stat(filePath).catch(() => null);
+    if (!fileStat || fileStat.size < MIN_VALID_BYTES) {
+      await unlinkIfExists(filePath);
+      throw new Error(`Fetching media "${mediaId}" produced an empty file from ${url}`);
+    }
+
+    const info = await probeInfo(filePath);
+    const meta: MediaMeta = {
+      media_id: mediaId,
+      filename: basename(filePath),
+      path: filePath,
+      url,
+      start: null,
+      end: null,
+      duration: info.duration,
+      width: info.width,
+      height: info.height,
+      codec: info.codec,
+      fps: info.fps,
+      hasAudio: info.hasAudio,
+      size: info.size,
+    };
+    await saveMeta(mediaId, meta);
+    return meta;
+  });
+}
+
 export async function writeMediaFromBuffer(params: {
   idSeed: string;
   buffer: Buffer;
