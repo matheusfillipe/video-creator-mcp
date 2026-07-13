@@ -107,7 +107,7 @@ export async function loadMeta(mediaId: string): Promise<MediaMeta | null> {
   }
 }
 
-// Maps an idSeed to the media_id it hashes to — the one place that derivation happens, so
+// Maps an idSeed to the media_id it hashes to: the one place that derivation happens, so
 // a caller can check the cache for a piece of content before producing it.
 export function mediaIdFor(idSeed: string): string {
   return cacheId(idSeed);
@@ -349,7 +349,7 @@ export async function downloadMedia(params: {
 }
 
 // Fetches a url directly into the cache under a caller-given media_id, instead of a hash
-// derived from the content — this is how a media_id referenced by a stored composition
+// derived from the content: this is how a media_id referenced by a stored composition
 // recipe resolves back to the SAME id it was rendered with, once the recipe's media map
 // supplies a durable url for it (see compose.ts's ensureMedia).
 export async function fetchMediaToId(mediaId: string, url: string): Promise<MediaMeta> {

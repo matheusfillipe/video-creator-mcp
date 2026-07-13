@@ -50,8 +50,8 @@ Analyze -> data
 - `video_find` — locate a spoken phrase inside a clip -> timestamps
 
 Generate a visual -> `media_id`
-- `video_graphic` — ONE tool, discriminated by `kind`: `math | plot | chart | tierlist | terminal |
-  title | manim | html`. Collapses the whole `render_*` zoo behind one typed union.
+- `video_graphic` — ONE tool, discriminated by `kind`: `math | chart | terminal | manim | block |
+  html`. Collapses the whole `render_*` zoo behind one typed union.
 
 Compose + poll
 - `video_compose` — the declarative timeline (below). The one way to assemble anything.
@@ -194,8 +194,9 @@ That is the main reason this shape is good for agents - but only if shipped with
 - **Presets**: documented compositions the agent fills, not authors from scratch ("narrated short",
   "split reaction", "math explainer"). Weak agent fills a template; strong agent writes the tree.
 - **Bounded nesting depth** (~4) so recursion can't run away and validation stays finite.
-- **Caching**: hash the resolved tree to a content id; re-submits are cache hits; tweaking one
-  segment only re-renders that sub-tree (cache at sub-composition granularity).
+- **Caching**: per-artifact content-addressed caching, not whole-tree hashing. Each speech line,
+  each math render, and each multi-visual layout combine is a cache hit on re-render; the final
+  concat/caption/mux still re-runs every time.
 
 Residual risk: glm is weak, and a powerful language lets a weak agent make a mess. The guardrails
 (plan step, cascade, presets, depth cap, high-signal findings) are what hold it. Without them this
@@ -214,13 +215,14 @@ Already supported by the design: lossless round-trip (whole video in the JSON, s
 reference originals, stable clip `id`s double as the editor's handle, `video_plan` resolves the
 absolute timeline the UI lays out, and the tree maps cleanly to lanes/blocks/compound-clips.
 
-Bake in now so old projects stay openable:
-- **Store the composition JSON with every render** (`video_get_recipe` / a sidecar) so any past video
-  is reopenable + editable.
-- **Durable media**: the referenced media must still resolve later (retention on the existing MinIO
-  bucket, or a re-fetchable `src`). The one care item; it is retention policy on existing storage,
-  not new infra.
+Shipped, so old projects stay openable:
+- **Composition JSON stored with every render** (`video_get_recipe` / a sidecar) so any past
+  video is reopenable + editable.
+- **Durable media**: the referenced media resolves later via the composition's media map
+  (media_id -> url), backed by retention on the existing MinIO bucket; no new infra.
 - **A schema `version` field** so a future editor can read older project files (OTIO does this).
+
+Remaining:
 - Optional per-clip **editor `meta`** (label, color, marker, locked) the renderer ignores.
 - Optional **OTIO import/export adapter** for interop with pro editors.
 
@@ -296,16 +298,24 @@ Cost: small. It converts the plan's biggest uncertainty into evidence before any
 
 ## Rollout (incremental, each phase deployable + tested) — only on a Phase 0 GO
 
-1. Add `video_compose` as a superset — internally reuse the existing narratedScenes / edit
-   (stack/pip/grid + crossfade) / align / caption / audio-mux code. Ship + prove parity with
-   `video_narrated_scenes`.
-2. Add `video_graphic` (discriminated union) dispatching to the existing render_* service functions.
-3. Demote `render_*` / `edit` / `add_audio` / `caption` / `loop` / `narrated_scenes` from the
-   agent-facing tool list (keep the service functions; stop exposing the tools). Rewrite the
-   authoring guides.
-4. Delete the band-aids — the CloudBot single-render guard and the preamble routing become
-   unnecessary (one path, nothing to disambiguate).
-5. Keep the primitives (`align`, `speak`, `fetch`, `search`, `inspect`, `status`).
+1. **Shipped.** `video_compose` is a superset, internally reusing the existing narratedScenes /
+   edit (stack/pip/grid + crossfade) / align / caption / audio-mux code, with parity proven
+   against `video_narrated_scenes`.
+2. **Shipped.** `video_graphic` (discriminated union) dispatches to the existing render_* service
+   functions.
+3. **Demoted** from the agent-facing tool list: `video_narrated_scenes`, `video_render_math`,
+   `video_render_manim`, `video_render_chart`, `video_render_terminal`, `video_render_block`, and
+   the generic `video_render` tool (superseded by `video_compose` / `video_graphic`; their
+   service functions are called from the new tools instead of being exposed standalone). **Kept**
+   agent-facing, because `video_compose` does not yet cover their unique powers: `video_edit`,
+   `video_add_audio`, `video_caption`, `video_loop`, `video_render_tierlist`,
+   `video_render_timeline`, `video_render_slideshow`. The authoring guides route to this
+   surviving set.
+4. **Partially done.** The CloudBot single-render guard is kept, but scoped to `video_compose`
+   only, and it clears itself once the guarded job's status comes back as an error so the model
+   can fix and resubmit.
+5. **Done.** The primitives (`align`, `speak`, `fetch`, `search`, `inspect`, `status`) stayed
+   exposed.
 
 ## Parity + risk
 

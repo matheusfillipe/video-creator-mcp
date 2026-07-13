@@ -26,6 +26,12 @@ export const metadataArg = z
       ),
     tags: z.array(z.string()).optional().describe("YouTube tags / keywords."),
     category: z.string().optional().describe("Optional YouTube category, e.g. 'Gaming'."),
+    brief: z
+      .string()
+      .optional()
+      .describe(
+        "The requester's original brief, VERBATIM (not your rewording). Stored in the sidecar so a later edit session knows what the video was asked to be.",
+      ),
   })
   .optional()
   .describe("Publish metadata; if set, a <video>.json sidecar is written to the bucket too.");

@@ -91,7 +91,7 @@ const VIDEO_CLIP = z
       .min(0)
       .optional()
       .describe(
-        "Seconds into the source to start playing from — a source trim, independent of the scene's own duration.",
+        "Seconds into the source to start playing from (a source trim), independent of the scene's own duration.",
       ),
     out: z.number().positive().optional().describe("Seconds into the source to stop playing at."),
   })
@@ -163,7 +163,7 @@ const SCENE_TRACK = z
   .strict();
 
 // Duration-preserving: a crossfade would eat overlap time from both scenes and break narration
-// sync, so this fades the outgoing scene to black and fades the next one in from black instead —
+// sync, so this fades the outgoing scene to black and fades the next one in from black instead;
 // no scene's length changes.
 const TRANSITION_OUT = z
   .object({
@@ -351,7 +351,7 @@ function sceneSpanEstimate(scene: ResolvedScene): number {
 }
 
 // Resolves a media_id against the local cache, falling back to the composition's `media`
-// map (id -> durable url) when it's missing locally — the mechanism that lets a composition
+// map (id -> durable url) when it's missing locally: the mechanism that lets a composition
 // reopened from a stored recipe re-resolve sources that only ever lived in a since-dead
 // pod's cache. Returns null when the id is neither cached nor fetchable.
 async function ensureMedia(
@@ -496,7 +496,7 @@ async function resolveScene(
               message: `out (${clip.out}s) must be greater than in (${inSec}s)`,
             });
           }
-          if (clip.in !== undefined && clip.in > media.duration) {
+          if (clip.in !== undefined && clip.in >= media.duration) {
             findings.push({
               path: `${clipPath}.in`,
               severity: "error",
@@ -766,7 +766,7 @@ export function registerComposeTools(server: McpServer): void {
   registerTool(server, {
     name: "video_compose",
     title: "Render a composition (narrated video, synced by construction)",
-    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later — the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Requires CHATTERBOX_URL. ${LANGUAGE_RULES}`,
+    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later; the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Requires CHATTERBOX_URL. ${LANGUAGE_RULES}`,
     inputSchema: {
       composition: COMPOSITION.describe("The declarative composition to render."),
       metadata: metadataArg,
@@ -790,7 +790,7 @@ export function registerComposeTools(server: McpServer): void {
   });
 }
 
-// Trims a scene's video source to [in, out) before the scene builder ever sees it — the builder
+// Trims a scene's video source to [in, out) before the scene builder ever sees it: the builder
 // only controls how much of the (already-trimmed) source plays, not which part of the source it
 // is. Re-encoded, not stream-copied, so the cut lands exactly on the requested seconds instead of
 // the nearest keyframe.
@@ -897,9 +897,9 @@ function contentTypeFor(ext: string): string {
   return MEDIA_CONTENT_TYPES[ext.toLowerCase()] ?? "application/octet-stream";
 }
 
-// Every source media_id a resolved composition actually references — video/image sources by
+// Every source media_id a resolved composition actually references: video/image sources by
 // their original id (not a derived trim or math render), the music bed, and any voice clone
-// reference — the same ids that appear in the composition JSON stored as the recipe.
+// reference. These are the same ids that appear in the composition JSON stored as the recipe.
 function referencedMediaIds(resolved: ResolvedComposition): Set<string> {
   const ids = new Set<string>();
   for (const scene of resolved.scenes) {
@@ -913,22 +913,29 @@ function referencedMediaIds(resolved: ResolvedComposition): Set<string> {
 }
 
 // Uploads every source media the composition references to the bucket under a stable
-// `media/<id><ext>` key, so the sidecar recipe can carry a durable url for each one — the
+// `media/<id><ext>` key, so the sidecar recipe can carry a durable url for each one: the
 // pod-local cache that produced this render dies with the pod, but the recipe must keep
 // resolving. Uploads unconditionally: storage.save is an idempotent put by key, and there's
 // no cheap existence check that would make skipping a redundant one worthwhile.
+// Never throws: this runs after the expensive render, and a finished video must not be
+// discarded because an auxiliary source upload failed; ids that fail just miss the map.
 async function publishReferencedMedia(
   resolved: ResolvedComposition,
-): Promise<Record<string, string>> {
+): Promise<{ media: Record<string, string>; errors: string[] }> {
   const media: Record<string, string> = {};
+  const errors: string[] = [];
   for (const mediaId of referencedMediaIds(resolved)) {
-    const meta = await loadMeta(mediaId);
-    if (!meta) continue;
-    const buffer = await readFile(meta.path);
-    const ext = extname(meta.path) || extname(meta.filename);
-    media[mediaId] = await storage().save(buffer, `media/${mediaId}${ext}`, contentTypeFor(ext));
+    try {
+      const meta = await loadMeta(mediaId);
+      if (!meta) continue;
+      const buffer = await readFile(meta.path);
+      const ext = extname(meta.path) || extname(meta.filename);
+      media[mediaId] = await storage().save(buffer, `media/${mediaId}${ext}`, contentTypeFor(ext));
+    } catch (error) {
+      errors.push(`${mediaId}: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
-  return media;
+  return { media, errors };
 }
 
 async function renderComposition(
@@ -1012,11 +1019,18 @@ async function renderComposition(
       });
       footagePath = combined.path;
     }
+    // A short scene cannot host both fades at their requested length; cap each at half the
+    // scene so the fade-in always reaches full brightness before the fade-out starts.
+    const fadeCap = span / 2;
     sceneInputs.push({
       footagePath,
       duration: span,
-      ...(scene.transitionOutSec !== undefined ? { fadeOutSec: scene.transitionOutSec } : {}),
-      ...(prevTransitionOutSec !== undefined ? { fadeInSec: prevTransitionOutSec } : {}),
+      ...(scene.transitionOutSec !== undefined
+        ? { fadeOutSec: Math.min(scene.transitionOutSec, fadeCap) }
+        : {}),
+      ...(prevTransitionOutSec !== undefined
+        ? { fadeInSec: Math.min(prevTransitionOutSec, fadeCap) }
+        : {}),
     });
     prevTransitionOutSec = scene.transitionOutSec;
     sceneSpans.push({ span, voiceAbsStart: cursor + preSilence });
@@ -1094,10 +1108,10 @@ async function renderComposition(
   // reloadable via video_get_recipe for later (agent or human editor) tweaks + re-renders.
   // Its media map carries a durable url for every source this composition references, since
   // those sources only ever lived in this pod's local cache.
-  const referencedMedia = await publishReferencedMedia(resolved);
+  const referenced = await publishReferencedMedia(resolved);
   const saved = await saveRender(buffer, meta.filename, metadata, {
     tool: "video_compose",
-    args: { composition, media: referencedMedia },
+    args: { composition, media: referenced.media },
   });
 
   let absCursor = leadInSec;
@@ -1119,5 +1133,12 @@ async function renderComposition(
     scenes: timeline,
     project:
       "metadata_url holds this render's composition (recipe); fetch it to edit and re-render.",
+    ...(referenced.errors.length
+      ? {
+          media_publish_errors: referenced.errors,
+          media_publish_note:
+            "some source media could not be mirrored to the bucket; the video is fine, but re-rendering this project on another pod may need those sources re-downloaded",
+        }
+      : {}),
   };
 }

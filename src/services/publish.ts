@@ -6,6 +6,7 @@ export interface PublishMetadata {
   description?: string;
   tags?: string[];
   category?: string;
+  brief?: string;
 }
 
 // Args are creative inputs only (code/spec/media_ids/params), never credentials — safe to publish.
@@ -20,6 +21,7 @@ export interface SidecarBody {
   description?: string;
   tags?: string[];
   category?: string;
+  brief?: string;
   recipe?: RenderRecipe;
 }
 
@@ -63,6 +65,7 @@ export async function saveRender(
             description: metadata.description ?? "",
             tags: metadata.tags ?? [],
             ...(metadata.category ? { category: metadata.category } : {}),
+            ...(metadata.brief ? { brief: metadata.brief } : {}),
           }
         : {}),
       ...(recipe ? { recipe } : {}),
