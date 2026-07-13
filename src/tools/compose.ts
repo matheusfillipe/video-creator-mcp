@@ -13,6 +13,7 @@ import {
   groupIntoCues,
   offsetCues,
 } from "../services/captions.js";
+import { combineSceneVisuals } from "../services/edit.js";
 import { type NarratedScene, narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { renderMathShortCached } from "../services/manim.js";
@@ -169,6 +170,13 @@ const TRANSITION_OUT = z
   })
   .strict();
 
+const SCENE_LAYOUT = z
+  .enum(["single", "vstack", "hstack", "grid", "pip"])
+  .default("single")
+  .describe(
+    "How this scene's visual clips are arranged: single = one visual (default). vstack/hstack need exactly 2 (top/bottom or left/right). grid takes 2-4. pip needs exactly 2 (first = fullscreen base, second = corner inset).",
+  );
+
 const SCENE = z
   .object({
     type: z.literal("composition"),
@@ -177,6 +185,7 @@ const SCENE = z
       .union([z.literal("fit"), z.number().positive()])
       .default("fit")
       .describe('"fit" = as long as its voice; a number holds the scene that many seconds.'),
+    layout: SCENE_LAYOUT,
     defaults: DEFAULTS_FIELDS.optional().describe("Style defaults for this scene's clips."),
     tracks: z.array(SCENE_TRACK).min(1).describe("Parallel layers inside the scene."),
     transition_out: TRANSITION_OUT.optional().describe(
@@ -219,6 +228,7 @@ const COMPOSITION = z
 
 type Composition = z.infer<typeof COMPOSITION>;
 type SceneClip = z.infer<typeof SCENE>;
+type SceneLayout = z.infer<typeof SCENE_LAYOUT>;
 type MathGraphic = z.infer<typeof GRAPHIC_CLIP>;
 type CaptionSpec = z.infer<typeof CAPTION_STYLE_FIELDS>;
 type VoiceSpec = z.infer<typeof VOICE_FIELDS>;
@@ -239,12 +249,24 @@ interface ResolvedVoice {
   referenceId?: string;
 }
 
+type ResolvedVisual =
+  | { kind: "video"; mediaId: string; in?: number; out?: number }
+  | { kind: "math"; math: MathGraphic };
+
+// Minimum/maximum visual clip count each layout accepts; "single" is checked separately so its
+// finding message stays exactly what it was before layouts existed.
+const LAYOUT_VISUAL_COUNTS: Record<Exclude<SceneLayout, "single">, { min: number; max: number }> = {
+  vstack: { min: 2, max: 2 },
+  hstack: { min: 2, max: 2 },
+  pip: { min: 2, max: 2 },
+  grid: { min: 2, max: 4 },
+};
+
 interface ResolvedScene {
   index: number;
   id: string;
-  visual:
-    | { kind: "video"; mediaId: string; in?: number; out?: number }
-    | { kind: "math"; math: MathGraphic };
+  layout: SceneLayout;
+  visuals: ResolvedVisual[];
   voice?: ResolvedVoice;
   caption?: { offset: number; style: CueStyle };
   explicitDuration?: number;
@@ -425,7 +447,7 @@ async function resolveScene(
   path: string,
   findings: Finding[],
 ): Promise<ResolvedScene> {
-  const visuals: { path: string; clip: ResolvedScene["visual"] }[] = [];
+  const visuals: { path: string; clip: ResolvedVisual }[] = [];
   const voices: { path: string; clip: z.infer<typeof VOICE_CLIP> }[] = [];
   const captions: { path: string; clip: z.infer<typeof CAPTION_CLIP> }[] = [];
 
@@ -488,13 +510,26 @@ async function resolveScene(
     }
   }
 
-  if (visuals.length !== 1) {
-    findings.push({
-      path,
-      severity: "error",
-      message: `a scene needs exactly one visual clip (video or graphic), got ${visuals.length}`,
-      hint: "one visual per scene; make another scene for the next visual",
-    });
+  if (scene.layout === "single") {
+    if (visuals.length !== 1) {
+      findings.push({
+        path,
+        severity: "error",
+        message: `a scene needs exactly one visual clip (video or graphic), got ${visuals.length}`,
+        hint: "one visual per scene; make another scene for the next visual",
+      });
+    }
+  } else {
+    const need = LAYOUT_VISUAL_COUNTS[scene.layout];
+    if (visuals.length < need.min || visuals.length > need.max) {
+      const expected = need.min === need.max ? `exactly ${need.min}` : `${need.min}-${need.max}`;
+      findings.push({
+        path,
+        severity: "error",
+        message: `layout "${scene.layout}" needs ${expected} visual clips (video or graphic), got ${visuals.length}`,
+        hint: "add or remove visual clips (video/graphic) on this scene's tracks to match the layout",
+      });
+    }
   }
   if (voices.length > 1) {
     findings.push({
@@ -582,11 +617,11 @@ async function resolveScene(
     });
   }
 
-  const fallbackVisual: ResolvedScene["visual"] = { kind: "video", mediaId: "" };
   return {
     index,
     id: scene.id ?? `scene${index + 1}`,
-    visual: visuals.at(0)?.clip ?? fallbackVisual,
+    layout: scene.layout,
+    visuals: visuals.map((v) => v.clip),
     voice,
     caption,
     explicitDuration,
@@ -596,12 +631,17 @@ async function resolveScene(
 
 interface PlanScene {
   id: string;
+  layout: SceneLayout;
   visual: string;
   line: string | null;
   voice_start: number;
   est_start: number;
   est_end: number;
   captions: (Omit<Required<CaptionSpec>, never> & { offset: number }) | null;
+}
+
+function visualLabel(visual: ResolvedVisual): string {
+  return visual.kind === "video" ? `video:${visual.mediaId}` : "graphic:math";
 }
 
 // The dry-run view both tools share: absolute estimated timeline + effective styles.
@@ -624,9 +664,16 @@ function planView(resolved: ResolvedComposition, comp: Composition) {
         offset: scene.caption.offset,
       };
     }
+    const visual =
+      scene.visuals.length === 0
+        ? "none"
+        : scene.visuals.length === 1
+          ? visualLabel(scene.visuals[0] as ResolvedVisual)
+          : `${scene.visuals.length} visuals: ${scene.visuals.map(visualLabel).join(" + ")}`;
     return {
       id: scene.id,
-      visual: scene.visual.kind === "video" ? `video:${scene.visual.mediaId}` : "graphic:math",
+      layout: scene.layout,
+      visual,
       line: scene.voice?.text ?? null,
       voice_start: scene.voice?.start ?? 0,
       est_start: Number(start.toFixed(2)),
@@ -674,7 +721,7 @@ const PRESET = `{
   ]
 }`;
 
-const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. Fill this preset:
+const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) combines multiple visual clips into one view: vstack/hstack/pip need exactly 2 visual clips, grid takes 2-4. Fill this preset:
 ${PRESET}`;
 
 export function registerComposeTools(server: McpServer): void {
@@ -760,6 +807,49 @@ async function trimVideoSource(
   }
 }
 
+// Resolve one visual clip to a local file path: a math graphic is rendered (or fetched from
+// cache) to `onScreen` seconds so a scene-0 lead-in never forces a restart-loop of the reveal
+// animation; a video clip is the source media, trimmed to its in/out first if given.
+async function resolveVisualPath(
+  visual: ResolvedVisual,
+  resolution: z.infer<typeof RESOLUTION>,
+  onScreen: number,
+): Promise<string> {
+  if (visual.kind === "math") {
+    const math = visual.math;
+    const mathIdSeed = `compose-math:${resolution}:${onScreen.toFixed(2)}:${JSON.stringify(math)}`;
+    const cachedMath = await renderMathShortCached({
+      idSeed: mathIdSeed,
+      sourceUrl: "math://compose-scene",
+      spec: {
+        title: math.title ?? "",
+        scenes: [
+          {
+            latex: math.latex,
+            ...(math.plot_expr ? { plot_expr: math.plot_expr } : {}),
+            ...(math.x_range ? { x_range: math.x_range } : {}),
+            ...(math.y_range ? { y_range: math.y_range } : {}),
+            duration: onScreen + 1,
+          },
+        ],
+        resolution,
+        quick_reveal: true,
+        ...(math.accent_color ? { accent_color: math.accent_color } : {}),
+      },
+    });
+    return cachedMath.path;
+  }
+  const footage = await loadMeta(visual.mediaId);
+  if (!footage) {
+    throw new Error(
+      `scene footage not found: ${visual.mediaId} — download it with video_download_media first.`,
+    );
+  }
+  return visual.in !== undefined || visual.out !== undefined
+    ? await trimVideoSource(footage.path, footage.media_id, visual.in ?? 0, visual.out)
+    : footage.path;
+}
+
 async function renderComposition(
   resolved: ResolvedComposition,
   composition: Composition,
@@ -817,47 +907,29 @@ async function renderComposition(
     if (voiceWav) segments.push(voiceWav);
     if (postSilence > 0.03) segments.push(await silenceWav(postSilence));
 
+    // A scene-0 lead-in is baked into onScreen so a math visual's own render already covers it
+    // (see resolveVisualPath); other scenes only need to cover their own span.
+    const onScreen = span + (scene.index === 0 ? leadInSec : 0);
+    const visualPaths: string[] = [];
+    for (const visual of scene.visuals) {
+      visualPaths.push(await resolveVisualPath(visual, resolved.resolution, onScreen));
+    }
+
     let footagePath: string;
-    if (scene.visual.kind === "math") {
-      const math = scene.visual.math;
-      const onScreen = span + (scene.index === 0 ? leadInSec : 0);
-      const mathIdSeed = `compose-math:${resolved.resolution}:${onScreen.toFixed(2)}:${JSON.stringify(math)}`;
-      const cachedMath = await renderMathShortCached({
-        idSeed: mathIdSeed,
-        sourceUrl: "math://compose-scene",
-        spec: {
-          title: math.title ?? "",
-          scenes: [
-            {
-              latex: math.latex,
-              ...(math.plot_expr ? { plot_expr: math.plot_expr } : {}),
-              ...(math.x_range ? { x_range: math.x_range } : {}),
-              ...(math.y_range ? { y_range: math.y_range } : {}),
-              duration: onScreen + 1,
-            },
-          ],
-          resolution: resolved.resolution,
-          quick_reveal: true,
-          ...(math.accent_color ? { accent_color: math.accent_color } : {}),
-        },
-      });
-      footagePath = cachedMath.path;
+    if (scene.layout === "single") {
+      footagePath = visualPaths[0] as string;
     } else {
-      const footage = await loadMeta(scene.visual.mediaId);
-      if (!footage) {
-        throw new Error(
-          `scene footage not found: ${scene.visual.mediaId} — download it with video_download_media first.`,
-        );
-      }
-      footagePath =
-        scene.visual.in !== undefined || scene.visual.out !== undefined
-          ? await trimVideoSource(
-              footage.path,
-              footage.media_id,
-              scene.visual.in ?? 0,
-              scene.visual.out,
-            )
-          : footage.path;
+      const layoutIdSeed = `compose-layout:${scene.layout}:${w}x${h}:${onScreen.toFixed(2)}:${visualPaths.join("|")}`;
+      const combined = await combineSceneVisuals({
+        layout: scene.layout,
+        visuals: visualPaths,
+        durationSec: onScreen,
+        width: w,
+        height: h,
+        fps,
+        idSeed: layoutIdSeed,
+      });
+      footagePath = combined.path;
     }
     sceneInputs.push({
       footagePath,

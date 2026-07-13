@@ -3,6 +3,7 @@ import {
   type EditSpec,
   atempoChain,
   cellDims,
+  gridRowCellDims,
   segmentDuration,
   textFilters,
   validateSpec,
@@ -38,6 +39,21 @@ describe("cellDims", () => {
 
   it("gives grid four quarter cells", () => {
     expect(cellDims("grid", { width: 1920, height: 1080 })).toHaveLength(4);
+  });
+});
+
+describe("gridRowCellDims", () => {
+  it("splits a 2-visual grid into a full-height row of two", () => {
+    expect(gridRowCellDims(2, { width: 1920, height: 1080 })).toEqual([
+      { width: 960, height: 1080 },
+      { width: 960, height: 1080 },
+    ]);
+  });
+
+  it("rounds odd row-cell widths down to even (encoder requirement)", () => {
+    for (const cell of gridRowCellDims(3, { width: 1081, height: 1080 })) {
+      expect(cell.width % 2).toBe(0);
+    }
   });
 });
 

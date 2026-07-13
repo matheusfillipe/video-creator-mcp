@@ -12,10 +12,13 @@ import {
   validateColor,
 } from "../lib/ffmpeg.js";
 import type { Resolution } from "../types.js";
-import { loadMeta } from "./media.js";
+import { getCached, loadMeta, mediaIdFor, writeMediaFromBuffer } from "./media.js";
 import { dimsFor } from "./timeline.js";
 
 const MAX_SEGMENTS_PER_GROUP = 24;
+// A still image has no extension of its own; the layout combiner tells video from image sources
+// by filename the same way narratedScenes does, since both loop/hold a source to a target length.
+const IMAGE_RE = /\.(jpg|jpeg|png|webp)$/i;
 
 export type EditLayout = "single" | "vstack" | "hstack" | "pip" | "grid";
 
@@ -285,6 +288,127 @@ function layoutFilter(layout: EditLayout, groupCount: number): string {
       return "[0:v][1:v]hstack=inputs=2:shortest=1[top];[2:v][3:v]hstack=inputs=2:shortest=1[bottom];[top][bottom]vstack=inputs=2:shortest=1[vout]";
     default:
       throw new Error(`layout ${layout} with ${groupCount} groups needs no combine`);
+  }
+}
+
+// cellDims/layoutFilter's "grid" case is fixed at 2x2 (4 cells); 2 or 3 visuals lay out as one
+// row instead, generalizing the same hstack primitive the "hstack" layout already uses for 2.
+export function gridRowCellDims(
+  n: number,
+  canvas: { width: number; height: number },
+): Array<{ width: number; height: number }> {
+  const even = (x: number) => Math.floor(x / 2) * 2;
+  const cellWidth = even(canvas.width / n);
+  return Array(n).fill({ width: cellWidth, height: canvas.height });
+}
+
+function gridRowFilter(n: number): string {
+  const labels = Array.from({ length: n }, (_, i) => `[${i}:v]`).join("");
+  return `${labels}hstack=inputs=${n}:shortest=1[vout]`;
+}
+
+// Loops (video) or holds (still image) a resolved visual to cover `durationSec`, cover-cropped
+// into its layout cell: the per-visual equivalent of how narratedScenes covers a whole scene.
+async function normalizeSceneVisual(
+  path: string,
+  cell: { width: number; height: number },
+  fps: number,
+  durationSec: number,
+  outPath: string,
+): Promise<void> {
+  const inputArgs = IMAGE_RE.test(path)
+    ? ["-loop", "1", "-i", path, "-t", durationSec.toFixed(3)]
+    : ["-stream_loop", "-1", "-i", path, "-t", durationSec.toFixed(3)];
+  await run(
+    "ffmpeg",
+    [
+      "-nostdin",
+      "-y",
+      ...inputArgs,
+      "-vf",
+      [coverFilter(cell.width, cell.height), `fps=${fps}`, "format=yuv420p"].join(","),
+      "-an",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+      outPath,
+    ],
+    { timeoutMs: 300_000 },
+  );
+}
+
+export type MultiVisualLayout = "vstack" | "hstack" | "pip" | "grid";
+
+// Combine 2-4 already-resolved visual clips (video or still-image files) into ONE silent clip laid
+// out per `layout`: each source is looped/held to cover `durationSec` and cover-cropped into its
+// cell, then stacked/overlaid with the same filters the video_edit layout combine uses. Used by
+// video_compose's multi-visual scene layouts, where the scene's own visuals are already resolved
+// to local file paths (trim/math-cache included) before this is called. Cached like any other
+// derived render: same inputs -> same idSeed -> same media_id, so a re-submit is a cache hit.
+export async function combineSceneVisuals(params: {
+  layout: MultiVisualLayout;
+  visuals: string[];
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  idSeed: string;
+}): Promise<{ path: string }> {
+  const cached = await getCached(mediaIdFor(params.idSeed));
+  if (cached) return { path: cached.path };
+
+  const n = params.visuals.length;
+  const canvas = { width: params.width, height: params.height };
+  const rowGrid = params.layout === "grid" && n !== 4;
+  const cells = rowGrid ? gridRowCellDims(n, canvas) : cellDims(params.layout, canvas);
+  const filter = rowGrid ? gridRowFilter(n) : layoutFilter(params.layout, n);
+
+  const jobId = randomUUID().slice(0, 8);
+  const dir = join(config.workDir, `compose-layout-${jobId}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const parts: string[] = [];
+    for (const [i, visualPath] of params.visuals.entries()) {
+      const cell = cells[i] as { width: number; height: number };
+      const partPath = join(dir, `v${i}.mp4`);
+      await normalizeSceneVisual(visualPath, cell, params.fps, params.durationSec, partPath);
+      parts.push(partPath);
+    }
+    const combined = join(dir, "combined.mp4");
+    const inputs = parts.flatMap((p) => ["-i", p]);
+    await run(
+      "ffmpeg",
+      [
+        "-nostdin",
+        "-y",
+        ...inputs,
+        "-filter_complex",
+        filter,
+        "-map",
+        "[vout]",
+        "-an",
+        "-r",
+        String(params.fps),
+        ...X264_ARGS,
+        "-movflags",
+        "+faststart",
+        combined,
+      ],
+      { timeoutMs: 600_000 },
+    );
+    const buffer = await readFile(combined);
+    const meta = await writeMediaFromBuffer({
+      idSeed: params.idSeed,
+      buffer,
+      ext: ".mp4",
+      sourceUrl: `compose-layout://${params.layout}`,
+    });
+    return { path: meta.path };
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
   }
 }
 
