@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 34 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 36 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -75,6 +75,15 @@ List/search the Hyperframes catalog of prebuilt blocks and components (terminals
 | `query` | string | no |  | Case-insensitive filter over name/title/description/tags. |
 | `type` | `"block"` \| `"component"` | no |  | Filter by item type. |
 | `tag` | string | no |  | Filter by catalog tag, e.g. 'data', 'captions', 'map'. |
+
+## `video_compose`
+
+Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later). Requires CHATTERBOX_URL. The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. Fill this preset: {   "version": 1,   "output": { "resolution": "landscape" },   "defaults": { "caption": { "mode": "karaoke", "color": "yellow" } },   "tracks": [     { "clips": [       { "type": "composition", "id": "scene1", "duration": "fit", "tracks": [         { "clips": [ { "type": "video", "media_id": "<footage1>" } ] },         { "clips": [ { "type": "voice", "text": "First beat of the story.", "start": 1 } ] },         { "clips": [ { "type": "caption" } ] }       ]},       { "type": "composition", "id": "scene2", "duration": "fit", "tracks": [         { "clips": [ { "type": "video", "media_id": "<footage2>" } ] },         { "clips": [ { "type": "voice", "text": "Second beat." } ] },         { "clips": [ { "type": "caption", "style": { "color": "red" } } ] }       ]}     ]},     { "clips": [ { "type": "audio", "media_id": "<music>", "volume": 0.25 } ] }   ] }
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `composition` | object | yes |  | The declarative composition to render. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_download_media`
 
@@ -199,6 +208,14 @@ THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage
 | `tail_sec` | number | no | `0.6` | Seconds the last scene (and music) hold after the final word, so the video breathes out instead of hard-cutting. |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"landscape"` | Output resolution/orientation. Default landscape (16:9); use a portrait/vertical value ONLY for a short/reel/TikTok/story. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
+
+## `video_plan`
+
+ALWAYS call this before video_compose. Resolves and validates a composition WITHOUT rendering (instant, free): returns the estimated absolute timeline (each scene's start/end, effective caption style) plus findings [{path, severity, message, hint}]. Fix every error finding, re-plan until valid, then call video_compose ONCE with the same composition. The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. Fill this preset: {   "version": 1,   "output": { "resolution": "landscape" },   "defaults": { "caption": { "mode": "karaoke", "color": "yellow" } },   "tracks": [     { "clips": [       { "type": "composition", "id": "scene1", "duration": "fit", "tracks": [         { "clips": [ { "type": "video", "media_id": "<footage1>" } ] },         { "clips": [ { "type": "voice", "text": "First beat of the story.", "start": 1 } ] },         { "clips": [ { "type": "caption" } ] }       ]},       { "type": "composition", "id": "scene2", "duration": "fit", "tracks": [         { "clips": [ { "type": "video", "media_id": "<footage2>" } ] },         { "clips": [ { "type": "voice", "text": "Second beat." } ] },         { "clips": [ { "type": "caption", "style": { "color": "red" } } ] }       ]}     ]},     { "clips": [ { "type": "audio", "media_id": "<music>", "volume": 0.25 } ] }   ] }
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `composition` | object | yes |  | The declarative composition to validate. |
 
 ## `video_preview_frame`
 
