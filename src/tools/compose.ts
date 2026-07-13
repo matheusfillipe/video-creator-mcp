@@ -784,18 +784,20 @@ async function renderComposition(
           maxChars: 2 * charsPerLine(w, fontSize),
           maxWords: 14,
         });
-        // A negative offset can push a short opening cue past zero; clamp both bounds so the
-        // interval stays valid (an inverted [start,end] never draws at all).
         for (const cue of offsetCues(cues, scene.caption.offset)) {
-          const start = Math.max(0, cue.start);
-          captions.push({ ...cue, start, end: Math.max(start + 0.3, cue.end), style });
+          captions.push({ ...cue, style });
         }
       }
     } finally {
       await rm(alignDir, { recursive: true, force: true });
     }
   }
-  const placedCues = offsetCues(captions, leadInSec);
+  // Clamp only after the cues sit on the final timeline: a negative caption offset may
+  // legitimately reach into the lead-in, but an inverted [start,end] never draws at all.
+  const placedCues = offsetCues(captions, leadInSec).map((cue) => {
+    const start = Math.max(0, cue.start);
+    return { ...cue, start, end: Math.max(start + 0.3, cue.end) };
+  });
 
   let music: { path: string; volume: number } | undefined;
   if (musicRef) {
