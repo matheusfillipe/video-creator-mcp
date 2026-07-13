@@ -1,8 +1,9 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { run } from "../lib/exec.js";
 import { charsPerLine, validateColor } from "../lib/ffmpeg.js";
 import { alignWords } from "../services/align.js";
 import {
@@ -12,7 +13,7 @@ import {
   groupIntoCues,
   offsetCues,
 } from "../services/captions.js";
-import { narratedScenes } from "../services/effects.js";
+import { type NarratedScene, narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { renderMathShort } from "../services/manim.js";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
@@ -82,6 +83,14 @@ const VIDEO_CLIP = z
       .string()
       .min(1)
       .describe("Footage/image from video_download_media, fitted to the scene length."),
+    in: z
+      .number()
+      .min(0)
+      .optional()
+      .describe(
+        "Seconds into the source to start playing from — a source trim, independent of the scene's own duration.",
+      ),
+    out: z.number().positive().optional().describe("Seconds into the source to stop playing at."),
   })
   .strict();
 
@@ -150,6 +159,16 @@ const SCENE_TRACK = z
   })
   .strict();
 
+// Duration-preserving: a crossfade would eat overlap time from both scenes and break narration
+// sync, so this fades the outgoing scene to black and fades the next one in from black instead —
+// no scene's length changes.
+const TRANSITION_OUT = z
+  .object({
+    kind: z.literal("fade"),
+    sec: z.number().min(0.1).max(1.5).default(0.4),
+  })
+  .strict();
+
 const SCENE = z
   .object({
     type: z.literal("composition"),
@@ -160,6 +179,9 @@ const SCENE = z
       .describe('"fit" = as long as its voice; a number holds the scene that many seconds.'),
     defaults: DEFAULTS_FIELDS.optional().describe("Style defaults for this scene's clips."),
     tracks: z.array(SCENE_TRACK).min(1).describe("Parallel layers inside the scene."),
+    transition_out: TRANSITION_OUT.optional().describe(
+      "Fade this scene to black at its end and fade the next scene in from black at its start; does not change either scene's duration.",
+    ),
   })
   .strict();
 
@@ -220,10 +242,13 @@ interface ResolvedVoice {
 interface ResolvedScene {
   index: number;
   id: string;
-  visual: { kind: "video"; mediaId: string } | { kind: "math"; math: MathGraphic };
+  visual:
+    | { kind: "video"; mediaId: string; in?: number; out?: number }
+    | { kind: "math"; math: MathGraphic };
   voice?: ResolvedVoice;
   caption?: { offset: number; style: CueStyle };
   explicitDuration?: number;
+  transitionOutSec?: number;
 }
 
 interface ResolvedComposition {
@@ -408,15 +433,44 @@ async function resolveScene(
     for (const [ci, clip] of track.clips.entries()) {
       const clipPath = `${path}.tracks[${ti}].clips[${ci}]`;
       if (clip.type === "video") {
-        if (!(await mediaExists(clip.media_id))) {
+        const media = await loadMeta(clip.media_id);
+        if (!media) {
           findings.push({
             path: `${clipPath}.media_id`,
             severity: "error",
             message: `media_id "${clip.media_id}" not found`,
             hint: "download it with video_download_media first",
           });
+        } else {
+          const inSec = clip.in ?? 0;
+          if (clip.out !== undefined && clip.out <= inSec) {
+            findings.push({
+              path: `${clipPath}.out`,
+              severity: "error",
+              message: `out (${clip.out}s) must be greater than in (${inSec}s)`,
+            });
+          }
+          if (clip.in !== undefined && clip.in > media.duration) {
+            findings.push({
+              path: `${clipPath}.in`,
+              severity: "error",
+              message: `in (${clip.in}s) is beyond the source's length`,
+              hint: `source "${clip.media_id}" is ${media.duration.toFixed(2)}s long`,
+            });
+          }
+          if (clip.out !== undefined && clip.out > media.duration) {
+            findings.push({
+              path: `${clipPath}.out`,
+              severity: "error",
+              message: `out (${clip.out}s) is beyond the source's length`,
+              hint: `source "${clip.media_id}" is ${media.duration.toFixed(2)}s long`,
+            });
+          }
         }
-        visuals.push({ path: clipPath, clip: { kind: "video", mediaId: clip.media_id } });
+        visuals.push({
+          path: clipPath,
+          clip: { kind: "video", mediaId: clip.media_id, in: clip.in, out: clip.out },
+        });
       } else if (clip.type === "graphic") {
         if (clip.accent_color && !validateColor(clip.accent_color)) {
           findings.push({
@@ -536,6 +590,7 @@ async function resolveScene(
     voice,
     caption,
     explicitDuration,
+    transitionOutSec: scene.transition_out?.sec,
   };
 }
 
@@ -619,7 +674,7 @@ const PRESET = `{
   ]
 }`;
 
-const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. Fill this preset:
+const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. Fill this preset:
 ${PRESET}`;
 
 export function registerComposeTools(server: McpServer): void {
@@ -664,6 +719,47 @@ export function registerComposeTools(server: McpServer): void {
   });
 }
 
+// Trims a scene's video source to [in, out) before the scene builder ever sees it — the builder
+// only controls how much of the (already-trimmed) source plays, not which part of the source it
+// is. Re-encoded, not stream-copied, so the cut lands exactly on the requested seconds instead of
+// the nearest keyframe.
+async function trimVideoSource(
+  sourcePath: string,
+  mediaId: string,
+  inSec: number,
+  outSec: number | undefined,
+): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), "vcm-trim-"));
+  try {
+    const outFile = join(dir, "trim.mp4");
+    const args = ["-nostdin", "-y", "-ss", String(inSec)];
+    if (outSec !== undefined) args.push("-to", String(outSec));
+    args.push(
+      "-i",
+      sourcePath,
+      "-an",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "veryfast",
+      "-pix_fmt",
+      "yuv420p",
+      outFile,
+    );
+    await run("ffmpeg", args, { timeoutMs: 300_000 });
+    const buffer = await readFile(outFile);
+    const trimmed = await writeMediaFromBuffer({
+      idSeed: `compose-trim:${mediaId}:${inSec}:${outSec ?? "end"}`,
+      buffer,
+      ext: ".mp4",
+      sourceUrl: `trim://${mediaId}`,
+    });
+    return trimmed.path;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 async function renderComposition(
   resolved: ResolvedComposition,
   composition: Composition,
@@ -683,9 +779,10 @@ async function renderComposition(
   };
 
   const segments: Buffer[] = [];
-  const sceneInputs: { footagePath: string; duration: number }[] = [];
+  const sceneInputs: NarratedScene[] = [];
   const sceneSpans: { span: number; voiceAbsStart: number }[] = [];
   let cursor = 0;
+  let prevTransitionOutSec: number | undefined;
 
   for (const scene of resolved.scenes) {
     // Scene 0's voice delay is the whole video's lead-in (the engine delays the narration
@@ -748,9 +845,23 @@ async function renderComposition(
           `scene footage not found: ${scene.visual.mediaId} — download it with video_download_media first.`,
         );
       }
-      footagePath = footage.path;
+      footagePath =
+        scene.visual.in !== undefined || scene.visual.out !== undefined
+          ? await trimVideoSource(
+              footage.path,
+              footage.media_id,
+              scene.visual.in ?? 0,
+              scene.visual.out,
+            )
+          : footage.path;
     }
-    sceneInputs.push({ footagePath, duration: span });
+    sceneInputs.push({
+      footagePath,
+      duration: span,
+      ...(scene.transitionOutSec !== undefined ? { fadeOutSec: scene.transitionOutSec } : {}),
+      ...(prevTransitionOutSec !== undefined ? { fadeInSec: prevTransitionOutSec } : {}),
+    });
+    prevTransitionOutSec = scene.transitionOutSec;
     sceneSpans.push({ span, voiceAbsStart: cursor + preSilence });
     cursor += span;
   }

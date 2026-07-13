@@ -302,6 +302,11 @@ export async function narrateOverMusic(params: {
 export interface NarratedScene {
   footagePath: string;
   duration: number;
+  // Fade this scene's own clip in/out (to/from black), independent of duration: a scene
+  // transition, not a crossfade, so no time is borrowed from either scene and narration sync
+  // is unaffected.
+  fadeInSec?: number;
+  fadeOutSec?: number;
 }
 
 // Build a narrated montage that stays in sync BY CONSTRUCTION: each scene's footage is cut to the
@@ -336,19 +341,27 @@ export async function narratedScenes(params: {
         (i === 0 ? scene.duration + params.leadInSec : scene.duration) +
         (i === lastIndex ? tailSec : 0);
       const out = join(dir, `scene${i}.mp4`);
+      // -stream_loop repeats a real video source to cover clipDur; a still image has nothing to
+      // loop and needs the image demuxer's own -loop instead.
+      const inputArgs = IMAGE_RE.test(scene.footagePath)
+        ? ["-loop", "1", "-i", scene.footagePath, "-t", clipDur.toFixed(3)]
+        : ["-stream_loop", "-1", "-i", scene.footagePath, "-t", clipDur.toFixed(3)];
+      const fadeFilters: string[] = [];
+      if (scene.fadeInSec !== undefined) {
+        fadeFilters.push(`fade=t=in:st=0:d=${scene.fadeInSec.toFixed(3)}`);
+      }
+      if (scene.fadeOutSec !== undefined) {
+        const fadeStart = Math.max(0, clipDur - scene.fadeOutSec);
+        fadeFilters.push(`fade=t=out:st=${fadeStart.toFixed(3)}:d=${scene.fadeOutSec.toFixed(3)}`);
+      }
       await run(
         "ffmpeg",
         [
           "-nostdin",
           "-y",
-          "-stream_loop",
-          "-1",
-          "-i",
-          scene.footagePath,
-          "-t",
-          clipDur.toFixed(3),
+          ...inputArgs,
           "-vf",
-          `${coverFilter(w, h)},fps=${fps}`,
+          [coverFilter(w, h), `fps=${fps}`, ...fadeFilters].join(","),
           "-an",
           "-c:v",
           "libx264",
@@ -450,7 +463,7 @@ export async function narratedScenes(params: {
 
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${tailSec}:${params.music?.volume ?? "none"}:${params.captionMode ?? "block"}:${JSON.stringify(params.captionStyle ?? {})}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}`).join(",")}:${(params.captions ?? []).map((c) => `${c.start.toFixed(2)}-${c.end.toFixed(2)}:${c.text}:${c.style ? JSON.stringify(c.style) : ""}`).join("|")}`,
+      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${tailSec}:${params.music?.volume ?? "none"}:${params.captionMode ?? "block"}:${JSON.stringify(params.captionStyle ?? {})}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}:${s.fadeInSec ?? ""}:${s.fadeOutSec ?? ""}`).join(",")}:${(params.captions ?? []).map((c) => `${c.start.toFixed(2)}-${c.end.toFixed(2)}:${c.text}:${c.style ? JSON.stringify(c.style) : ""}`).join("|")}`,
       buffer,
       ext: ".mp4",
       sourceUrl: "scenes://narrated",
