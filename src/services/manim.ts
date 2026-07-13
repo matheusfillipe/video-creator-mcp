@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { ExecError, run } from "../lib/exec.js";
 import { validateColor } from "../lib/ffmpeg.js";
 import type { Resolution } from "../types.js";
+import { getCached, mediaIdFor, writeMediaFromBuffer } from "./media.js";
 import { dimsFor } from "./timeline.js";
 
 // The plot expression is interpolated into generated Python, so it must be provably
@@ -249,4 +250,24 @@ export async function renderMathShort(spec: MathShortSpec): Promise<ManimRenderO
     }
   }
   return renderManimScene(mathShortScene(spec), "MathShort");
+}
+
+// A math short is a deterministic function of its spec, so a narrated/composed scene that
+// re-requests the same formula (e.g. a re-render after tweaking an unrelated scene) hits the
+// media cache instead of paying for another manim render.
+export async function renderMathShortCached(params: {
+  idSeed: string;
+  sourceUrl: string;
+  spec: MathShortSpec;
+}): Promise<{ path: string }> {
+  const cached = await getCached(mediaIdFor(params.idSeed));
+  if (cached) return { path: cached.path };
+  const { buffer } = await renderMathShort(params.spec);
+  const meta = await writeMediaFromBuffer({
+    idSeed: params.idSeed,
+    buffer,
+    ext: ".mp4",
+    sourceUrl: params.sourceUrl,
+  });
+  return { path: meta.path };
 }

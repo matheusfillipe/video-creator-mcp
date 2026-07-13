@@ -2,7 +2,8 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { run } from "../lib/exec.js";
-import { loadMeta } from "./media.js";
+import type { MediaMeta } from "../types.js";
+import { getCached, loadMeta, mediaIdFor, writeMediaFromBuffer } from "./media.js";
 import { synthesizeChatterbox } from "./tts.js";
 
 const MIN_VOICE_REFERENCE_SEC = 2;
@@ -127,6 +128,29 @@ export async function synthesizeSpeech(params: SpeechParams): Promise<Buffer> {
     parts.push(await synthesizeChatterbox({ ...params, text: chunk }));
   }
   return concatWavs(parts);
+}
+
+// voiceLabel identifies the voice without embedding its audio: "default", or a cloned
+// reference's media_id. Every caller (video_tts, narrated scenes, composed scenes) derives
+// the same idSeed shape from it, so the same line spoken the same way hits one shared cache
+// entry instead of re-running the slow, serialized Chatterbox synthesis.
+export async function synthesizeSpeechCached(
+  params: SpeechParams,
+  voiceLabel: string,
+): Promise<{ buffer: Buffer; meta: MediaMeta; cached: boolean }> {
+  const idSeed = `tts:${voiceLabel}:${params.exaggeration}:${params.cfgWeight}:${params.temperature}:${params.text}`;
+  const cached = await getCached(mediaIdFor(idSeed));
+  if (cached) {
+    return { buffer: await readFile(cached.path), meta: cached, cached: true };
+  }
+  const buffer = await synthesizeSpeech(params);
+  const meta = await writeMediaFromBuffer({
+    idSeed,
+    buffer,
+    ext: ".wav",
+    sourceUrl: `tts://chatterbox/${voiceLabel}`,
+  });
+  return { buffer, meta, cached: false };
 }
 
 // Length of a PCM WAV buffer without shelling out: the "data" subchunk size over the byte rate.

@@ -8,14 +8,14 @@ import { alignWords } from "../services/align.js";
 import { type Cue, fontScaleFor, groupIntoCues, offsetCues } from "../services/captions.js";
 import { narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
-import { renderMathShort } from "../services/manim.js";
-import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
+import { renderMathShortCached } from "../services/manim.js";
+import { loadMeta } from "../services/media.js";
 import {
   TTS_WORDS_PER_SEC,
   concatWavs,
   countWords,
   extractCloneClip,
-  synthesizeSpeech,
+  synthesizeSpeechCached,
   wavDurationSec,
 } from "../services/narration.js";
 import { metadataSidecarName, saveRender } from "../services/publish.js";
@@ -43,7 +43,7 @@ export function registerAudioTools(server: McpServer): void {
     name: "video_tts",
     title: "Text to Speech (acting voice)",
     description:
-      "Generate an expressive narration/voice clip with Chatterbox. Handles long text (a whole paragraph): it splits into chunks and stitches them in one voice. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime, serialized. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip, including a downloaded video/YouTube clip; its audio is extracted automatically). ASYNCHRONOUS: returns a job_id, poll video_render_status until state is 'done', then read result.url (a downloadable wav), result.duration_sec, and result.media_id. Usable standalone or as a pre-step before a video. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL). To narrate a video: video_tts (take result.media_id) → video_add_audio(media_id:<video>, audio_media_id:<that>, mode:'replace').",
+      "Generate an expressive narration/voice clip with Chatterbox. Handles long text (a whole paragraph): it splits into chunks and stitches them in one voice. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime, serialized. Repeat calls with identical text, voice and acting settings are served from cache instantly. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip, including a downloaded video/YouTube clip; its audio is extracted automatically). ASYNCHRONOUS: returns a job_id, poll video_render_status until state is 'done', then read result.url (a downloadable wav), result.duration_sec, and result.media_id. Usable standalone or as a pre-step before a video. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL). To narrate a video: video_tts (take result.media_id) → video_add_audio(media_id:<video>, audio_media_id:<that>, mode:'replace').",
     inputSchema: {
       text: z
         .string()
@@ -90,20 +90,10 @@ export function registerAudioTools(server: McpServer): void {
       // so it runs as a background job like the video renders. Voice-reference validation above
       // stays synchronous so bad input still fails fast.
       const jobId = submitJob("tts", async () => {
-        const buffer = await synthesizeSpeech({
-          text,
-          exaggeration,
-          cfgWeight: cfg_weight,
-          temperature,
-          voiceFile,
-        });
-
-        const meta = await writeMediaFromBuffer({
-          idSeed: `tts:${voiceLabel}:${exaggeration}:${cfg_weight}:${temperature}:${text}`,
-          buffer,
-          ext: ".wav",
-          sourceUrl: `tts://chatterbox/${voiceLabel}`,
-        });
+        const { buffer, meta, cached } = await synthesizeSpeechCached(
+          { text, exaggeration, cfgWeight: cfg_weight, temperature, voiceFile },
+          voiceLabel,
+        );
 
         const artifact = {
           kind: "tts-audio" as const,
@@ -120,8 +110,10 @@ export function registerAudioTools(server: McpServer): void {
           duration_sec: Number(meta.duration.toFixed(3)),
           sample_rate: 24000,
           bytes: buffer.byteLength,
-          expensive: true as const,
-          note: "Autoregressive ~5x realtime, serialized. Generate lines up front; parallelize independent ones, await when you need duration_sec.",
+          expensive: !cached,
+          note: cached
+            ? "Served from cache: this exact line, voice and acting were already generated, so this came back instantly."
+            : "Autoregressive ~5x realtime, serialized. Generate lines up front; parallelize independent ones, await when you need duration_sec.",
         };
 
         // Publish the clip + a distinct audio-only JSON sidecar so it can be used standalone.
@@ -358,15 +350,13 @@ export function registerAudioTools(server: McpServer): void {
     }) => {
       const jobId = submitJob("narrated-scenes", async () => {
         const voiceFile = voice_reference ? await extractCloneClip(voice_reference) : undefined;
+        const voiceLabel = voice_reference ? `cloned:${voice_reference}` : "default";
         const resolved = [];
         for (const [i, scene] of scenes.entries()) {
-          const narrationWav = await synthesizeSpeech({
-            text: scene.line,
-            exaggeration,
-            cfgWeight: cfg_weight,
-            temperature,
-            voiceFile,
-          });
+          const { buffer: narrationWav } = await synthesizeSpeechCached(
+            { text: scene.line, exaggeration, cfgWeight: cfg_weight, temperature, voiceFile },
+            voiceLabel,
+          );
           const duration = wavDurationSec(narrationWav);
           if (!(duration > 0.1 && duration < 600)) {
             throw new Error(
@@ -378,28 +368,27 @@ export function registerAudioTools(server: McpServer): void {
           const onScreen = duration + (i === 0 ? lead_in_sec : 0);
           let footagePath: string;
           if (scene.math) {
-            const { buffer } = await renderMathShort({
-              title: scene.math.title ?? "",
-              scenes: [
-                {
-                  latex: scene.math.latex,
-                  ...(scene.math.plot_expr ? { plot_expr: scene.math.plot_expr } : {}),
-                  ...(scene.math.x_range ? { x_range: scene.math.x_range } : {}),
-                  ...(scene.math.y_range ? { y_range: scene.math.y_range } : {}),
-                  duration: onScreen + 1,
-                },
-              ],
-              resolution,
-              quick_reveal: true,
-              ...(scene.math.accent_color ? { accent_color: scene.math.accent_color } : {}),
-            });
-            const mathMeta = await writeMediaFromBuffer({
-              idSeed: `narrated-math:${resolution}:${onScreen.toFixed(2)}:${JSON.stringify(scene.math)}`,
-              buffer,
-              ext: ".mp4",
+            const mathIdSeed = `narrated-math:${resolution}:${onScreen.toFixed(2)}:${JSON.stringify(scene.math)}`;
+            const cachedMath = await renderMathShortCached({
+              idSeed: mathIdSeed,
               sourceUrl: "math://narrated-scene",
+              spec: {
+                title: scene.math.title ?? "",
+                scenes: [
+                  {
+                    latex: scene.math.latex,
+                    ...(scene.math.plot_expr ? { plot_expr: scene.math.plot_expr } : {}),
+                    ...(scene.math.x_range ? { x_range: scene.math.x_range } : {}),
+                    ...(scene.math.y_range ? { y_range: scene.math.y_range } : {}),
+                    duration: onScreen + 1,
+                  },
+                ],
+                resolution,
+                quick_reveal: true,
+                ...(scene.math.accent_color ? { accent_color: scene.math.accent_color } : {}),
+              },
             });
-            footagePath = mathMeta.path;
+            footagePath = cachedMath.path;
           } else {
             const footage = scene.media_id ? await loadMeta(scene.media_id) : null;
             if (!footage) {

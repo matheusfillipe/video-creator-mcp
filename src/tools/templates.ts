@@ -15,11 +15,7 @@ import { terminalHtml } from "../templates/terminal.js";
 import { titleCardHtml } from "../templates/tierlist.js";
 import type { Resolution } from "../types.js";
 import { registerTool } from "./defineTool.js";
-import { metadataArg } from "./shared.js";
-
-function encode(html: string): string {
-  return Buffer.from(html, "utf-8").toString("base64");
-}
+import { encode, metadataArg } from "./shared.js";
 
 export function registerTemplateTools(server: McpServer): void {
   registerTool(server, {

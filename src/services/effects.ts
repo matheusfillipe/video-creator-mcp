@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeComposition } from "../lib/composition-checks.js";
 import { checkComposition } from "../lib/composition-checks.js";
-import { run } from "../lib/exec.js";
+import { ExecError, run } from "../lib/exec.js";
 import { buildTimedDrawtext, charsPerLine, coverFilter, wrapText } from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
@@ -814,4 +814,27 @@ export async function freezeStarts(filePath: string): Promise<number[]> {
     { timeoutMs: 120_000 },
   );
   return [...stderr.matchAll(FREEZE_START_RE)].map((match) => Number(match[1]));
+}
+
+export const DURATION_RE = /data-duration="([0-9.]+)"/;
+
+// These probes run after the video is uploaded, so a probe failure must never fail the job.
+// A composition can fail two ways that still produce a valid mp4: nothing was ever drawn (black),
+// or nothing ever moved (the timeline never ran).
+export async function renderWarnings(buffer: Buffer, durationSeconds: number): Promise<string[]> {
+  const dir = await mkdtemp(join(tmpdir(), "vcm-verify-"));
+  try {
+    const file = join(dir, "render.mp4");
+    await writeFile(file, buffer);
+    const warnings = [
+      blackOutputWarning(await maxFrameLumaOfFile(file)),
+      staticRenderWarning(await freezeStarts(file), durationSeconds),
+    ];
+    return warnings.filter((warning): warning is string => warning !== null);
+  } catch (error) {
+    if (error instanceof ExecError) return [];
+    throw error;
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }

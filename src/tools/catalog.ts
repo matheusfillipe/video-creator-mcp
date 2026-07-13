@@ -5,11 +5,7 @@ import { submitJob } from "../services/jobs.js";
 import { saveRender } from "../services/publish.js";
 import { renderComposition } from "../services/renderer.js";
 import { registerTool } from "./defineTool.js";
-import { metadataArg } from "./shared.js";
-
-function encode(html: string): string {
-  return Buffer.from(html, "utf-8").toString("base64");
-}
+import { encode, metadataArg } from "./shared.js";
 
 export function registerCatalogTools(server: McpServer): void {
   registerTool(server, {

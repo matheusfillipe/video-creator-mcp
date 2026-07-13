@@ -3,6 +3,10 @@ import { compositionInputError } from "../lib/composition-checks.js";
 
 export const RESOLUTION = z.enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"]);
 
+export function encode(html: string): string {
+  return Buffer.from(html, "utf-8").toString("base64");
+}
+
 // Optional publish metadata accepted by every render tool. When present, the render also
 // writes a JSON sidecar next to the video (same base name) and returns its url — so a single
 // call produces the video + its publish package (title/description/tags) for upload.

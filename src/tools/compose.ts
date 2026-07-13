@@ -15,7 +15,7 @@ import {
 } from "../services/captions.js";
 import { type NarratedScene, narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
-import { renderMathShort } from "../services/manim.js";
+import { renderMathShortCached } from "../services/manim.js";
 import { loadMeta, writeMediaFromBuffer } from "../services/media.js";
 import {
   TTS_WORDS_PER_SEC,
@@ -23,7 +23,7 @@ import {
   countWords,
   extractCloneClip,
   silenceWav,
-  synthesizeSpeech,
+  synthesizeSpeechCached,
   wavDurationSec,
 } from "../services/narration.js";
 import { saveRender } from "../services/publish.js";
@@ -791,13 +791,18 @@ async function renderComposition(
     let voiceWav: Buffer | undefined;
     let spokenSec = 0;
     if (scene.voice) {
-      voiceWav = await synthesizeSpeech({
-        text: scene.voice.text,
-        exaggeration: scene.voice.exaggeration,
-        cfgWeight: scene.voice.cfgWeight,
-        temperature: scene.voice.temperature,
-        voiceFile: await cloneFor(scene.voice.referenceId),
-      });
+      const voiceLabel = scene.voice.referenceId ? `cloned:${scene.voice.referenceId}` : "default";
+      const { buffer } = await synthesizeSpeechCached(
+        {
+          text: scene.voice.text,
+          exaggeration: scene.voice.exaggeration,
+          cfgWeight: scene.voice.cfgWeight,
+          temperature: scene.voice.temperature,
+          voiceFile: await cloneFor(scene.voice.referenceId),
+        },
+        voiceLabel,
+      );
+      voiceWav = buffer;
       spokenSec = wavDurationSec(voiceWav);
       if (!(spokenSec > 0.1 && spokenSec < 600)) {
         throw new Error(
@@ -816,28 +821,27 @@ async function renderComposition(
     if (scene.visual.kind === "math") {
       const math = scene.visual.math;
       const onScreen = span + (scene.index === 0 ? leadInSec : 0);
-      const { buffer } = await renderMathShort({
-        title: math.title ?? "",
-        scenes: [
-          {
-            latex: math.latex,
-            ...(math.plot_expr ? { plot_expr: math.plot_expr } : {}),
-            ...(math.x_range ? { x_range: math.x_range } : {}),
-            ...(math.y_range ? { y_range: math.y_range } : {}),
-            duration: onScreen + 1,
-          },
-        ],
-        resolution: resolved.resolution,
-        quick_reveal: true,
-        ...(math.accent_color ? { accent_color: math.accent_color } : {}),
-      });
-      const mathMeta = await writeMediaFromBuffer({
-        idSeed: `compose-math:${resolved.resolution}:${onScreen.toFixed(2)}:${JSON.stringify(math)}`,
-        buffer,
-        ext: ".mp4",
+      const mathIdSeed = `compose-math:${resolved.resolution}:${onScreen.toFixed(2)}:${JSON.stringify(math)}`;
+      const cachedMath = await renderMathShortCached({
+        idSeed: mathIdSeed,
         sourceUrl: "math://compose-scene",
+        spec: {
+          title: math.title ?? "",
+          scenes: [
+            {
+              latex: math.latex,
+              ...(math.plot_expr ? { plot_expr: math.plot_expr } : {}),
+              ...(math.x_range ? { x_range: math.x_range } : {}),
+              ...(math.y_range ? { y_range: math.y_range } : {}),
+              duration: onScreen + 1,
+            },
+          ],
+          resolution: resolved.resolution,
+          quick_reveal: true,
+          ...(math.accent_color ? { accent_color: math.accent_color } : {}),
+        },
       });
-      footagePath = mathMeta.path;
+      footagePath = cachedMath.path;
     } else {
       const footage = await loadMeta(scene.visual.mediaId);
       if (!footage) {

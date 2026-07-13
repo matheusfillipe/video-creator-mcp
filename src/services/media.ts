@@ -107,7 +107,13 @@ export async function loadMeta(mediaId: string): Promise<MediaMeta | null> {
   }
 }
 
-async function getCached(mediaId: string): Promise<MediaMeta | null> {
+// Maps an idSeed to the media_id it hashes to — the one place that derivation happens, so
+// a caller can check the cache for a piece of content before producing it.
+export function mediaIdFor(idSeed: string): string {
+  return cacheId(idSeed);
+}
+
+export async function getCached(mediaId: string): Promise<MediaMeta | null> {
   const meta = await loadMeta(mediaId);
   if (!meta) return null;
   try {
@@ -350,7 +356,7 @@ export async function writeMediaFromBuffer(params: {
 }): Promise<MediaMeta> {
   const { idSeed, buffer, ext, sourceUrl } = params;
   await mkdir(config.mediaCacheDir, { recursive: true });
-  const mediaId = cacheId(idSeed);
+  const mediaId = mediaIdFor(idSeed);
   const filename = `${mediaId}${ext}`;
   const filePath = join(config.mediaCacheDir, filename);
   await writeFile(filePath, buffer);

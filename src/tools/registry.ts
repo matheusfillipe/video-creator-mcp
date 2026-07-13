@@ -5,6 +5,7 @@ import { registerCatalogTools } from "./catalog.js";
 import { registerComposeTools } from "./compose.js";
 import { registerEditTools } from "./edit.js";
 import { registerEffectsTools } from "./effects.js";
+import { registerGraphicTools } from "./graphic.js";
 import { registerManimTools } from "./manim.js";
 import { registerMediaTools } from "./media.js";
 import { registerRecipeTools } from "./recipe.js";
@@ -23,6 +24,7 @@ export function registerAllTools(server: McpServer): void {
   registerAudioTools(server);
   registerComposeTools(server);
   registerEffectsTools(server);
+  registerGraphicTools(server);
   registerTemplateTools(server);
   registerCatalogTools(server);
   registerAnalyzeTools(server);

@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 36 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 37 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -156,6 +156,19 @@ Download a video thumbnail into the media cache and return its media_id for use 
 |---|---|---|---|---|
 | `url` | string | yes |  | YouTube URL or video id. |
 | `max_width` | integer | no | `1280` | Max thumbnail width. |
+
+## `video_graphic`
+
+Render one generated visual, chosen by graphic.kind: math \| chart \| terminal \| manim \| block \| html. Dispatch, defaults and validation mirror the standalone render_math/render_chart/render_terminal/render_manim/render_block/render tools exactly; this is a single typed entry point over the same service calls. Common knobs live at the TOP level, not inside graphic, and each is honored only by the kinds noted below; passing one to a kind that doesn't support it is a validation error, not a silent no-op: - resolution: kind "math" (1080p/landscape/portrait/square, default landscape) and kind "html" (full range, default 1080p). - duration_seconds: kind "chart" (default 10, max 120), kind "terminal" (default 8, max 60), kind "block" (overrides the block's built-in duration, max 60). - music_media_id / music_volume: kind "math" and kind "manim" only, looped to cover the whole video. Examples (one field set per kind; everything else optional):   math:     { kind: "math", title: "Waves", scenes: [{ latex: "y=\\sin(x)", plot_expr: "sin(x)" }] }   chart:    { kind: "chart", title: "Users", points: [{ value: 10 }, { value: 40 }, { value: 25 }] }   terminal: { kind: "terminal", command: "brew install ffmpeg", output: ["Installing ffmpeg... done"] }   manim:    { kind: "manim", code: "from manim import *\nclass S(Scene):\n    def construct(self): self.play(Write(Text('Hi')))", scene_name: "S" } (needs MANIM_SCENES enabled)   block:    { kind: "block", name: "data-chart" } (see video_catalog for names)   html:     { kind: "html", html: "<div id=\"root\" data-composition-id=\"main\" data-start=\"0\" data-duration=\"5\" data-width=\"1920\" data-height=\"1080\">...</div>" } Asynchronous: returns a job_id, poll video_render_status until state is "done".
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `graphic` | object | yes |  | The visual to render, discriminated by kind. Pass only the fields for the chosen kind. |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no |  | Output resolution/orientation. Used by kind "math" and kind "html" only; other kinds always render at 1080p and reject this field. |
+| `duration_seconds` | number | no |  | Total video length in seconds. Used by kind "chart", kind "terminal" and kind "block" only; other kinds derive their length from their own content and reject this field. |
+| `music_media_id` | string | no |  | Background-music media_id from video_download_media, looped to cover the whole video and baked in here. Used by kind "math" and kind "manim" only. |
+| `music_volume` | number | no | `0.8` | Music volume (default 0.8); only meaningful together with music_media_id. |
+| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_lint`
 
@@ -395,7 +408,7 @@ Read the bundled HyperFrames authoring skill — the real HeyGen skill docs: com
 
 ## `video_tts`
 
-Generate an expressive narration/voice clip with Chatterbox. Handles long text (a whole paragraph): it splits into chunks and stitches them in one voice. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime, serialized. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip, including a downloaded video/YouTube clip; its audio is extracted automatically). ASYNCHRONOUS: returns a job_id, poll video_render_status until state is 'done', then read result.url (a downloadable wav), result.duration_sec, and result.media_id. Usable standalone or as a pre-step before a video. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL). To narrate a video: video_tts (take result.media_id) → video_add_audio(media_id:<video>, audio_media_id:<that>, mode:'replace').
+Generate an expressive narration/voice clip with Chatterbox. Handles long text (a whole paragraph): it splits into chunks and stitches them in one voice. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime, serialized. Repeat calls with identical text, voice and acting settings are served from cache instantly. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip, including a downloaded video/YouTube clip; its audio is extracted automatically). ASYNCHRONOUS: returns a job_id, poll video_render_status until state is 'done', then read result.url (a downloadable wav), result.duration_sec, and result.media_id. Usable standalone or as a pre-step before a video. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL). To narrate a video: video_tts (take result.media_id) → video_add_audio(media_id:<video>, audio_media_id:<that>, mode:'replace').
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
