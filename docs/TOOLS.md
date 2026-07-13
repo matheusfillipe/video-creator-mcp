@@ -208,14 +208,15 @@ ALWAYS call this before video_compose. Resolves and validates a composition WITH
 
 ## `video_preview_frame`
 
-Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_graphic (kind: html) or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.
+Render SINGLE PNGs of how a shot will look at one or more timestamps, WITHOUT doing the full multi-minute video render. Exactly one of `html` or `composition` is required. `html`: pass the same html (base64) + media array you'd pass to video_graphic (kind: html) or video_render_timeline; returns one PNG per timestamp + a contact-sheet jpg (grid). `composition`: pass the SAME declarative spec video_compose takes; previews layout/visual placement for whichever scene each `at` timestamp lands in, with ESTIMATED scene timing (no TTS run, the same estimate video_plan uses) and NO captions burned in (captions need real word alignment, which needs a real render). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, a multi-visual layout, the moment a scene changes. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `html` | string | yes |  | The composition markup, same shape as video_graphic (kind: html) (plain text; base64 also accepted). |
-| `at` | array | yes |  | Timestamps (seconds, within the composition's data-duration) to capture. |
-| `media` | array | no |  | media_ids referenced by the HTML (linked into assets/ before snapshot). |
-| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution preset. |
+| `html` | string | no |  | The composition markup, same shape as video_graphic (kind: html) (plain text; base64 also accepted). Exactly one of html/composition is required. |
+| `composition` | object | no |  | The declarative composition (same schema as video_compose) to preview. Exactly one of html/composition is required. |
+| `at` | array | yes |  | Timestamps (seconds) to capture. html mode: within the composition's data-duration. composition mode: within the ESTIMATED total duration (see video_plan). |
+| `media` | array | no |  | html mode only: media_ids referenced by the HTML (linked into assets/ before snapshot). |
+| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | html mode only: output resolution preset. composition mode uses composition.output.resolution instead. |
 
 ## `video_remove_background`
 

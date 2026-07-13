@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { extractFrame, lintComposition, removeBackground } from "../services/effects.js";
@@ -5,6 +6,7 @@ import { runOnEngine } from "../services/engine.js";
 import { previewFrames } from "../services/preview.js";
 import { saveRender } from "../services/publish.js";
 import type { Resolution } from "../types.js";
+import { COMPOSITION, previewCompositionFrame } from "./compose.js";
 import { registerTool } from "./defineTool.js";
 import { compositionHtml } from "./shared.js";
 
@@ -43,16 +45,21 @@ export function registerEffectsTools(server: McpServer): void {
     name: "video_preview_frame",
     title: "Preview a Composition Frame WITHOUT Rendering",
     description:
-      "Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_graphic (kind: html) or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.",
+      "Render SINGLE PNGs of how a shot will look at one or more timestamps, WITHOUT doing the full multi-minute video render. Exactly one of `html` or `composition` is required. `html`: pass the same html (base64) + media array you'd pass to video_graphic (kind: html) or video_render_timeline; returns one PNG per timestamp + a contact-sheet jpg (grid). `composition`: pass the SAME declarative spec video_compose takes; previews layout/visual placement for whichever scene each `at` timestamp lands in, with ESTIMATED scene timing (no TTS run, the same estimate video_plan uses) and NO captions burned in (captions need real word alignment, which needs a real render). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, a multi-visual layout, the moment a scene changes. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.",
     inputSchema: {
       html: compositionHtml(
-        "The composition markup, same shape as video_graphic (kind: html) (plain text; base64 also accepted).",
+        "The composition markup, same shape as video_graphic (kind: html) (plain text; base64 also accepted). Exactly one of html/composition is required.",
+      ).optional(),
+      composition: COMPOSITION.optional().describe(
+        "The declarative composition (same schema as video_compose) to preview. Exactly one of html/composition is required.",
       ),
       at: z
         .array(z.number().min(0))
         .min(1)
         .max(10)
-        .describe("Timestamps (seconds, within the composition's data-duration) to capture."),
+        .describe(
+          "Timestamps (seconds) to capture. html mode: within the composition's data-duration. composition mode: within the ESTIMATED total duration (see video_plan).",
+        ),
       media: z
         .array(
           z.object({
@@ -60,17 +67,61 @@ export function registerEffectsTools(server: McpServer): void {
           }),
         )
         .optional()
-        .describe("media_ids referenced by the HTML (linked into assets/ before snapshot)."),
+        .describe(
+          "html mode only: media_ids referenced by the HTML (linked into assets/ before snapshot).",
+        ),
       resolution: z
         .enum(["1080p", "4k", "uhd", "landscape", "portrait", "square"])
         .default("1080p")
-        .describe("Output resolution preset."),
+        .describe(
+          "html mode only: output resolution preset. composition mode uses composition.output.resolution instead.",
+        ),
     },
     annotations: { readOnlyHint: true },
-    handler: async ({ html, at, media, resolution }) => {
+    handler: async ({ html, composition, at, media, resolution }) => {
+      if ((html === undefined) === (composition === undefined)) {
+        throw new Error(
+          composition === undefined
+            ? "video_preview_frame needs either html or composition."
+            : "video_preview_frame takes either html or composition, not both.",
+        );
+      }
+
+      if (composition) {
+        const jobId = randomUUID().slice(0, 8);
+        const frames: Array<{
+          time_seconds: number;
+          url: string;
+          filename: string;
+          scene_id: string;
+          estimated: true;
+        }> = [];
+        for (const [i, t] of at.entries()) {
+          const preview = await runOnEngine(() => previewCompositionFrame(composition, t));
+          // scene id is agent-authored free text; keep it out of the storage key raw.
+          const safeScene = preview.sceneId.replace(/[^A-Za-z0-9]+/g, "-").slice(0, 40);
+          const saved = await saveRender(
+            preview.buffer,
+            `compose-preview-${jobId}-${String(i).padStart(2, "0")}-${safeScene}-${t}s.png`,
+          );
+          frames.push({
+            time_seconds: t,
+            url: saved.url,
+            filename: saved.filename,
+            scene_id: preview.sceneId,
+            estimated: true,
+          });
+        }
+        return {
+          frames,
+          vision_hint:
+            "Pass each frame `url` to your vision/describe_image tool to verify layout/placement BEFORE you commit to video_compose. Timing is ESTIMATED (no TTS run yet) and captions are NOT shown (they need real word alignment from an actual render); this checks layout only, not final timing.",
+        };
+      }
+
       const output = await runOnEngine(() =>
         previewFrames({
-          htmlBase64: html,
+          htmlBase64: html as string,
           timeSeconds: at,
           resolution: resolution as Resolution,
           ...(media ? { media } : {}),

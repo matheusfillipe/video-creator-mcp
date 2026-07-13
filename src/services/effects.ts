@@ -698,6 +698,38 @@ export async function removeBackground(
   }
 }
 
+// Extracts ONE frame from an already-resolved local file, no media_id lookup: the shared
+// primitive behind extractFrame (a cached clip) and the composition frame preview (a scene's
+// resolved visual, before it's ever muxed into a full render). The requested time is clamped
+// to the source's own length so a seek past the end (a preview offset longer than an untrimmed
+// clip, which the real render would cover by looping) returns the last frame instead of failing.
+export async function frameBufferFromPath(path: string, timeSec: number): Promise<Buffer> {
+  const dir = await mkdtemp(join(tmpdir(), "vcm-frame-"));
+  try {
+    const seek = Math.max(0, Math.min(timeSec, await sourceDurationSec(path)));
+    const out = join(dir, "frame.png");
+    await run(
+      "ffmpeg",
+      ["-y", "-ss", String(seek), "-i", path, "-frames:v", "1", "-vsync", "0", out],
+      { timeoutMs: 60_000 },
+    );
+    return await readFile(out);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+// A still image (or an unreadable duration) reports 0 so the seek clamps to the single frame.
+async function sourceDurationSec(path: string): Promise<number> {
+  const { stdout } = await run(
+    "ffprobe",
+    ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+    { timeoutMs: 30_000, allowNonZero: true },
+  );
+  const duration = Number.parseFloat(stdout.trim());
+  return Number.isFinite(duration) && duration > 0 ? Math.max(0, duration - 0.05) : 0;
+}
+
 export async function extractFrame(params: {
   mediaId: string;
   timeSec: number;
@@ -707,26 +739,15 @@ export async function extractFrame(params: {
     throw new Error(`Unknown media_id "${params.mediaId}" — download it first.`);
   }
   const time = Math.max(0, Math.min(params.timeSec, Math.max(0, meta.duration - 0.05)));
-  const dir = await mkdtemp(join(tmpdir(), "vcm-frame-"));
-  try {
-    const out = join(dir, "frame.png");
-    await run(
-      "ffmpeg",
-      ["-y", "-ss", String(time), "-i", meta.path, "-frames:v", "1", "-vsync", "0", out],
-      { timeoutMs: 60_000 },
-    );
-    const buffer = await readFile(out);
-    const imageMeta = await writeMediaFromBuffer({
-      idSeed: `frame:${params.mediaId}:${time}`,
-      buffer,
-      ext: ".png",
-      sourceUrl: `frame://${params.mediaId}@${time}`,
-    });
-    const saved = await saveRender(buffer, imageMeta.filename);
-    return { buffer, meta: imageMeta, url: saved.url, filename: imageMeta.filename };
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
+  const buffer = await frameBufferFromPath(meta.path, time);
+  const imageMeta = await writeMediaFromBuffer({
+    idSeed: `frame:${params.mediaId}:${time}`,
+    buffer,
+    ext: ".png",
+    sourceUrl: `frame://${params.mediaId}@${time}`,
+  });
+  const saved = await saveRender(buffer, imageMeta.filename);
+  return { buffer, meta: imageMeta, url: saved.url, filename: imageMeta.filename };
 }
 
 // A chrome render can "succeed" while its GSAP animations never fire, leaving nothing but the

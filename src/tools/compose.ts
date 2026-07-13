@@ -14,7 +14,7 @@ import {
   offsetCues,
 } from "../services/captions.js";
 import { combineSceneVisuals } from "../services/edit.js";
-import { type NarratedScene, narratedScenes } from "../services/effects.js";
+import { type NarratedScene, frameBufferFromPath, narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { renderMathShortCached } from "../services/manim.js";
 import { fetchMediaToId, loadMeta, writeMediaFromBuffer } from "../services/media.js";
@@ -202,7 +202,7 @@ const OUTER_TRACK = z
   })
   .strict();
 
-const COMPOSITION = z
+export const COMPOSITION = z
   .object({
     version: z.literal(1).default(1),
     output: z
@@ -234,7 +234,7 @@ const COMPOSITION = z
   })
   .strict();
 
-type Composition = z.infer<typeof COMPOSITION>;
+export type Composition = z.infer<typeof COMPOSITION>;
 type SceneClip = z.infer<typeof SCENE>;
 type SceneLayout = z.infer<typeof SCENE_LAYOUT>;
 type MathGraphic = z.infer<typeof GRAPHIC_CLIP>;
@@ -872,6 +872,109 @@ async function resolveVisualPath(
   return visual.in !== undefined || visual.out !== undefined
     ? await trimVideoSource(footage.path, footage.media_id, visual.in ?? 0, visual.out)
     : footage.path;
+}
+
+interface FrameLocation {
+  scene: ResolvedScene;
+  sceneStart: number;
+  sceneEnd: number;
+  withinSceneSec: number;
+}
+
+// Lays out the scene timeline the same way planView does: ESTIMATED spans (words/TTS rate, not
+// real TTS), cursor starting at the lead-in. Finds which scene `atSec` falls into and the offset
+// inside it. A timestamp inside the lead-in (before scene 0 starts) has no scene of its own to
+// preview, so it lands on scene 0 at offset 0 instead of erroring.
+function locateSceneAt(resolved: ResolvedComposition, atSec: number): FrameLocation {
+  if (resolved.scenes.length === 0) {
+    throw new Error("composition has no scenes to preview");
+  }
+  let cursor = resolved.leadInSec;
+  const spans = resolved.scenes.map((scene) => {
+    const start = cursor;
+    cursor += sceneSpanEstimate(scene);
+    return { scene, start, end: cursor };
+  });
+  const firstSpan = spans[0] as (typeof spans)[number];
+  const lastSpan = spans[spans.length - 1] as (typeof spans)[number];
+  const clamped = Math.min(Math.max(atSec, 0), cursor);
+  if (clamped <= firstSpan.start) {
+    return {
+      scene: firstSpan.scene,
+      sceneStart: firstSpan.start,
+      sceneEnd: firstSpan.end,
+      withinSceneSec: 0,
+    };
+  }
+  const hit = spans.find((s) => clamped < s.end) ?? lastSpan;
+  const withinSceneSec = Math.min(clamped - hit.start, Math.max(hit.end - hit.start - 0.001, 0));
+  return { scene: hit.scene, sceneStart: hit.start, sceneEnd: hit.end, withinSceneSec };
+}
+
+// Renders ONE frame of a composition at `atSec` WITHOUT synthesizing narration or running a full
+// render: it lays out the scene timeline from ESTIMATED spans, then resolves and (if the layout
+// needs it) combines only the ONE scene the timestamp lands in, the exact code path
+// renderComposition uses for a scene's footage, so math/trim/layout results are cache hits on the
+// later real render. Captions are word-synced to real alignment (needs TTS) so this never burns
+// them in. Throws on the same error findings video_plan would report, naming the first one.
+export async function previewCompositionFrame(
+  composition: Composition,
+  atSec: number,
+): Promise<{
+  buffer: Buffer;
+  sceneId: string;
+  sceneStart: number;
+  sceneEnd: number;
+  withinSceneSec: number;
+  estimated: true;
+  findings: Finding[];
+}> {
+  const resolved = await resolveComposition(composition);
+  const errors = resolved.findings.filter((f) => f.severity === "error");
+  if (errors.length) {
+    const first = errors[0] as Finding;
+    throw new Error(
+      `composition has ${errors.length} error finding(s), starting with ${first.path}: ${first.message}`,
+    );
+  }
+
+  const located = locateSceneAt(resolved, atSec);
+  const scene = located.scene;
+  const onScreen =
+    located.sceneEnd - located.sceneStart + (scene.index === 0 ? resolved.leadInSec : 0);
+
+  const visualPaths: string[] = [];
+  for (const visual of scene.visuals) {
+    visualPaths.push(await resolveVisualPath(visual, resolved.resolution, onScreen));
+  }
+
+  let footagePath: string;
+  if (scene.layout === "single") {
+    footagePath = visualPaths[0] as string;
+  } else {
+    const layoutIdSeed = `compose-layout:${scene.layout}:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${visualPaths.join("|")}`;
+    const combined = await combineSceneVisuals({
+      layout: scene.layout,
+      visuals: visualPaths,
+      durationSec: onScreen,
+      width: resolved.width,
+      height: resolved.height,
+      fps: resolved.fps,
+      idSeed: layoutIdSeed,
+    });
+    footagePath = combined.path;
+  }
+
+  const buffer = await frameBufferFromPath(footagePath, located.withinSceneSec);
+  return {
+    buffer,
+    sceneId: scene.id,
+    sceneStart: Number(located.sceneStart.toFixed(2)),
+    sceneEnd: Number(located.sceneEnd.toFixed(2)),
+    withinSceneSec: Number(located.withinSceneSec.toFixed(2)),
+    estimated: true,
+    findings: resolved.findings,
+  };
 }
 
 // Extensions this server ever writes into the media cache, mapped to a content type for the
