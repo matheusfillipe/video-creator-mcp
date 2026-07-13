@@ -387,10 +387,20 @@ export async function narratedScenes(params: {
     };
     let captionChain = "";
     if (params.captions?.length) {
-      captionChain =
-        params.captionMode === "karaoke"
-          ? await karaokeSubtitleFilter(dir, params.captions, w, h, captionStyle)
-          : await captionFilterChain(dir, params.captions, w, h, captionStyle);
+      // A cue-level style may pick its own mode, so one video can mix segments: karaoke cues go
+      // through libass, block cues through drawtext, chained in the same filter pass.
+      const defaultMode = params.captionMode ?? "block";
+      const modeOf = (cue: Cue) => cue.style?.mode ?? defaultMode;
+      const karaokeCues = params.captions.filter((cue) => modeOf(cue) === "karaoke");
+      const blockCues = params.captions.filter((cue) => modeOf(cue) === "block");
+      const chains: string[] = [];
+      if (karaokeCues.length) {
+        chains.push(await karaokeSubtitleFilter(dir, karaokeCues, w, h, captionStyle));
+      }
+      if (blockCues.length) {
+        chains.push(await captionFilterChain(dir, blockCues, w, h, captionStyle));
+      }
+      captionChain = chains.join(",");
     }
     const videoPre = captionChain ? `[0:v]${captionChain}[v];` : "";
     const videoMap = captionChain ? "[v]" : "0:v:0";
@@ -440,7 +450,7 @@ export async function narratedScenes(params: {
 
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${tailSec}:${params.music?.volume ?? "none"}:${params.captionMode ?? "block"}:${JSON.stringify(params.captionStyle ?? {})}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}`).join(",")}:${(params.captions ?? []).map((c) => `${c.start.toFixed(2)}-${c.end.toFixed(2)}:${c.text}`).join("|")}`,
+      idSeed: `scenes:${w}x${h}:${params.leadInSec}:${tailSec}:${params.music?.volume ?? "none"}:${params.captionMode ?? "block"}:${JSON.stringify(params.captionStyle ?? {})}:${params.narration.length}:${params.scenes.map((s) => `${s.footagePath}@${s.duration.toFixed(2)}`).join(",")}:${(params.captions ?? []).map((c) => `${c.start.toFixed(2)}-${c.end.toFixed(2)}:${c.text}:${c.style ? JSON.stringify(c.style) : ""}`).join("|")}`,
       buffer,
       ext: ".mp4",
       sourceUrl: "scenes://narrated",
@@ -460,9 +470,10 @@ async function captionFilterChain(
   height: number,
   style: CaptionStyle,
 ): Promise<string> {
-  const fontSize = Math.max(20, Math.round((height / 26) * style.fontScale));
   const filters: string[] = [];
   for (const [i, cue] of cues.entries()) {
+    const cueStyle = cue.style ?? style;
+    const fontSize = Math.max(20, Math.round((height / 26) * cueStyle.fontScale));
     const file = join(dir, `cue${i}.txt`);
     await writeFile(file, wrapText(cue.text, charsPerLine(width, fontSize)));
     filters.push(
@@ -470,10 +481,10 @@ async function captionFilterChain(
         textFile: file,
         start: cue.start,
         end: cue.end,
-        position: style.position,
+        position: cueStyle.position,
         fontSize,
-        color: style.color,
-        box: style.box,
+        color: cueStyle.color,
+        box: cueStyle.box,
         margin: Math.round(height * 0.08),
       }),
     );

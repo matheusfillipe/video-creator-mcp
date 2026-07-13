@@ -5,6 +5,9 @@ export interface Cue {
   start: number;
   end: number;
   words: AlignedWord[];
+  // Per-cue style override (a composition can style each segment's captions differently);
+  // cues without one render with the track-level style.
+  style?: CueStyle;
 }
 
 const SENTENCE_END = /[.!?]["')\]]?$/;
@@ -54,7 +57,7 @@ export function groupIntoCues(
 // composed video's global timeline.
 export function offsetCues(cues: Cue[], delta: number): Cue[] {
   return cues.map((cue) => ({
-    text: cue.text,
+    ...cue,
     start: cue.start + delta,
     end: cue.end + delta,
     words: cue.words.map((w) => ({ word: w.word, start: w.start + delta, end: w.end + delta })),
@@ -68,6 +71,17 @@ export interface CaptionStyle {
   position: CaptionPosition;
   fontScale: number; // multiplier on the resolution-derived base size
   box: boolean;
+}
+
+// A cue-level style also picks the render mode, so one video can mix static and karaoke segments.
+export interface CueStyle extends CaptionStyle {
+  mode: "block" | "karaoke";
+}
+
+export type CaptionSize = "small" | "medium" | "large";
+
+export function fontScaleFor(size: CaptionSize): number {
+  return size === "small" ? 0.8 : size === "large" ? 1.3 : 1;
 }
 
 const NAME_TO_HEX: Record<string, string> = {
@@ -121,31 +135,35 @@ export function buildAss(
   style: CaptionStyle,
   karaoke: boolean,
 ): string {
-  const fontSize = Math.max(18, Math.round((height / 22) * style.fontScale));
-  const alignment = style.position === "top" ? 8 : style.position === "center" ? 5 : 2;
   const marginV = Math.round(height * 0.07);
   const marginLR = Math.round(width * 0.06);
-  const primary = toAssColor(style.color);
-  // Karaoke draws each word in the secondary colour, then fills it to the primary as it is spoken.
-  // A dim grey secondary keeps the sweep visible even when the primary (highlight) is the default
-  // white, so word-highlight never looks like a static caption.
-  const secondary = karaoke ? "&H00B4B4B4" : primary;
-  const borderStyle = style.box ? 3 : 1;
-  const outline = style.box ? 0 : Math.max(2, Math.round(fontSize / 14));
-  const lines: string[] = [
-    "[Script Info]",
-    "ScriptType: v4.00+",
-    `PlayResX: ${width}`,
-    `PlayResY: ${height}`,
-    "WrapStyle: 0",
-    "",
-    "[V4+ Styles]",
-    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-    `Style: Cap,Liberation Sans,${fontSize},${primary},${secondary},&H00000000,&H96000000,1,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},${marginLR},${marginLR},${marginV},1`,
-    "",
-    "[Events]",
-    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-  ];
+  const styleLine = (name: string, s: CaptionStyle): string => {
+    const fontSize = Math.max(18, Math.round((height / 22) * s.fontScale));
+    const alignment = s.position === "top" ? 8 : s.position === "center" ? 5 : 2;
+    const primary = toAssColor(s.color);
+    // Karaoke draws each word in the secondary colour, then fills it to the primary as it is
+    // spoken. A dim grey secondary keeps the sweep visible even when the primary (highlight) is
+    // the default white, so word-highlight never looks like a static caption.
+    const secondary = karaoke ? "&H00B4B4B4" : primary;
+    const borderStyle = s.box ? 3 : 1;
+    const outline = s.box ? 0 : Math.max(2, Math.round(fontSize / 14));
+    return `Style: ${name},Liberation Sans,${fontSize},${primary},${secondary},&H00000000,&H96000000,1,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},${marginLR},${marginLR},${marginV},1`;
+  };
+  // One ASS style per distinct cue override; cues without one use the track style.
+  const overrideNames = new Map<string, string>();
+  const styleLines: string[] = [styleLine("Cap", style)];
+  const nameFor = (s?: CueStyle): string => {
+    if (!s) return "Cap";
+    const key = `${s.color}|${s.position}|${s.fontScale}|${s.box}`;
+    let name = overrideNames.get(key);
+    if (!name) {
+      name = `Cap${overrideNames.size + 1}`;
+      overrideNames.set(key, name);
+      styleLines.push(styleLine(name, s));
+    }
+    return name;
+  };
+  const events: string[] = [];
   for (const cue of cues) {
     let text: string;
     if (karaoke) {
@@ -160,7 +178,23 @@ export function buildAss(
     } else {
       text = assEscape(cue.text);
     }
-    lines.push(`Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},Cap,,0,0,0,,${text}`);
+    events.push(
+      `Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},${nameFor(cue.style)},,0,0,0,,${text}`,
+    );
   }
-  return lines.join("\n");
+  return [
+    "[Script Info]",
+    "ScriptType: v4.00+",
+    `PlayResX: ${width}`,
+    `PlayResY: ${height}`,
+    "WrapStyle: 0",
+    "",
+    "[V4+ Styles]",
+    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+    ...styleLines,
+    "",
+    "[Events]",
+    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ...events,
+  ].join("\n");
 }
