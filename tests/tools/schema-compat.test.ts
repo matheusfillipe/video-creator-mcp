@@ -23,8 +23,6 @@ function collectSchemas(): Map<string, z.ZodRawShape> {
       if (def.inputSchema) schemas.set(name, def.inputSchema);
     },
   };
-  // MANIM_SCENES gates one tool; register it too so the check covers everything.
-  process.env.MANIM_SCENES = "true";
   registerAllTools(server as never);
   return schemas;
 }

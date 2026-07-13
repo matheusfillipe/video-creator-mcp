@@ -8,7 +8,7 @@ export function registerMediaTools(server: McpServer): void {
     name: "video_download_media",
     title: "Download Media",
     description:
-      "Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X, Reddit, Vimeo, direct media links) into the cache. When start/end are given it fetches ONLY that window via range requests (no full download), falling back to a full download + trim if the source rejects ranges. Set audio=false for clips you'll render muted (e.g. tier-list segments) to skip the audio stream — smaller and faster. Independent URLs can be downloaded concurrently. Returns a media_id to reference in video_render / video_render_timeline. Re-downloading the same URL+window+audio is served from cache.",
+      "Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X, Reddit, Vimeo, direct media links) into the cache. When start/end are given it fetches ONLY that window via range requests (no full download), falling back to a full download + trim if the source rejects ranges. Set audio=false for clips you'll render muted (e.g. tier-list segments) to skip the audio stream — smaller and faster. Independent URLs can be downloaded concurrently. Returns a media_id to reference in video_edit, video_compose, video_graphic, or video_render_timeline. Re-downloading the same URL+window+audio is served from cache.",
     inputSchema: {
       url: z.string().min(1).describe("Source URL (any yt-dlp source or direct media link)."),
       start: z.number().min(0).optional().describe("Window start, seconds."),

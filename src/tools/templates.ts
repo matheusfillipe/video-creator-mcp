@@ -3,15 +3,12 @@ import { z } from "zod";
 import { submitJob } from "../services/jobs.js";
 import { loadMeta } from "../services/media.js";
 import { saveRender } from "../services/publish.js";
-import { renderComposition } from "../services/renderer.js";
 import {
   type TimelineParams,
   type TimelineSegment,
   assembleTimeline,
 } from "../services/timeline.js";
-import { lineChartHtml } from "../templates/chart.js";
 import { slideshowSegmentHtml } from "../templates/slideshow.js";
-import { terminalHtml } from "../templates/terminal.js";
 import { titleCardHtml } from "../templates/tierlist.js";
 import type { Resolution } from "../types.js";
 import { registerTool } from "./defineTool.js";
@@ -290,126 +287,6 @@ export function registerTemplateTools(server: McpServer): void {
         state: "queued",
         segments: timelineSegments.length,
         unique_clips: mediaIds.size,
-        poll_with: `video_render_status with job_id "${jobId}"`,
-      };
-    },
-  });
-
-  registerTool(server, {
-    name: "video_render_terminal",
-    title: "Render a Terminal Animation",
-    description:
-      "Render an animated macOS terminal (Hyperframes apple-terminal look): the command types out character-by-character, then the output lines reveal in sequence and the cursor blinks. Pass the command and output as data — no HTML. Asynchronous: returns a job_id to poll with video_render_status.",
-    inputSchema: {
-      command: z.string().min(1).describe("Command that types out, e.g. 'brew install ffmpeg'."),
-      output: z
-        .array(z.string())
-        .default([])
-        .describe("Output lines shown after the command runs, in order."),
-      prompt: z.string().default("user@Mac ~ % ").describe("Shell prompt before the command."),
-      duration_seconds: z.number().positive().max(60).default(8).describe("Total video length."),
-      fps: z.number().int().min(1).max(60).default(30),
-      metadata: metadataArg,
-    },
-    handler: async ({ metadata, ...args }) => {
-      const { command, output, prompt, duration_seconds, fps } = args;
-      const jobId = submitJob("terminal", async () => {
-        const html = terminalHtml({ command, output, prompt, durationSeconds: duration_seconds });
-        const { buffer, filename } = await renderComposition({
-          htmlBase64: encode(html),
-          fps,
-          resolution: "1080p",
-        });
-        return saveRender(buffer, filename, metadata, {
-          tool: "video_render_terminal",
-          args,
-        });
-      });
-      return {
-        job_id: jobId,
-        state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
-      };
-    },
-  });
-
-  registerTool(server, {
-    name: "video_render_chart",
-    title: "Render an Animated Line Chart",
-    description:
-      "Render a side-scrolling animated line chart: each series plots left-to-right, the view scrolls once the data fills the window so the leading edge stays in view, and every series shows a value label pinned to its tip. Pass one or more `series` (or a single `points` array) — no HTML. Asynchronous: returns a job_id to poll with video_render_status.",
-    inputSchema: {
-      title: z.string().optional().describe("Chart title shown top-left."),
-      series: z
-        .array(
-          z.object({
-            name: z.string().optional().describe("Series name shown in the legend."),
-            color: z.string().optional().describe("Line color (CSS); auto-assigned if omitted."),
-            points: z
-              .array(z.object({ label: z.string().optional(), value: z.number() }))
-              .min(2)
-              .describe("Ordered points for this series."),
-          }),
-        )
-        .optional()
-        .describe("One or more line series plotted together; x-labels come from the first series."),
-      points: z
-        .array(z.object({ label: z.string().optional(), value: z.number() }))
-        .min(2)
-        .optional()
-        .describe("Convenience for a single line — use `series` for multiple."),
-      x_label: z.string().optional().describe("x-axis caption."),
-      y_label: z.string().optional().describe("y-axis caption."),
-      accent_color: z
-        .string()
-        .optional()
-        .describe("Line color for the single-series `points` path."),
-      value_suffix: z.string().default("").describe("Appended to value labels, e.g. '%' or 'k'."),
-      window_size: z
-        .number()
-        .int()
-        .min(2)
-        .max(60)
-        .default(8)
-        .describe("Points visible at once before the chart scrolls."),
-      duration_seconds: z.number().positive().max(120).default(10).describe("Total video length."),
-      fps: z.number().int().min(1).max(60).default(30),
-      metadata: metadataArg,
-    },
-    handler: async (args) => {
-      const series =
-        args.series && args.series.length > 0
-          ? args.series
-          : args.points
-            ? [{ points: args.points, ...(args.accent_color ? { color: args.accent_color } : {}) }]
-            : [];
-      if (series.length === 0) {
-        throw new Error("Provide `series` (one or more lines) or `points` (a single line).");
-      }
-      const jobId = submitJob("chart", async () => {
-        const html = lineChartHtml({
-          title: args.title,
-          series,
-          xLabel: args.x_label,
-          yLabel: args.y_label,
-          valueSuffix: args.value_suffix,
-          windowSize: args.window_size,
-          durationSeconds: args.duration_seconds,
-        });
-        const { buffer, filename } = await renderComposition({
-          htmlBase64: encode(html),
-          fps: args.fps,
-          resolution: "1080p",
-        });
-        const { metadata, ...recipeArgs } = args;
-        return saveRender(buffer, filename, metadata, {
-          tool: "video_render_chart",
-          args: recipeArgs,
-        });
-      });
-      return {
-        job_id: jobId,
-        state: "queued",
         poll_with: `video_render_status with job_id "${jobId}"`,
       };
     },

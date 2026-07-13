@@ -1,9 +1,9 @@
-# Authoring a manim scene for `video_render_manim`
+# Authoring a manim scene for `video_graphic` (kind: manim)
 
-`video_render_manim` renders arbitrary [Manim Community](https://docs.manim.community) code to MP4.
+`video_graphic` (kind: manim) renders arbitrary [Manim Community](https://docs.manim.community) code to MP4.
 Reach for it whenever the visual is a *generated* animation rather than footage or a template:
 geometry and proofs, transformations, 3D, number theory, vectors/fields, typography — anything
-`video_render_math` (which only draws a formula + its function graph) can't express.
+`video_graphic` (kind: math, which only draws a formula + its function graph) can't express.
 
 ## Contract with this server
 - The `code` you pass must define **exactly one `Scene` subclass**; pass its name as `scene_name`.
@@ -73,7 +73,7 @@ assert body.get_top()[1] < TOP and body.get_bottom()[1] > BOT   # catch a collis
 - **Transformations / morphs** — `Transform`, `ReplacementTransform`, `TransformMatchingTex` (great for turning one equation into the next), `Rotate`, `.animate` syntax.
 - **3D** — subclass `ThreeDScene`; `ThreeDAxes`, `Surface`, `Sphere`, `Cube`; draw space curves (knots, spirals, Lissajous) with `ParametricFunction(lambda t: …, t_range=[a, b])`; `set_camera_orientation(phi=…, theta=…)` and `begin_ambient_camera_rotation(rate=…)`.
 - **Dynamic / data-driven** — `ValueTracker` + `always_redraw(lambda: …)` for anything that follows a moving parameter (traces, sweeps, growing bars, a dot on a path).
-- **Graphs** — `Axes().plot(...)`, `MoveAlongPath`, `get_area`, `get_riemann_rectangles` (for calculus visuals `video_render_math` won't do).
+- **Graphs** — `Axes().plot(...)`, `MoveAlongPath`, `get_area`, `get_riemann_rectangles` (for calculus visuals kind "math" won't do).
 - **Number / typography** — `NumberLine`, `NumberPlane`, `Table`, `DecimalNumber` (count-ups), `Write`/`AddTextLetterByLetter`.
 
 ## Worked examples (each renders portrait as-is)

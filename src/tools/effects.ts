@@ -13,7 +13,7 @@ export function registerEffectsTools(server: McpServer): void {
     name: "video_lint",
     title: "Lint Composition",
     description:
-      "Validate a base64 HTML+GSAP composition for common authoring mistakes before rendering. Always lint before video_render.",
+      "Validate a base64 HTML+GSAP composition for common authoring mistakes before rendering. Always lint before video_graphic (kind: html) or video_render_timeline.",
     inputSchema: {
       html: compositionHtml("The HTML composition markup (plain text; base64 also accepted)."),
     },
@@ -43,10 +43,10 @@ export function registerEffectsTools(server: McpServer): void {
     name: "video_preview_frame",
     title: "Preview a Composition Frame WITHOUT Rendering",
     description:
-      "Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_render or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.",
+      "Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_graphic (kind: html) or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.",
     inputSchema: {
       html: compositionHtml(
-        "The composition markup, same shape as video_render (plain text; base64 also accepted).",
+        "The composition markup, same shape as video_graphic (kind: html) (plain text; base64 also accepted).",
       ),
       at: z
         .array(z.number().min(0))

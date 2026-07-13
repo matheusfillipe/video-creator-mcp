@@ -1,13 +1,13 @@
 # Animating a composition with anime.js
 
-`video_render` and `video_render_timeline` seek a paused timeline once per captured frame. GSAP is
+`video_graphic` (kind: html) and `video_render_timeline` seek a paused timeline once per captured frame. GSAP is
 the default driver (see the rules in the tool description); **anime.js v3 is also supported** and is
 already loaded on the page — reach for it when its syntax expresses the motion more directly
 (keyframe arrays, per-property easing, `anime.stagger`).
 
 ## Contract with this server
 - `anime` is a **global**, injected as `assets/anime.min.js`. Never inline the library.
-- Pass the markup to `video_render` as **plain text** — do not base64-encode it yourself.
+- Pass the markup to `video_graphic` (kind: html) as **plain text** — do not base64-encode it yourself.
 - Build the timeline with **`autoplay: false`** and register it on **`window.__hfAnime`** (an array):
   ```js
   const tl = anime.timeline({ autoplay: false });

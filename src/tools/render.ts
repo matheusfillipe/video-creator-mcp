@@ -1,25 +1,13 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { decodeComposition } from "../lib/composition-checks.js";
-import {
-  DURATION_RE,
-  addAudioTrack,
-  captionMedia,
-  narrateOverMusic,
-  renderWarnings,
-} from "../services/effects.js";
+import { addAudioTrack, captionMedia, narrateOverMusic } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
 import { getJob, listJobs, submitJob } from "../services/jobs.js";
 import { loopMedia, writeMediaFromBuffer } from "../services/media.js";
 import { saveRender } from "../services/publish.js";
-import { renderComposition } from "../services/renderer.js";
 import { assembleTimeline } from "../services/timeline.js";
 import { registerTool } from "./defineTool.js";
 import { RESOLUTION, compositionHtml, metadataArg } from "./shared.js";
-
-const mediaRef = z.object({
-  media_id: z.string().describe("media_id from video_download_media / video_get_thumbnail."),
-});
 
 const segmentMediaRef = z.object({
   media_id: z.string().describe("media_id from video_download_media / video_get_thumbnail."),
@@ -32,61 +20,7 @@ const segmentMediaRef = z.object({
   muted: z.boolean().optional().describe("Mute this clip's own audio entirely."),
 });
 
-const RENDER_RULES = `Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll video_render_status until state is "done", then read result.url.
-
-Authoring rules (run video_lint first):
-- html is the composition markup itself (plain text, not base64) and must contain <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">.
-- All elements use position:absolute with top/left (never bottom). Canvas 1920x1080 landscape, 1080x1920 portrait — must match resolution.
-- GSAP: gsap.timeline({ paused: true }) registered on window.__timelines["main"]; add class="clip" + data-start/data-duration/data-track-index to timed elements.
-- anime.js v3 is loaded too and drives a composition just as well — its timelines go on window.__hfAnime. Read video_skill('animejs/authoring.md') for that contract.
-- No Math.random (use a seeded PRNG), no fetch/async during timeline setup. Animate a wrapper div around <video>; never call .play()/.pause().
-- For multiple video clips use video_render_timeline instead (one <video> per composition).
-- Reference downloaded media as src="assets/<filename>" and pass its media_id in the media array.
-Reference: https://hyperframes.mintlify.app/llms.txt`;
-
 export function registerRenderTools(server: McpServer): void {
-  registerTool(server, {
-    name: "video_render",
-    title: "Render Video",
-    description: RENDER_RULES,
-    inputSchema: {
-      html: compositionHtml("The HTML+GSAP composition markup (plain text; base64 also accepted)."),
-      audio_base64: z.string().optional().describe("Base64 WAV/MP3, injected as an <audio> track."),
-      audio_volume: z.number().min(0).max(1).default(0.9).describe("Audio volume 0-1."),
-      fps: z.number().int().min(1).max(60).default(30).describe("Frames per second."),
-      resolution: RESOLUTION.default("1080p").describe("Output resolution/orientation."),
-      media: z.array(mediaRef).optional().describe("Pre-downloaded media to include."),
-      metadata: metadataArg,
-    },
-    handler: ({ metadata, audio_base64, ...args }) => {
-      const { html, audio_volume, fps, resolution, media } = args;
-      const jobId = submitJob("render", async () => {
-        const { buffer, filename } = await renderComposition({
-          htmlBase64: html,
-          fps,
-          resolution,
-          audioBase64: audio_base64,
-          audioVolume: audio_volume,
-          media,
-        });
-        // audio_base64 stays out of the recipe: the sidecar is world-readable and an
-        // inline track would put megabytes of base64 next to every render.
-        const saved = await saveRender(buffer, filename, metadata, {
-          tool: "video_render",
-          args,
-        });
-        const declared = DURATION_RE.exec(decodeComposition(html));
-        const warnings = await renderWarnings(buffer, Number(declared?.[1] ?? 0));
-        return warnings.length > 0 ? { ...saved, warnings } : saved;
-      });
-      return Promise.resolve({
-        job_id: jobId,
-        state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
-      });
-    },
-  });
-
   registerTool(server, {
     name: "video_render_timeline",
     title: "Render Multi-Segment Timeline",
@@ -366,7 +300,9 @@ export function registerRenderTools(server: McpServer): void {
       job_id: z
         .string()
         .min(1)
-        .describe("job_id returned by video_render / video_render_timeline."),
+        .describe(
+          "job_id returned by any asynchronous tool, e.g. video_compose, video_graphic, video_render_timeline.",
+        ),
     },
     annotations: { readOnlyHint: true },
     handler: ({ job_id }) => {

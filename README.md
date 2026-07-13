@@ -106,11 +106,11 @@ For real production use, schedule it on a node with `/dev/dri` access — chrome
 
 ## Tools
 
-28 tools spanning search, download, audio, lint, render, verify (including `video_preview_frame` — single-frame composition preview in ~1.5s instead of a full render). Full reference auto-generated from the live server:
+31 tools spanning search, download, audio, lint, render, verify (including `video_preview_frame` — single-frame composition preview in ~1.5s instead of a full render). Full reference auto-generated from the live server:
 
 **→ [docs/TOOLS.md](docs/TOOLS.md)**
 
-The agent picks the right one from a routing table loaded as an MCP resource (`guide://authoring`); template tools (`video_render_slideshow`, `video_render_tierlist`, `video_render_terminal`, `video_render_chart`) stamp HTML internally so the agent emits JSON, not markup.
+The agent picks the right one from a routing table loaded as an MCP resource (`guide://authoring`); template tools (`video_render_slideshow`, `video_render_tierlist`) and `video_graphic` (kind: terminal/chart/math/manim/block/html) stamp HTML internally so the agent emits JSON, not markup.
 
 ## Configuration
 

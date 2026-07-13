@@ -146,11 +146,11 @@ const GRAPHIC = z.discriminatedUnion("kind", [
   HTML_GRAPHIC,
 ]);
 
-// The old video_render_math tool restricts to these four; 4k/uhd were never offered for a
-// manim short. Kept as string[] so a wider Resolution literal can be checked with .includes.
+// A manim short only ever renders at these four; 4k/uhd are not offered. Kept as string[] so
+// a wider Resolution literal can be checked with .includes.
 const MATH_RESOLUTIONS: string[] = ["1080p", "landscape", "portrait", "square"];
 
-const DESCRIPTION = `Render one generated visual, chosen by graphic.kind: math | chart | terminal | manim | block | html. Dispatch, defaults and validation mirror the standalone render_math/render_chart/render_terminal/render_manim/render_block/render tools exactly; this is a single typed entry point over the same service calls. Common knobs live at the TOP level, not inside graphic, and each is honored only by the kinds noted below; passing one to a kind that doesn't support it is a validation error, not a silent no-op:
+const DESCRIPTION = `Render one generated visual, chosen by graphic.kind: math | chart | terminal | manim | block | html. A single typed entry point over every generated-visual service: pick a kind and pass only its fields. Common knobs live at the TOP level, not inside graphic, and each is honored only by the kinds noted below; passing one to a kind that doesn't support it is a validation error, not a silent no-op:
 - resolution: kind "math" (1080p/landscape/portrait/square, default landscape) and kind "html" (full range, default 1080p).
 - duration_seconds: kind "chart" (default 10, max 120), kind "terminal" (default 8, max 60), kind "block" (overrides the block's built-in duration, max 60).
 - music_media_id / music_volume: kind "math" and kind "manim" only, looped to cover the whole video.
@@ -404,7 +404,7 @@ export function registerGraphicTools(server: McpServer): void {
           const htmlResolution = resolution ?? "1080p";
           const { html, audio_base64, audio_volume, fps, media } = graphic;
           // audio_base64 stays out of the recipe: the sidecar is world-readable and an inline
-          // track would put megabytes of base64 next to every render (mirrors video_render).
+          // track would put megabytes of base64 next to every render.
           const { audio_base64: _omit, ...graphicForRecipe } = graphic;
           const htmlRecipeArgs = { ...recipeArgs, graphic: graphicForRecipe };
           const jobId = submitJob("render", async () => {

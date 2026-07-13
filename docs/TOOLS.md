@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 37 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 31 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -68,7 +68,7 @@ Burn timed text captions directly onto a clip with ffmpeg — no HTML, no chrome
 
 ## `video_catalog`
 
-List/search the Hyperframes catalog of prebuilt blocks and components (terminals, charts, maps, captions, transitions, device showcases, …). Returns each item's name, type, description and tags. Render a single-composition block as-is with video_render_block; for the dedicated templates use video_render_terminal / video_render_chart / video_render_tierlist.
+List/search the Hyperframes catalog of prebuilt blocks and components (terminals, charts, maps, captions, transitions, device showcases, …). Returns each item's name, type, description and tags. Render a single-composition block as-is with video_graphic (kind: block); for the dedicated templates use the video_graphic terminal/chart kinds or video_render_tierlist.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -87,7 +87,7 @@ Render a declarative composition into a finished MP4: narrated scenes stay PERFE
 
 ## `video_download_media`
 
-Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X, Reddit, Vimeo, direct media links) into the cache. When start/end are given it fetches ONLY that window via range requests (no full download), falling back to a full download + trim if the source rejects ranges. Set audio=false for clips you'll render muted (e.g. tier-list segments) to skip the audio stream — smaller and faster. Independent URLs can be downloaded concurrently. Returns a media_id to reference in video_render / video_render_timeline. Re-downloading the same URL+window+audio is served from cache.
+Download a video/image/audio from any yt-dlp-compatible URL (YouTube, TikTok, X, Reddit, Vimeo, direct media links) into the cache. When start/end are given it fetches ONLY that window via range requests (no full download), falling back to a full download + trim if the source rejects ranges. Set audio=false for clips you'll render muted (e.g. tier-list segments) to skip the audio stream — smaller and faster. Independent URLs can be downloaded concurrently. Returns a media_id to reference in video_edit, video_compose, video_graphic, or video_render_timeline. Re-downloading the same URL+window+audio is served from cache.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -159,7 +159,7 @@ Download a video thumbnail into the media cache and return its media_id for use 
 
 ## `video_graphic`
 
-Render one generated visual, chosen by graphic.kind: math \| chart \| terminal \| manim \| block \| html. Dispatch, defaults and validation mirror the standalone render_math/render_chart/render_terminal/render_manim/render_block/render tools exactly; this is a single typed entry point over the same service calls. Common knobs live at the TOP level, not inside graphic, and each is honored only by the kinds noted below; passing one to a kind that doesn't support it is a validation error, not a silent no-op: - resolution: kind "math" (1080p/landscape/portrait/square, default landscape) and kind "html" (full range, default 1080p). - duration_seconds: kind "chart" (default 10, max 120), kind "terminal" (default 8, max 60), kind "block" (overrides the block's built-in duration, max 60). - music_media_id / music_volume: kind "math" and kind "manim" only, looped to cover the whole video. Examples (one field set per kind; everything else optional):   math:     { kind: "math", title: "Waves", scenes: [{ latex: "y=\\sin(x)", plot_expr: "sin(x)" }] }   chart:    { kind: "chart", title: "Users", points: [{ value: 10 }, { value: 40 }, { value: 25 }] }   terminal: { kind: "terminal", command: "brew install ffmpeg", output: ["Installing ffmpeg... done"] }   manim:    { kind: "manim", code: "from manim import *\nclass S(Scene):\n    def construct(self): self.play(Write(Text('Hi')))", scene_name: "S" } (needs MANIM_SCENES enabled)   block:    { kind: "block", name: "data-chart" } (see video_catalog for names)   html:     { kind: "html", html: "<div id=\"root\" data-composition-id=\"main\" data-start=\"0\" data-duration=\"5\" data-width=\"1920\" data-height=\"1080\">...</div>" } Asynchronous: returns a job_id, poll video_render_status until state is "done".
+Render one generated visual, chosen by graphic.kind: math \| chart \| terminal \| manim \| block \| html. A single typed entry point over every generated-visual service: pick a kind and pass only its fields. Common knobs live at the TOP level, not inside graphic, and each is honored only by the kinds noted below; passing one to a kind that doesn't support it is a validation error, not a silent no-op: - resolution: kind "math" (1080p/landscape/portrait/square, default landscape) and kind "html" (full range, default 1080p). - duration_seconds: kind "chart" (default 10, max 120), kind "terminal" (default 8, max 60), kind "block" (overrides the block's built-in duration, max 60). - music_media_id / music_volume: kind "math" and kind "manim" only, looped to cover the whole video. Examples (one field set per kind; everything else optional):   math:     { kind: "math", title: "Waves", scenes: [{ latex: "y=\\sin(x)", plot_expr: "sin(x)" }] }   chart:    { kind: "chart", title: "Users", points: [{ value: 10 }, { value: 40 }, { value: 25 }] }   terminal: { kind: "terminal", command: "brew install ffmpeg", output: ["Installing ffmpeg... done"] }   manim:    { kind: "manim", code: "from manim import *\nclass S(Scene):\n    def construct(self): self.play(Write(Text('Hi')))", scene_name: "S" } (needs MANIM_SCENES enabled)   block:    { kind: "block", name: "data-chart" } (see video_catalog for names)   html:     { kind: "html", html: "<div id=\"root\" data-composition-id=\"main\" data-start=\"0\" data-duration=\"5\" data-width=\"1920\" data-height=\"1080\">...</div>" } Asynchronous: returns a job_id, poll video_render_status until state is "done".
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -172,7 +172,7 @@ Render one generated visual, chosen by graphic.kind: math \| chart \| terminal \
 
 ## `video_lint`
 
-Validate a base64 HTML+GSAP composition for common authoring mistakes before rendering. Always lint before video_render.
+Validate a base64 HTML+GSAP composition for common authoring mistakes before rendering. Always lint before video_graphic (kind: html) or video_render_timeline.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
@@ -198,30 +198,6 @@ List cached media, or remove one cached item by media_id.
 | `action` | `"list"` \| `"remove"` | no | `"list"` | List all, or remove one. |
 | `media_id` | string | no |  | Required when action=remove. |
 
-## `video_narrated_scenes`
-
-THE tool for a narrated video/explainer that stays PERFECTLY in sync — footage documentary, math explainer, or a mix, one call. Give ordered scenes; each has a narration `line` plus a visual that is EITHER `media_id` (footage/image from video_download_media) OR `math` (a formula/graph rendered for you). It narrates each line, measures its real spoken length, fits that scene's visual to it, and stitches them — so when scene N is on screen, line N is heard. No cut-off voice, sync guaranteed by construction, any length. Subtitles are ON by default: the narration is force-aligned to the audio and shown as rolling word-synced phrase cues (whole clauses, wrapped) in a bottom safe band — they flow with the speech, not one block per scene, and never overlap the scene content above. Output defaults to landscape. Add `music_media_id` for a bed (sidechain-ducked under the voice, plays through a `lead_in_sec` beat first) and `voice_reference` to clone one voice across all lines. Requires CHATTERBOX_URL. Returns the finished MP4 + a `scenes` timeline (each line's real start/end). ASYNCHRONOUS: returns a job_id to poll with video_render_status. Use this instead of hand-chaining video_render_math / video_tts / video_add_audio whenever visuals must line up with narration. Keep the scene count to the request's real scope (one per beat — a short / '3 moments' is ~3-5 scenes, not a dozen): each scene is a separate narration generated one at a time (and a math scene also renders manim), so scene count is the dominant cost.
-
-| Param | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `scenes` | array | yes |  | Ordered beats: each pairs a narration line with the visual (footage or math) shown while it plays. |
-| `voice_reference` | string | no |  | media_id to clone one narrator voice across every line (download the clip first). |
-| `exaggeration` | number | no | `0.5` | Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic. |
-| `cfg_weight` | number | no | `0.5` | Pacing: lower = slower/more deliberate. |
-| `temperature` | number | no | `0.8` | Delivery variation. |
-| `music_media_id` | string | no |  | Background music (from video_download_media); plays from 0:00, ducked under the voice. |
-| `music_volume` | number | no | `0.25` | Music bed volume (also ducks under narration). |
-| `lead_in_sec` | number | no | `1` | Seconds the footage/music play before the first line comes in. |
-| `burn_captions` | boolean | no | `true` | Burn word-synced subtitles: the narration is force-aligned to the audio and shown as rolling phrase cues in a bottom safe band (wrapped, never overlapping the scene content above). Default on for narrated explainers/shorts; set false only for a caption-free montage. |
-| `caption_color` | string | no | `"white"` | Caption color — hex (#RRGGBB) or a basic color name. In karaoke mode this is the highlight color words sweep to. |
-| `caption_mode` | `"block"` \| `"karaoke"` | no | `"block"` | block = static phrase cues (readable subtitles). karaoke = each word highlights to caption_color as it is spoken (word-by-word animation). |
-| `caption_position` | `"bottom"` \| `"center"` \| `"top"` | no | `"bottom"` | Where captions sit. Default bottom. |
-| `caption_size` | `"small"` \| `"medium"` \| `"large"` | no | `"medium"` | Caption font size. |
-| `caption_box` | boolean | no | `true` | Draw a translucent box behind captions for legibility (else outline only). |
-| `tail_sec` | number | no | `0.6` | Seconds the last scene (and music) hold after the final word, so the video breathes out instead of hard-cutting. |
-| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"landscape"` | Output resolution/orientation. Default landscape (16:9); use a portrait/vertical value ONLY for a short/reel/TikTok/story. |
-| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
-
 ## `video_plan`
 
 ALWAYS call this before video_compose. Resolves and validates a composition WITHOUT rendering (instant, free): returns the estimated absolute timeline (each scene's start/end, effective caption style) plus findings [{path, severity, message, hint}]. Fix every error finding, re-plan until valid, then call video_compose ONCE with the same composition. The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) combines multiple visual clips into one view: vstack/hstack/pip need exactly 2 visual clips, grid takes 2-4. A composition may include a top-level media map (media_id -> url) copied from a prior render's recipe sidecar, so referenced media_ids missing from the local cache are fetched back in automatically. Fill this preset: {   "version": 1,   "output": { "resolution": "landscape" },   "defaults": { "caption": { "mode": "karaoke", "color": "yellow" } },   "tracks": [     { "clips": [       { "type": "composition", "id": "scene1", "duration": "fit", "tracks": [         { "clips": [ { "type": "video", "media_id": "<footage1>" } ] },         { "clips": [ { "type": "voice", "text": "First beat of the story.", "start": 1 } ] },         { "clips": [ { "type": "caption" } ] }       ]},       { "type": "composition", "id": "scene2", "duration": "fit", "tracks": [         { "clips": [ { "type": "video", "media_id": "<footage2>" } ] },         { "clips": [ { "type": "voice", "text": "Second beat." } ] },         { "clips": [ { "type": "caption", "style": { "color": "red" } } ] }       ]}     ]},     { "clips": [ { "type": "audio", "media_id": "<music>", "volume": 0.25 } ] }   ] }
@@ -232,11 +208,11 @@ ALWAYS call this before video_compose. Resolves and validates a composition WITH
 
 ## `video_preview_frame`
 
-Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_render or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.
+Render a SINGLE PNG of how a composition will look at one or more timestamps — WITHOUT doing the full multi-minute video render. Pass the same html (base64) + media array you'd pass to video_graphic (kind: html) or video_render_timeline, plus an `at` array of times in seconds. Returns one PNG url per timestamp + a contact-sheet jpg (grid). Cost: ~1.5-3s per frame. Use this AGGRESSIVELY before any render >30s: check the title slide, the moment a caption changes, the audio-peak beats. A 5-second preview is 100x cheaper than a 5-min render that ships with cropped text or wrong layout.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `html` | string | yes |  | The composition markup, same shape as video_render (plain text; base64 also accepted). |
+| `html` | string | yes |  | The composition markup, same shape as video_graphic (kind: html) (plain text; base64 also accepted). |
 | `at` | array | yes |  | Timestamps (seconds, within the composition's data-duration) to capture. |
 | `media` | array | no |  | media_ids referenced by the HTML (linked into assets/ before snapshot). |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution preset. |
@@ -249,63 +225,6 @@ AI background removal. Input is a media_id (from video_download_media) or a dire
 |---|---|---|---|---|
 | `input` | string | yes |  | A media_id or a direct http(s) URL. |
 | `format` | `"webm"` \| `"mov"` \| `"png"` | no | `"webm"` | Output format. |
-
-## `video_render`
-
-Render an HTML+GSAP composition to MP4. Asynchronous: returns a job_id — poll video_render_status until state is "done", then read result.url. Authoring rules (run video_lint first): - html is the composition markup itself (plain text, not base64) and must contain <div id="root" data-composition-id="main" data-start="0" data-duration="N" data-width="1920" data-height="1080">. - All elements use position:absolute with top/left (never bottom). Canvas 1920x1080 landscape, 1080x1920 portrait — must match resolution. - GSAP: gsap.timeline({ paused: true }) registered on window.__timelines["main"]; add class="clip" + data-start/data-duration/data-track-index to timed elements. - anime.js v3 is loaded too and drives a composition just as well — its timelines go on window.__hfAnime. Read video_skill('animejs/authoring.md') for that contract. - No Math.random (use a seeded PRNG), no fetch/async during timeline setup. Animate a wrapper div around <video>; never call .play()/.pause(). - For multiple video clips use video_render_timeline instead (one <video> per composition). - Reference downloaded media as src="assets/<filename>" and pass its media_id in the media array. Reference: https://hyperframes.mintlify.app/llms.txt
-
-| Param | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `html` | string | yes |  | The HTML+GSAP composition markup (plain text; base64 also accepted). |
-| `audio_base64` | string | no |  | Base64 WAV/MP3, injected as an <audio> track. |
-| `audio_volume` | number | no | `0.9` | Audio volume 0-1. |
-| `fps` | integer | no | `30` | Frames per second. |
-| `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | Output resolution/orientation. |
-| `media` | array | no |  | Pre-downloaded media to include. |
-| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
-
-## `video_render_block`
-
-Render a Hyperframes catalog block by name (from video_catalog) to MP4 as-is, with its built-in sample content. Best for self-contained GSAP/SVG blocks; blocks that ship extra asset files (3D, html-in-canvas) are not supported. To customize content, use the dedicated templates or author HTML with video_render. Asynchronous: returns a job_id to poll with video_render_status.
-
-| Param | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `name` | string | yes |  | Catalog block slug, e.g. 'data-chart' (see video_catalog). |
-| `duration_seconds` | number | no |  | Override the block's built-in duration. |
-| `fps` | integer | no | `30` |  |
-| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
-
-## `video_render_chart`
-
-Render a side-scrolling animated line chart: each series plots left-to-right, the view scrolls once the data fills the window so the leading edge stays in view, and every series shows a value label pinned to its tip. Pass one or more `series` (or a single `points` array) — no HTML. Asynchronous: returns a job_id to poll with video_render_status.
-
-| Param | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `title` | string | no |  | Chart title shown top-left. |
-| `series` | array | no |  | One or more line series plotted together; x-labels come from the first series. |
-| `points` | array | no |  | Convenience for a single line — use `series` for multiple. |
-| `x_label` | string | no |  | x-axis caption. |
-| `y_label` | string | no |  | y-axis caption. |
-| `accent_color` | string | no |  | Line color for the single-series `points` path. |
-| `value_suffix` | string | no | `""` | Appended to value labels, e.g. '%' or 'k'. |
-| `window_size` | integer | no | `8` | Points visible at once before the chart scrolls. |
-| `duration_seconds` | number | no | `10` | Total video length. |
-| `fps` | integer | no | `30` |  |
-| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
-
-## `video_render_math`
-
-Render a math-animation video in the classic manim style: dark background, a title, and per scene a LaTeX formula with its graph drawn left-to-right by a moving dot. Pass DATA only — the server generates and renders the manim scene. Perfect for 'graph shorts' (portrait) showing a sequence of functions. plot_expr is a plain math expression in x (sin, cos, exp, log, sqrt, abs, pi, e ... — no arbitrary code). Asynchronous: returns a job_id — poll video_render_status.
-
-| Param | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `title` | string | yes |  | Title shown at the top throughout. |
-| `scenes` | array | yes |  | Scenes shown in sequence, each fading out before the next. |
-| `resolution` | `"1080p"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"landscape"` | Output orientation. Default landscape (16:9); use portrait/square ONLY for a short/reel/story. |
-| `accent_color` | string | no |  | Hex color for formulas/graphs. |
-| `music_media_id` | string | no |  | Background-music media_id from video_download_media. Looped to cover the whole video and baked in here, so a math short with music is ONE call — no separate video_add_audio. |
-| `music_volume` | number | no | `0.8` | Music volume (default 0.8). |
-| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
 
 ## `video_render_queue`
 
@@ -334,20 +253,7 @@ Check a render/timeline job. When state is 'done', result holds the rendered vid
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `job_id` | string | yes |  | job_id returned by video_render / video_render_timeline. |
-
-## `video_render_terminal`
-
-Render an animated macOS terminal (Hyperframes apple-terminal look): the command types out character-by-character, then the output lines reveal in sequence and the cursor blinks. Pass the command and output as data — no HTML. Asynchronous: returns a job_id to poll with video_render_status.
-
-| Param | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `command` | string | yes |  | Command that types out, e.g. 'brew install ffmpeg'. |
-| `output` | array | no | `[]` | Output lines shown after the command runs, in order. |
-| `prompt` | string | no | `"user@Mac ~ % "` | Shell prompt before the command. |
-| `duration_seconds` | number | no | `8` | Total video length. |
-| `fps` | integer | no | `30` |  |
-| `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
+| `job_id` | string | yes |  | job_id returned by any asynchronous tool, e.g. video_compose, video_graphic, video_render_timeline. |
 
 ## `video_render_tierlist`
 
@@ -400,7 +306,7 @@ Search YouTube and return ranked results (title, channel, duration, views, uploa
 
 ## `video_skill`
 
-Read the bundled HyperFrames authoring skill — the real HeyGen skill docs: composition rules, GSAP motion principles, visual techniques, scene transitions, typography, color palettes, data-in-motion patterns. Call with no `doc` to list every doc, or with a `doc` path to read it. Use this to author correct video_render / video_render_timeline HTML and to explore deeper technique before building a custom composition.
+Read the bundled HyperFrames authoring skill — the real HeyGen skill docs: composition rules, GSAP motion principles, visual techniques, scene transitions, typography, color palettes, data-in-motion patterns. Call with no `doc` to list every doc, or with a `doc` path to read it. Use this to author correct video_graphic (kind: html) / video_render_timeline HTML and to explore deeper technique before building a custom composition.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
