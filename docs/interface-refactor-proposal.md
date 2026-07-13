@@ -1,8 +1,11 @@
 # Interface refactor proposal — declarative, stateless composition
 
-Status: proposal, not started. Decided to pursue, but gated on a **Phase 0 spike** first (can
-glm-5.2 actually author this? see below) before any large build. Then build lazily/incrementally
-(do the full `video_compose` when a real movie needs it; the pure-cleanup phases are optional).
+Status: **Phase 0 spike PASSED (GO, 2026-07-13)** — the narrated-subset `video_plan` +
+`video_compose` are live, and glm-5.2 authored valid compositions in #dev: one plan + one compose
+first try on a 3-scene short (3m34s wall, same as the old narrow tool), self-corrected from
+compose findings in ~12s/attempt on per-scene style overrides, and mapped natural-language timing
+("breathe 2s", "captions half a second early") to `voice.start` / caption `offset` exactly.
+Rollout below is unlocked; build incrementally.
 
 ## Why
 
