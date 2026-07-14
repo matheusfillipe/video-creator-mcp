@@ -420,7 +420,7 @@ export async function narratedScenes(params: {
       blurCues = params.captions.filter((cue) => (cue.style ?? captionStyle).background === "blur");
     }
     const videoPre = blurCues.length
-      ? blurBandPre(blurCues, captionStyle, h, captionChain)
+      ? blurBandPre(blurCues, captionStyle, w, h, captionChain)
       : captionChain
         ? `[0:v]${captionChain}[v];`
         : "";
@@ -490,20 +490,33 @@ export async function narratedScenes(params: {
 function blurBandPre(
   blurCues: Cue[],
   trackStyle: CaptionStyle,
+  width: number,
   height: number,
   captionChain: string,
 ): string {
   const first = blurCues[0] as Cue;
   const style = first.style ?? trackStyle;
-  const capFont = Math.max(20, Math.round((height / 24) * style.fontScale));
-  const bandH = Math.round(capFont * 3.2);
-  const marginV = Math.round(height * 0.07);
+  // The band must hug the text, so it is sized from the same font the caption renders at and
+  // from how many lines the longest blur cue actually wraps to, not a fixed multiple.
+  const capFont = Math.max(20, Math.round((height / 23) * style.fontScale));
+  const cpl = Math.max(1, charsPerLine(width, capFont));
+  const lines = Math.min(
+    3,
+    Math.max(1, ...blurCues.map((cue) => Math.ceil(cue.text.length / cpl))),
+  );
+  const lineH = Math.round(capFont * 1.3);
+  const pad = Math.round(capFont * 0.55);
+  const textH = lineH * lines;
+  const bandH = textH + pad * 2;
+  // The caption text sits this far from its edge (matches the drawtext/ASS margins), so the band
+  // is placed to bracket the text with `pad` above and below rather than floating over it.
+  const textMargin = Math.round(height * 0.075);
   const bandY =
     style.position === "top"
-      ? marginV
+      ? Math.max(0, textMargin - pad)
       : style.position === "center"
         ? Math.round((height - bandH) / 2)
-        : Math.max(0, height - marginV - bandH);
+        : Math.max(0, height - textMargin - textH - pad);
   // between()'s own comma-separated arguments must be escaped inside the enable expression,
   // otherwise ffmpeg's option parser reads them as filter-option separators instead.
   const windows = blurCues
