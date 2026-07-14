@@ -15,6 +15,12 @@ if (process.env.HF_CACHE_DIR) env.cacheDir = process.env.HF_CACHE_DIR;
 const MODEL_ID = process.env.ALIGN_MODEL ?? "Xenova/wav2vec2-base-960h";
 const SAMPLE_RATE = 16000;
 const FRAME_SEC = 0.02;
+// wav2vec2 self-attention is O(frames^2), so a single forward pass over a multi-minute clip
+// allocates gigabytes and OOMs the pod. The emission is computed in fixed-length windows instead:
+// per-window attention stays bounded, and since the softmax is per-frame the windowed emissions
+// concatenate into exactly the same trellis input as a single pass would produce.
+const WINDOW_SEC = 20;
+const WINDOW_SAMPLES = WINDOW_SEC * SAMPLE_RATE;
 
 interface Engine {
   processor: Awaited<ReturnType<typeof AutoProcessor.from_pretrained>>;
@@ -84,6 +90,50 @@ function logSoftmaxRows(data: Float32Array, frames: number, vocab: number): Floa
   return out;
 }
 
+interface Emission {
+  data: Float32Array;
+  frames: number;
+  vocab: number;
+  // Absolute audio time (seconds) of each frame, so a token's frame index maps back to real time
+  // even though the emission was assembled from separate windows.
+  frameTime: Float32Array;
+}
+
+// Run the model window-by-window and concatenate the per-frame log-probabilities. Each window's
+// softmax is independent of the others (it is per-frame), so the result is the same emission a
+// single pass would produce, minus the O(frames^2) attention blow-up of a long clip.
+async function computeEmission(engine: Engine, audio: Float32Array): Promise<Emission> {
+  const rows: Float32Array[] = [];
+  const frameTimes: number[] = [];
+  let vocab = 0;
+  let offset = 0;
+  while (offset < audio.length) {
+    let end = Math.min(offset + WINDOW_SAMPLES, audio.length);
+    // Absorb a sub-second trailing remainder into this window so the model never runs on a scrap
+    // too short to produce meaningful frames.
+    if (audio.length - end < SAMPLE_RATE) end = audio.length;
+    const window = audio.subarray(offset, end);
+    const inputs = await engine.processor(window);
+    const { logits } = await engine.model(inputs);
+    const [, windowFrames, windowVocab] = logits.dims as [number, number, number];
+    vocab = windowVocab;
+    rows.push(logSoftmaxRows(logits.data as Float32Array, windowFrames, windowVocab));
+    const windowStartSec = offset / SAMPLE_RATE;
+    for (let f = 0; f < windowFrames; f++) frameTimes.push(windowStartSec + f * FRAME_SEC);
+    logits.dispose?.();
+    inputs.input_values?.dispose?.();
+    offset = end;
+  }
+  const frames = frameTimes.length;
+  const data = new Float32Array(frames * vocab);
+  let cursor = 0;
+  for (const row of rows) {
+    data.set(row, cursor);
+    cursor += row.length;
+  }
+  return { data, frames, vocab, frameTime: Float32Array.from(frameTimes) };
+}
+
 // CTC forced-alignment trellis (Viterbi) + backtrack: returns [startFrame, endFrame] per token.
 function trellisAlign(
   emission: Float32Array,
@@ -149,10 +199,7 @@ async function computeAlignment(
   text: string,
 ): Promise<AlignedWord[]> {
   const audio = await decodeToMono16k(audioPath);
-  const inputs = await engine.processor(audio);
-  const { logits } = await engine.model(inputs);
-  const [, frames, vocab] = logits.dims as [number, number, number];
-  const emission = logSoftmaxRows(logits.data as Float32Array, frames, vocab);
+  const { data: emission, frames, vocab, frameTime } = await computeEmission(engine, audio);
 
   const displayWords = text.split(/\s+/).filter(Boolean);
   const normalized = displayWords.map((w) => w.toUpperCase().replace(/[^A-Z']/g, ""));
@@ -180,8 +227,9 @@ async function computeAlignment(
   const alignTimings: Array<{ start: number; end: number }> = [];
   let curStart = -1;
   let curEnd = -1;
+  const timeOf = (frame: number) => frameTime[Math.max(0, Math.min(frames - 1, frame))] as number;
   const flush = () => {
-    if (curStart >= 0) alignTimings.push({ start: curStart * FRAME_SEC, end: curEnd * FRAME_SEC });
+    if (curStart >= 0) alignTimings.push({ start: timeOf(curStart), end: timeOf(curEnd) });
     curStart = -1;
     curEnd = -1;
   };
