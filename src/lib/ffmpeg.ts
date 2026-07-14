@@ -47,6 +47,13 @@ export function coverFilter(width: number, height: number): string {
   return `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`;
 }
 
+// Fits the whole source inside the cell, letterboxed with black bars, no crop. For split-screen
+// cells whose aspect differs sharply from the source (a landscape clip in a half-width column),
+// cover would zoom into a tiny center patch; contain keeps the full subject visible.
+export function containFilter(width: number, height: number): string {
+  return `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:black,setsar=1`;
+}
+
 export type TextPosition = "top" | "center" | "bottom";
 
 export interface TimedDrawtext {

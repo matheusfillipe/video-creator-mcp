@@ -8,6 +8,7 @@ import {
   X264_ARGS,
   buildAudioMixFilters,
   buildTimedDrawtext,
+  containFilter,
   coverFilter,
   validateColor,
 } from "../lib/ffmpeg.js";
@@ -71,6 +72,19 @@ const GROUPS_PER_LAYOUT: Record<EditLayout, number> = {
   pip: 2,
   grid: 4,
 };
+
+type FitMode = "cover" | "contain";
+
+// single/pip cells share the canvas aspect, so cover fills them without distortion. vstack/hstack/
+// grid cells are a different shape than typical footage, so they letterbox (contain) to keep the
+// whole subject visible instead of zoom-cropping it.
+function fitForLayout(layout: EditLayout): FitMode {
+  return layout === "single" || layout === "pip" ? "cover" : "contain";
+}
+
+function fitFilter(fit: FitMode, width: number, height: number): string {
+  return fit === "contain" ? containFilter(width, height) : coverFilter(width, height);
+}
 
 // Cell size each group is normalized to before the layout combine.
 export function cellDims(
@@ -160,6 +174,7 @@ async function normalizeSegment(
   seg: EditSegment,
   cell: { width: number; height: number },
   fps: number,
+  fit: FitMode,
   outPath: string,
 ): Promise<number> {
   const meta = await loadMeta(seg.media_id);
@@ -182,7 +197,7 @@ async function normalizeSegment(
     args.push("-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000");
   }
 
-  const vf = [coverFilter(cell.width, cell.height)];
+  const vf = [fitFilter(fit, cell.width, cell.height)];
   if (speed !== 1) vf.push(`setpts=PTS/${speed}`);
   vf.push(`fps=${fps}`, "format=yuv420p");
   args.push("-vf", vf.join(","));
@@ -314,6 +329,7 @@ async function normalizeSceneVisual(
   cell: { width: number; height: number },
   fps: number,
   durationSec: number,
+  fit: FitMode,
   outPath: string,
 ): Promise<void> {
   const inputArgs = IMAGE_RE.test(path)
@@ -326,7 +342,7 @@ async function normalizeSceneVisual(
       "-y",
       ...inputArgs,
       "-vf",
-      [coverFilter(cell.width, cell.height), `fps=${fps}`, "format=yuv420p"].join(","),
+      [fitFilter(fit, cell.width, cell.height), `fps=${fps}`, "format=yuv420p"].join(","),
       "-an",
       "-c:v",
       "libx264",
@@ -365,6 +381,7 @@ export async function combineSceneVisuals(params: {
   const rowGrid = params.layout === "grid" && n !== 4;
   const cells = rowGrid ? gridRowCellDims(n, canvas) : cellDims(params.layout, canvas);
   const filter = rowGrid ? gridRowFilter(n) : layoutFilter(params.layout, n);
+  const fit = fitForLayout(params.layout);
 
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `compose-layout-${jobId}`);
@@ -374,7 +391,7 @@ export async function combineSceneVisuals(params: {
     for (const [i, visualPath] of params.visuals.entries()) {
       const cell = cells[i] as { width: number; height: number };
       const partPath = join(dir, `v${i}.mp4`);
-      await normalizeSceneVisual(visualPath, cell, params.fps, params.durationSec, partPath);
+      await normalizeSceneVisual(visualPath, cell, params.fps, params.durationSec, fit, partPath);
       parts.push(partPath);
     }
     const combined = join(dir, "combined.mp4");
@@ -442,6 +459,7 @@ export async function renderEdit(spec: EditSpec): Promise<EditOutput> {
   const fade = spec.fade ?? 0;
   const canvas = dimsFor(resolution);
   const cells = cellDims(layout, canvas);
+  const fit = fitForLayout(layout);
   const warnings: string[] = [];
 
   const jobId = randomUUID().slice(0, 8);
@@ -457,7 +475,7 @@ export async function renderEdit(spec: EditSpec): Promise<EditOutput> {
       const durations: number[] = [];
       for (const [si, seg] of group.entries()) {
         const partPath = join(dir, `g${gi}s${si}.mp4`);
-        durations.push(await normalizeSegment(seg, cell, fps, partPath));
+        durations.push(await normalizeSegment(seg, cell, fps, fit, partPath));
         parts.push(partPath);
       }
       groupFiles.push(await concatGroup(dir, gi, parts, fade, fps, durations));
