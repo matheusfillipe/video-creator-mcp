@@ -21,8 +21,8 @@ server:  searches YouTube → picks 8 clips at their heatmap peaks
 - **Compose** — full slideshows (`video_render_slideshow`), animated countdowns/tier lists, terminal demos, data-driven line charts, or fully custom HTML+GSAP scenes. Templates stamp the HTML for the agent — no hand-authored markup needed for the common shapes.
 - **Edit on the timeline** — multiple clips with per-segment text overlays, background video that plays *through* text changes (not restarting on every slide), Ken-Burns zoom on stills.
 - **Audio control** — per-clip volume + mute, soundtrack/narration overlay with fade and offset, video length auto-clamped to the music.
-- **Narrate in sync** (`video_plan` → `video_compose`): a declarative composition pairs each narration line with its own scene, cut to the line's real spoken length so audio and picture stay synced by construction. Word-synced captions, multi-visual layouts (vstack/hstack/grid/pip), scene transitions, still images, and ducked background music are all declared in one spec and validated for free before the render.
-- **Narrate standalone**: built-in TTS with multiple voices, expressive acting dials, and voice cloning.
+- **Narrate in sync** (`video_plan` → `video_compose`): a declarative composition pairs each narration line with its own scene, cut to the line's real spoken length so audio and picture stay synced by construction. Word-synced captions, multi-visual layouts (vstack/hstack/grid/pip), scene transitions, still images, and ducked background music are all declared in one spec and validated for free before the render. Narration needs the optional TTS service (below).
+- **Narrate standalone** (`video_tts`): voiceover with multiple voices, expressive acting dials, and voice cloning. Text-to-speech is NOT built in: it calls an external Chatterbox TTS service that you run and point `CHATTERBOX_URL` at. Leave it unset and the narration tools return a clear "not configured" error; every non-narration tool still works.
 - **Render in the background** — submit a job, poll for the URL. Nothing blocks the agent on a multi-minute render.
 - **Catch mistakes before they ship** — composition linter, frame extractor for visual verification, audio-analysis for cut-point grounding.
 
@@ -125,6 +125,7 @@ Copy `.env.example` to `.env`. Common knobs:
 | `STORAGE_TYPE` | `local` (`./output`) or `s3` (MinIO/Cloudflare R2/AWS) |
 | `RENDER_CONCURRENCY` | parallel render jobs (default 1) |
 | `RENDER_SEGMENT_CONCURRENCY` | parallel chrome segments per job (default 3) |
+| `CHATTERBOX_URL` | external Chatterbox TTS service; required for narration/voice tools, unset otherwise |
 | `ALLOW_PRIVATE_NETWORK` | unblock downloads of private/internal URLs |
 
 Downloads are SSRF-guarded by default — hosts resolving to private/internal addresses are rejected.
