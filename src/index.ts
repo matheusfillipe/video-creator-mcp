@@ -4,6 +4,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import express, { type NextFunction, type Request, type Response } from "express";
 import { config } from "./config.js";
 import { SERVER_NAME, SERVER_VERSION, buildServer } from "./server.js";
+import { startCacheGc } from "./services/cache-gc.js";
 
 async function runStdio(): Promise<void> {
   const server = buildServer();
@@ -55,6 +56,7 @@ async function runHttp(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  startCacheGc();
   if (config.transport === "stdio") {
     await runStdio();
   } else {
