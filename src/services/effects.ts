@@ -318,7 +318,7 @@ export async function narratedScenes(params: {
   scenes: NarratedScene[];
   narration: Buffer;
   leadInSec: number;
-  music?: { path: string; volume: number };
+  music?: { path: string; volume: number; trimHead?: boolean };
   captions?: Cue[];
   captionStyle?: CaptionStyle;
   captionMode?: "block" | "karaoke";
@@ -429,6 +429,9 @@ export async function narratedScenes(params: {
     const outFile = join(dir, "out.mp4");
     const args = ["-nostdin", "-y", "-i", silentVideo];
     if (params.music) {
+      // Head-trim removes a bed's leading silence so it fills the lead-in; a transcript-synced
+      // track (trimHead=false) must play from its first sample or the aligned words drift.
+      const musHead = params.music.trimHead === false ? "" : `${MUSIC_HEAD_TRIM},`;
       args.push(
         "-stream_loop",
         "-1",
@@ -437,7 +440,7 @@ export async function narratedScenes(params: {
         "-i",
         narration,
         "-filter_complex",
-        `${videoPre}[1:a]${MUSIC_HEAD_TRIM},volume=${params.music.volume}[mus];[2:a]${delay}asplit=2[nar1][nar2];[mus][nar1]${SIDECHAIN_DUCK}[musd];[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]`,
+        `${videoPre}[1:a]${musHead}volume=${params.music.volume}[mus];[2:a]${delay}asplit=2[nar1][nar2];[mus][nar1]${SIDECHAIN_DUCK}[musd];[musd][nar2]amix=inputs=2:duration=longest:normalize=0[a]`,
         "-map",
         videoMap,
         "-map",

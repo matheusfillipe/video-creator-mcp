@@ -216,6 +216,26 @@ const OUTER_TRACK = z
   })
   .strict();
 
+const TRANSCRIPT = z
+  .object({
+    text: z
+      .string()
+      .min(1)
+      .describe(
+        "The words in the order they are spoken/sung (line breaks are fine). Force-aligned to the audio so each word lights up as it is heard — karaoke-style captions over the whole video. Works for song lyrics or a plain speech/narration transcript.",
+      ),
+    media_id: z
+      .string()
+      .optional()
+      .describe(
+        "Audio to align the words to. Omit to use the audio track's media_id (the usual case: the same clip you play IS what the words align to).",
+      ),
+    caption: CAPTION_STYLE_FIELDS.optional().describe(
+      "Style for the words. Defaults to karaoke highlight, centered.",
+    ),
+  })
+  .strict();
+
 export const COMPOSITION = z
   .object({
     version: z.literal(1).default(1),
@@ -245,6 +265,9 @@ export const COMPOSITION = z
       .describe(
         "media_id -> durable url, copied from a prior render's recipe sidecar. Lets media_ids this composition references be fetched back into the cache when they're missing locally (e.g. a reopened recipe on a fresh pod).",
       ),
+    transcript: TRANSCRIPT.optional().describe(
+      "Word-synced captions over the whole video, aligned to a provided audio clip (song lyrics OR a plain speech/narration transcript). Put the audio on an audio track (volume ~1.0, it is the main track not a background bed) and its words here; each word highlights as heard. Size the scenes to sum to the audio's length (video_analyze_audio reports it).",
+    ),
   })
   .strict();
 
@@ -299,6 +322,7 @@ interface ResolvedComposition {
   findings: Finding[];
   scenes: ResolvedScene[];
   music?: { mediaId: string; volume: number };
+  transcript?: { text: string; mediaId: string; style: CueStyle };
   leadInSec: number;
   resolution: z.infer<typeof RESOLUTION>;
   fps: number;
@@ -477,11 +501,47 @@ export async function resolveComposition(comp: Composition): Promise<ResolvedCom
     }
   }
 
+  let transcript: ResolvedComposition["transcript"];
+  if (comp.transcript) {
+    const transcriptMediaId = comp.transcript.media_id ?? music?.mediaId;
+    if (!transcriptMediaId) {
+      findings.push({
+        path: "transcript.media_id",
+        severity: "error",
+        message:
+          "transcript needs audio to align to: add an audio track, or set transcript.media_id",
+      });
+    } else {
+      if (!(await ensureMedia(transcriptMediaId, comp.media))) {
+        findings.push({
+          path: "transcript.media_id",
+          severity: "error",
+          message: `transcript media_id "${transcriptMediaId}" not found`,
+          hint: "download the audio with video_download_media first",
+        });
+      }
+      const spec = mergeCaption({ mode: "karaoke", position: "center" }, comp.transcript.caption);
+      if (!validateColor(spec.color)) {
+        findings.push({
+          path: "transcript.caption.color",
+          severity: "error",
+          message: `"${spec.color}" is not a hex (#RRGGBB) or basic color name`,
+        });
+      }
+      transcript = {
+        text: comp.transcript.text,
+        mediaId: transcriptMediaId,
+        style: toCueStyle(spec),
+      };
+    }
+  }
+
   const { width, height } = dimsFor(comp.output.resolution);
   return {
     findings,
     scenes,
     music,
+    transcript,
     leadInSec: scenes.at(0)?.voice?.start ?? 0,
     resolution: comp.output.resolution,
     fps: comp.output.fps,
@@ -795,7 +855,7 @@ export function registerComposeTools(server: McpServer): void {
   registerTool(server, {
     name: "video_compose",
     title: "Render a composition (narrated video, synced by construction)",
-    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later; the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Requires CHATTERBOX_URL. ${LANGUAGE_RULES}`,
+    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Downloaded footage/screenshots go in scene \`video\` clips and are mixed in by construction — PREFER this over hand-authoring HTML whenever you have real media to include, so nothing silently gets dropped. For a song or a recorded speech you already have the words for, set top-level \`transcript\` (the audio on an audio track + its text): the words are force-aligned to the real audio into karaoke captions, no TTS/CHATTERBOX needed for that path. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later; the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Narrated (voice) scenes require CHATTERBOX_URL. ${LANGUAGE_RULES}`,
     inputSchema: {
       composition: COMPOSITION.describe("The declarative composition to render."),
       metadata: metadataArg,
@@ -1018,6 +1078,7 @@ function referencedMediaIds(resolved: ResolvedComposition): Set<string> {
     if (scene.voice?.referenceId) ids.add(scene.voice.referenceId);
   }
   if (resolved.music) ids.add(resolved.music.mediaId);
+  if (resolved.transcript) ids.add(resolved.transcript.mediaId);
   return ids;
 }
 
@@ -1187,6 +1248,22 @@ async function renderComposition(
       await rm(alignDir, { recursive: true, force: true });
     }
   }
+  // A transcript aligns its words to a provided audio clip (a song, a recorded speech) and
+  // paints karaoke cues across the whole timeline — no TTS, the audio itself is the voice.
+  if (resolved.transcript) {
+    const audioMeta = await loadMeta(resolved.transcript.mediaId);
+    if (!audioMeta) {
+      throw new Error(
+        `transcript audio not found: ${resolved.transcript.mediaId} — download it with video_download_media first.`,
+      );
+    }
+    const style = resolved.transcript.style;
+    const fontSize = Math.max(22, Math.round((h / 26) * style.fontScale));
+    const words = await alignWords(audioMeta.path, resolved.transcript.text);
+    const cues = groupIntoCues(words, { maxChars: 2 * charsPerLine(w, fontSize), maxWords: 14 });
+    for (const cue of cues) captions.push({ ...cue, style });
+  }
+
   // Clamp only after the cues sit on the final timeline: a negative caption offset may
   // legitimately reach into the lead-in, but an inverted [start,end] never draws at all.
   const placedCues = offsetCues(captions, leadInSec).map((cue) => {
@@ -1194,7 +1271,7 @@ async function renderComposition(
     return { ...cue, start, end: Math.max(start + 0.3, cue.end) };
   });
 
-  let music: { path: string; volume: number } | undefined;
+  let music: { path: string; volume: number; trimHead?: boolean } | undefined;
   if (musicRef) {
     const musicMeta = await loadMeta(musicRef.mediaId);
     if (!musicMeta) {
@@ -1202,7 +1279,13 @@ async function renderComposition(
         `music media_id not found: ${musicRef.mediaId} — download it with video_download_media first.`,
       );
     }
-    music = { path: musicMeta.path, volume: musicRef.volume };
+    // A transcript's cues are timed against the audio from its first sample, so the played track
+    // must not have its leading silence trimmed or the words would drift ahead of the audio.
+    music = {
+      path: musicMeta.path,
+      volume: musicRef.volume,
+      ...(resolved.transcript ? { trimHead: false } : {}),
+    };
   }
 
   const { buffer, meta } = await narratedScenes({

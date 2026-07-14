@@ -291,6 +291,95 @@ describe("resolveComposition", () => {
     expect(resolved.scenes[0]?.transitionOutSec).toBe(0.5);
     expect(resolved.scenes[1]?.transitionOutSec).toBeUndefined();
   });
+
+  describe("transcript (against a synthetic cached audio fixture)", () => {
+    const AUDIO_ID = "vitest-transcript-song";
+    const metaFile = join(config.mediaCacheDir, `${AUDIO_ID}.meta.json`);
+
+    beforeAll(async () => {
+      await mkdir(config.mediaCacheDir, { recursive: true });
+      await saveMeta(AUDIO_ID, {
+        media_id: AUDIO_ID,
+        filename: `${AUDIO_ID}.mp3`,
+        path: "/dev/null",
+        url: "",
+        start: null,
+        end: null,
+        duration: 30,
+        width: 0,
+        height: 0,
+        codec: "mp3",
+        fps: 0,
+        hasAudio: true,
+        size: 1000,
+      });
+    });
+
+    afterAll(async () => {
+      await rm(metaFile, { force: true });
+    });
+
+    it("resolves a transcript against the audio track and defaults to karaoke", async () => {
+      const comp = COMPOSITION.parse({
+        tracks: [
+          {
+            clips: [
+              { type: "composition", id: "s0", duration: 30, tracks: [{ clips: [graphic(1)] }] },
+            ],
+          },
+          { clips: [{ type: "audio", media_id: AUDIO_ID, volume: 1 }] },
+        ],
+        transcript: { text: "line one line two line three" },
+      });
+      const resolved = await resolveComposition(comp);
+      expect(errorsOf(resolved.findings)).toEqual([]);
+      expect(resolved.transcript?.mediaId).toBe(AUDIO_ID);
+      expect(resolved.transcript?.style.mode).toBe("karaoke");
+    });
+
+    it("flags a transcript with no audio to align to", async () => {
+      const comp = COMPOSITION.parse({
+        tracks: [
+          {
+            clips: [
+              { type: "composition", id: "s0", duration: 5, tracks: [{ clips: [graphic(1)] }] },
+            ],
+          },
+        ],
+        transcript: { text: "words with nothing to align to" },
+      });
+      const resolved = await resolveComposition(comp);
+      expect(resolved.findings).toContainEqual(
+        expect.objectContaining({
+          path: "transcript.media_id",
+          severity: "error",
+          message:
+            "transcript needs audio to align to: add an audio track, or set transcript.media_id",
+        }),
+      );
+    });
+
+    it("flags a transcript.media_id that is not cached", async () => {
+      const comp = COMPOSITION.parse({
+        tracks: [
+          {
+            clips: [
+              { type: "composition", id: "s0", duration: 5, tracks: [{ clips: [graphic(1)] }] },
+            ],
+          },
+        ],
+        transcript: { text: "aligning to a missing clip", media_id: "does-not-exist" },
+      });
+      const resolved = await resolveComposition(comp);
+      expect(resolved.findings).toContainEqual(
+        expect.objectContaining({
+          path: "transcript.media_id",
+          severity: "error",
+          message: 'transcript media_id "does-not-exist" not found',
+        }),
+      );
+    });
+  });
 });
 
 describe("locateSceneAt", () => {
