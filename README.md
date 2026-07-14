@@ -21,7 +21,8 @@ server:  searches YouTube → picks 8 clips at their heatmap peaks
 - **Compose** — full slideshows (`video_render_slideshow`), animated countdowns/tier lists, terminal demos, data-driven line charts, or fully custom HTML+GSAP scenes. Templates stamp the HTML for the agent — no hand-authored markup needed for the common shapes.
 - **Edit on the timeline** — multiple clips with per-segment text overlays, background video that plays *through* text changes (not restarting on every slide), Ken-Burns zoom on stills.
 - **Audio control** — per-clip volume + mute, soundtrack/narration overlay with fade and offset, video length auto-clamped to the music.
-- **Narrate** — built-in TTS with multiple voices.
+- **Narrate in sync** (`video_plan` → `video_compose`): a declarative composition pairs each narration line with its own scene, cut to the line's real spoken length so audio and picture stay synced by construction. Word-synced captions, multi-visual layouts (vstack/hstack/grid/pip), scene transitions, still images, and ducked background music are all declared in one spec and validated for free before the render.
+- **Narrate standalone**: built-in TTS with multiple voices, expressive acting dials, and voice cloning.
 - **Render in the background** — submit a job, poll for the URL. Nothing blocks the agent on a multi-minute render.
 - **Catch mistakes before they ship** — composition linter, frame extractor for visual verification, audio-analysis for cut-point grounding.
 
@@ -130,7 +131,7 @@ Downloads are SSRF-guarded by default — hosts resolving to private/internal ad
 
 ## Under the hood
 
-Compositions are HTML + [GSAP](https://gsap.com), rasterized by [Hyperframes](https://hyperframes.dev) (headless Chrome) and assembled with ffmpeg. The slideshow path groups consecutive same-media segments into one continuous chrome render so the background plays through text transitions naturally. For the authoring rules an agent follows, see <https://hyperframes.mintlify.app/llms.txt>.
+HTML compositions (`video_graphic` kind html, `video_render_timeline`, slideshow, tierlist) are HTML + [GSAP](https://gsap.com), rasterized by [Hyperframes](https://hyperframes.dev) (headless Chrome) and assembled with ffmpeg. The slideshow path groups consecutive same-media segments into one continuous chrome render so the background plays through text transitions naturally. `video_compose` narrated scenes and math graphics take a different path: pure ffmpeg (plus manim for the math), no browser. For the authoring rules an agent follows, see <https://hyperframes.mintlify.app/llms.txt>.
 
 ## Development
 

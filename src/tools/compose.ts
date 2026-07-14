@@ -241,7 +241,7 @@ type MathGraphic = z.infer<typeof GRAPHIC_CLIP>;
 type CaptionSpec = z.infer<typeof CAPTION_STYLE_FIELDS>;
 type VoiceSpec = z.infer<typeof VOICE_FIELDS>;
 
-interface Finding {
+export interface Finding {
   path: string;
   severity: "error" | "warning";
   message: string;
@@ -372,7 +372,7 @@ async function ensureMedia(
 
 // Resolve + validate a composition without rendering: cascade the defaults, classify the
 // tracks, and collect findings the agent can act on. Shared by video_plan and video_compose.
-async function resolveComposition(comp: Composition): Promise<ResolvedComposition> {
+export async function resolveComposition(comp: Composition): Promise<ResolvedComposition> {
   const findings: Finding[] = [];
   const scenes: ResolvedScene[] = [];
   let music: { mediaId: string; volume: number } | undefined;
@@ -874,7 +874,7 @@ async function resolveVisualPath(
     : footage.path;
 }
 
-interface FrameLocation {
+export interface FrameLocation {
   scene: ResolvedScene;
   sceneStart: number;
   sceneEnd: number;
@@ -885,7 +885,7 @@ interface FrameLocation {
 // real TTS), cursor starting at the lead-in. Finds which scene `atSec` falls into and the offset
 // inside it. A timestamp inside the lead-in (before scene 0 starts) has no scene of its own to
 // preview, so it lands on scene 0 at offset 0 instead of erroring.
-function locateSceneAt(resolved: ResolvedComposition, atSec: number): FrameLocation {
+export function locateSceneAt(resolved: ResolvedComposition, atSec: number): FrameLocation {
   if (resolved.scenes.length === 0) {
     throw new Error("composition has no scenes to preview");
   }

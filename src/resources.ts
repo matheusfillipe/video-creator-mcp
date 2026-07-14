@@ -23,7 +23,7 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 
 **\`video_edit\` is the path for anything cut-shaped.** It trims, concatenates (with optional crossfades), stacks groups (vstack = top/bottom shorts split, hstack, pip, grid), burns timed text, and lays music over — one call, no HTML, no browser. To cut "the part where he says X": \`video_search_subtitles\` gives the exact start/end, \`video_download_media\` that window, reference the media_id in the spec. Reach for HTML compositions ONLY for animated motion-design overlays the plain text of \`video_edit\` can't express.
 
-**\`video_plan\` → \`video_compose\` is the path for anything narrated.** A composition is tracks of clips: each scene pairs a visual (footage or a math graphic) with a narration line, an optional caption clip, and cascading style defaults; music is one audio clip that loops and ducks under the voice; transitions and layouts (vstack/hstack/pip/grid) are declared per scene. Always call \`video_plan\` first: it resolves and validates the composition for free and returns findings; fix every error, then call \`video_compose\` exactly once.
+**\`video_plan\` → \`video_compose\` is the path for anything narrated.** A composition is tracks of clips: each scene pairs a visual (footage, a still image, or a math graphic) with a narration line, an optional caption clip, and cascading style defaults; a video clip can be trimmed with \`in\`/\`out\` in the scene itself (no separate \`video_edit\` pass for that); music is one audio clip that loops and ducks under the voice; transitions (\`transition_out\` fade) and multi-visual layouts (vstack/hstack/pip/grid) are declared per scene. Keep captions at the default \`bottom\` when a scene's visual has its own top title (a math \`graphic\`'s \`title\` sits at the top, so a top caption crowds it). Always call \`video_plan\` first: it resolves and validates the composition for free and returns findings; fix every error, then call \`video_compose\` exactly once.
 
 **Every generated graphic renders through \`video_graphic\`.** A formula, graph, constant (golden ratio), sequence (Fibonacci), 3D surface (a Pringle/saddle \`z = x²/a² − y²/b²\`), spiral, or theorem proof (kind: math for graphs/formulas, kind: manim for 3D/parametric/geometry) is drawn from the math itself, not sourced from footage or assembled from pictures. A line chart (kind: chart), a typed terminal (kind: terminal), a catalog block (kind: block), or a custom animated overlay (kind: html) all dispatch through the same tool, chosen by \`graphic.kind\`.
 
@@ -40,12 +40,13 @@ Pick a tool, fetch sources, render, verify, ship. Most briefs match a template t
 ## Vision-validate BEFORE you render — use \`video_preview_frame\`
 **Verifying a finished render is the wrong loop.** A full render is minutes; one preview frame is ~1.5s. Catch layout problems while they're still cheap to fix.
 
-For every HTML composition before \`video_graphic\` (kind: html) / \`video_render_timeline\` / \`video_render_slideshow\`:
-1. Call \`video_preview_frame\` on the SAME html + media you'd render, at 3 key timestamps (≈0.5s, mid, ≈95% of duration).
-2. Vision-check the returned PNGs (or the contact-sheet jpg) for: text bleed, layer overlap, letterbox, wrong content, mostly-black, mojibake.
-3. All clean → render once. Any bad → fix the HTML and preview again. **Render is the LAST step.** When \`video_render_status\` returns a url, report it and STOP — no second verify pass on the finished MP4.
+Two things take a preview pass before rendering, because their layout is not obvious from the spec:
+- Every HTML composition before \`video_graphic\` (kind: html) / \`video_render_timeline\` / \`video_render_slideshow\`: call \`video_preview_frame\` with the SAME html + media, at 3 key timestamps (≈0.5s, mid, ≈95% of duration).
+- Any \`video_compose\` scene that is NOT a plain single visual: pass the composition to \`video_preview_frame\` (\`composition\` + an \`at\` timestamp inside each such scene). This applies when a scene uses a multi-visual \`layout\` (vstack/hstack/grid/pip) or a \`caption\` positioned top/center over a visual that has its own title. Preview renders one frame with no TTS, so it is cheap.
 
-\`video_edit\`, \`video_compose\`, and \`video_graphic\` kinds math/manim/chart/terminal/block need no preview pass — their layout is deterministic from the spec. Verify their SOURCES instead (\`video_extract_frame\` on downloaded clips) and ship the result directly.
+Then: vision-check the returned PNGs (or the contact-sheet jpg) for text bleed, layer overlap, letterbox, wrong content, mostly-black, mojibake. All clean → render once. Any bad → fix the spec and preview again. **Render is the LAST step.** When \`video_render_status\` returns a url, report it and STOP (no second verify pass on the finished MP4).
+
+\`video_edit\`, a single-visual \`video_compose\` scene, and \`video_graphic\` kinds math/manim/chart/terminal/block need no preview pass; their layout is deterministic from the spec. Verify their SOURCES instead (\`video_extract_frame\` on downloaded clips) and ship the result directly.
 
 \`video_extract_frame\` is for verifying **source clips** (a freshly downloaded YouTube clip — does it actually contain what the title promised?), not for verifying your own render output. If you used preview_frame correctly, you don't need to re-check the final.
 

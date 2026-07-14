@@ -76,5 +76,5 @@ Labels appear/disappear by `class="clip"` + `data-start`/`data-duration` — the
 A 2-min chrome render costs ~8 minutes of software-GL time, so validate upfront:
 1. **Source clip is clean?** After `video_download_media`, `video_extract_frame` at 2-3 timestamps within the window → vision tool. Reject baked-in watermarks ("4K Planet Earth", "Nature Relaxation Films"), on-screen text, wrong-scene content.
 2. **Audio peaks?** `video_analyze_audio` returns the real energy curve — anchor cuts to that, not the user's guessed timestamps.
-3. **Layout works at full size?** Before scaling to N segments, render the SAME composition with `data-duration="3"` via `video_graphic` (kind: html, a quick sample), extract frames at 0.5s and 2.5s, vision-check: video fills 1920×1080 (no letterboxing), text not cut off, no overlap with baked source-text.
+3. **Layout works at full size?** Before scaling to N segments, `video_preview_frame` the SAME html + media at 2-3 timestamps (no render, ~1.5-3s/frame), vision-check: video fills 1920×1080 (no letterboxing), text not cut off, no overlap with baked source-text.
 4. **Static overlay zones?** `video_analyze_static` returns avoid-region boxes.

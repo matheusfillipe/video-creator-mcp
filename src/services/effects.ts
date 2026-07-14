@@ -20,14 +20,14 @@ const SIDECHAIN_DUCK = "sidechaincompress=threshold=0.04:ratio=8:attack=15:relea
 // (otherwise the intro's silence lands exactly where the footage/music are meant to breathe).
 const MUSIC_HEAD_TRIM = "silenceremove=start_periods=1:start_threshold=-50dB";
 
-export interface Caption {
+interface Caption {
   text: string;
   start: number;
   duration: number;
 }
-export type CaptionPosition = "top" | "center" | "bottom";
+type CaptionPosition = "top" | "center" | "bottom";
 
-export interface CaptionParams {
+interface CaptionParams {
   mediaId: string;
   captions: Caption[];
   position: CaptionPosition;
@@ -781,17 +781,6 @@ export async function maxFrameLumaOfFile(filePath: string): Promise<number> {
     if (Number.isNaN(max) || value > max) max = value;
   }
   return max;
-}
-
-export async function maxFrameLuma(buffer: Buffer): Promise<number> {
-  const dir = await mkdtemp(join(tmpdir(), "vcm-luma-"));
-  try {
-    const file = join(dir, "probe.mp4");
-    await writeFile(file, buffer);
-    return await maxFrameLumaOfFile(file);
-  } finally {
-    await rm(dir, { recursive: true, force: true });
-  }
 }
 
 export function blackOutputWarning(maxLuma: number): string | null {

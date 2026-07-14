@@ -3,13 +3,7 @@
 // pipeline concatenates these segments, so a full tier-list is: intro card, then for each
 // entry a black "#rank — name" card followed by the entry's clip with a rank badge + name.
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
+import { escapeHtml } from "./html.js";
 
 function document(durationSeconds: number, body: string, timeline: string): string {
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><script src="assets/gsap.min.js"></script><style>html,body{margin:0;padding:0}</style></head><body>
