@@ -56,7 +56,9 @@ export interface TimedDrawtext {
   position: TextPosition;
   fontSize: number;
   color: string;
-  box: boolean;
+  background: "none" | "box" | "blur";
+  shadow: boolean;
+  outline: boolean;
   margin?: number;
 }
 
@@ -114,7 +116,17 @@ export function buildTimedDrawtext(opts: TimedDrawtext): string {
     `fontsize=${opts.fontSize}`,
     `fontcolor=${opts.color}`,
   ];
-  if (opts.box) {
+  if (opts.outline) {
+    const width = Math.max(2, Math.round(opts.fontSize / 12));
+    parts.push(`borderw=${width}`, "bordercolor=black@0.85");
+  }
+  if (opts.shadow) {
+    const offset = Math.max(1, Math.round(opts.fontSize / 22));
+    parts.push("shadowcolor=black@0.55", `shadowx=${offset}`, `shadowy=${offset}`);
+  }
+  // "blur" is drawn as a separate video layer under the text (narratedScenes), so drawtext
+  // itself only ever adds the solid box for the "box" background.
+  if (opts.background === "box") {
     parts.push("box=1", "boxcolor=black@0.5", `boxborderw=${Math.round(opts.fontSize * 0.35)}`);
   }
   return `drawtext=${parts.join(":")}`;

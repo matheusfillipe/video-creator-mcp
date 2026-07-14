@@ -51,7 +51,20 @@ const CAPTION_STYLE_FIELDS = z
     color: z.string().optional().describe("Hex #RRGGBB or a basic color name."),
     position: z.enum(["bottom", "center", "top"]).optional(),
     size: z.enum(["small", "medium", "large"]).optional(),
-    box: z.boolean().optional().describe("Translucent box behind the text (else outline only)."),
+    background: z
+      .enum(["none", "box", "blur"])
+      .optional()
+      .describe(
+        "Backing behind the text: none = text only, box = translucent solid panel, blur = a frosted blurred strip. Preferred over the legacy `box` field.",
+      ),
+    shadow: z.boolean().optional().describe("Drop shadow under the text, for legibility."),
+    outline: z.boolean().optional().describe("Dark outline around the glyphs, for legibility."),
+    box: z
+      .boolean()
+      .optional()
+      .describe(
+        'Legacy shorthand for background: true = "box", false = "none". Ignored when background is also set.',
+      ),
   })
   .strict();
 
@@ -293,15 +306,21 @@ interface ResolvedComposition {
   height: number;
 }
 
-const BASE_CAPTION: Required<CaptionSpec> = {
+// The cascaded, fully-resolved style; `box` is only ever an input shorthand (see mergeCaption),
+// never a resolved property, so it's excluded here.
+type ResolvedCaptionSpec = Required<Omit<CaptionSpec, "box">>;
+
+const BASE_CAPTION: ResolvedCaptionSpec = {
   mode: "block",
   color: "white",
   position: "bottom",
   size: "medium",
-  box: true,
+  background: "box",
+  shadow: true,
+  outline: true,
 };
 
-function mergeCaption(...layers: (CaptionSpec | undefined)[]): Required<CaptionSpec> {
+function mergeCaption(...layers: (CaptionSpec | undefined)[]): ResolvedCaptionSpec {
   const merged = { ...BASE_CAPTION };
   for (const layer of layers) {
     if (!layer) continue;
@@ -309,18 +328,25 @@ function mergeCaption(...layers: (CaptionSpec | undefined)[]): Required<CaptionS
     if (layer.color !== undefined) merged.color = layer.color;
     if (layer.position !== undefined) merged.position = layer.position;
     if (layer.size !== undefined) merged.size = layer.size;
-    if (layer.box !== undefined) merged.box = layer.box;
+    // `box` is a back-compat shorthand for `background`; at each layer it only takes effect
+    // when that same layer doesn't also set `background` explicitly.
+    if (layer.background !== undefined) merged.background = layer.background;
+    else if (layer.box !== undefined) merged.background = layer.box ? "box" : "none";
+    if (layer.shadow !== undefined) merged.shadow = layer.shadow;
+    if (layer.outline !== undefined) merged.outline = layer.outline;
   }
   return merged;
 }
 
-function toCueStyle(spec: Required<CaptionSpec>): CueStyle {
+function toCueStyle(spec: ResolvedCaptionSpec): CueStyle {
   return {
     mode: spec.mode,
     color: spec.color,
     position: spec.position,
     fontScale: fontScaleFor(spec.size),
-    box: spec.box,
+    background: spec.background,
+    shadow: spec.shadow,
+    outline: spec.outline,
   };
 }
 
@@ -661,7 +687,7 @@ interface PlanScene {
   voice_start: number;
   est_start: number;
   est_end: number;
-  captions: (Omit<Required<CaptionSpec>, never> & { offset: number }) | null;
+  captions: (ResolvedCaptionSpec & { offset: number }) | null;
 }
 
 function visualLabel(visual: ResolvedVisual): string {
@@ -684,7 +710,9 @@ function planView(resolved: ResolvedComposition, comp: Composition) {
         color: s.color,
         position: s.position,
         size: s.fontScale < 1 ? "small" : s.fontScale > 1 ? "large" : "medium",
-        box: s.box,
+        background: s.background,
+        shadow: s.shadow,
+        outline: s.outline,
         offset: scene.caption.offset,
       };
     }
@@ -745,7 +773,7 @@ const PRESET = `{
   ]
 }`;
 
-const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) combines multiple visual clips into one view: vstack/hstack/pip need exactly 2 visual clips, grid takes 2-4. A composition may include a top-level media map (media_id -> url) copied from a prior render's recipe sidecar, so referenced media_ids missing from the local cache are fetched back in automatically. Fill this preset:
+const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). A caption's style also takes background (none/box/blur — blur is a frosted, darkened strip behind the text), shadow, and outline for legibility. Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) combines multiple visual clips into one view: vstack/hstack/pip need exactly 2 visual clips, grid takes 2-4. A composition may include a top-level media map (media_id -> url) copied from a prior render's recipe sidecar, so referenced media_ids missing from the local cache are fetched back in automatically. Fill this preset:
 ${PRESET}`;
 
 export function registerComposeTools(server: McpServer): void {

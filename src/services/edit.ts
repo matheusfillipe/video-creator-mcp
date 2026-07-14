@@ -425,7 +425,9 @@ export function textFilters(
       position: t.position ?? "bottom",
       fontSize: t.size ?? Math.max(28, Math.round(canvasHeight / 18)),
       color: t.color ?? "white",
-      box: t.box !== false,
+      background: t.box !== false ? "box" : "none",
+      shadow: false,
+      outline: false,
     }),
   );
 }

@@ -396,9 +396,12 @@ export async function narratedScenes(params: {
       color: "white",
       position: "bottom",
       fontScale: 1,
-      box: true,
+      background: "box",
+      shadow: true,
+      outline: true,
     };
     let captionChain = "";
+    let blurCues: Cue[] = [];
     if (params.captions?.length) {
       // A cue-level style may pick its own mode, so one video can mix segments: karaoke cues go
       // through libass, block cues through drawtext, chained in the same filter pass.
@@ -414,8 +417,13 @@ export async function narratedScenes(params: {
         chains.push(await captionFilterChain(dir, blockCues, w, h, captionStyle));
       }
       captionChain = chains.join(",");
+      blurCues = params.captions.filter((cue) => (cue.style ?? captionStyle).background === "blur");
     }
-    const videoPre = captionChain ? `[0:v]${captionChain}[v];` : "";
+    const videoPre = blurCues.length
+      ? blurBandPre(blurCues, captionStyle, h, captionChain)
+      : captionChain
+        ? `[0:v]${captionChain}[v];`
+        : "";
     const videoMap = captionChain ? "[v]" : "0:v:0";
 
     const outFile = join(dir, "out.mp4");
@@ -474,6 +482,40 @@ export async function narratedScenes(params: {
   }
 }
 
+// A "blur" caption background is drawn as a second video layer, not a drawtext flag: split the
+// frame, blur + darken a horizontal band at the caption's position, and composite that band back
+// under the caption chain so the text renders on top of it. The band's enable window is the union
+// of every blur cue's [start,end], so it only darkens the footage while a blur cue is actually on
+// screen. All blur cues share one band (the track's position), so pick the first one's style.
+function blurBandPre(
+  blurCues: Cue[],
+  trackStyle: CaptionStyle,
+  height: number,
+  captionChain: string,
+): string {
+  const first = blurCues[0] as Cue;
+  const style = first.style ?? trackStyle;
+  const capFont = Math.max(20, Math.round((height / 24) * style.fontScale));
+  const bandH = Math.round(capFont * 3.2);
+  const marginV = Math.round(height * 0.07);
+  const bandY =
+    style.position === "top"
+      ? marginV
+      : style.position === "center"
+        ? Math.round((height - bandH) / 2)
+        : Math.max(0, height - marginV - bandH);
+  // between()'s own comma-separated arguments must be escaped inside the enable expression,
+  // otherwise ffmpeg's option parser reads them as filter-option separators instead.
+  const windows = blurCues
+    .map((cue) => `between(t\\,${cue.start.toFixed(3)}\\,${cue.end.toFixed(3)})`)
+    .join("+");
+  return (
+    `[0:v]split=2[cb0][cb1];[cb1]crop=iw:${bandH}:0:${bandY},` +
+    `boxblur=luma_radius=14:luma_power=1,drawbox=x=0:y=0:w=iw:h=${bandH}:color=black@0.22:t=fill[cbb];` +
+    `[cb0][cbb]overlay=0:${bandY}:enable='${windows}'[cbg];[cbg]${captionChain}[v];`
+  );
+}
+
 // Comma-joined drawtext chain for a static ("block") caption cue track: each cue wrapped to the
 // frame width and shown only over its own [start,end], sized to the frame and pinned in a safe band.
 async function captionFilterChain(
@@ -497,7 +539,9 @@ async function captionFilterChain(
         position: cueStyle.position,
         fontSize,
         color: cueStyle.color,
-        box: cueStyle.box,
+        background: cueStyle.background,
+        shadow: cueStyle.shadow,
+        outline: cueStyle.outline,
         margin: Math.round(height * 0.08),
       }),
     );
@@ -552,7 +596,9 @@ export async function captionMedia(
           position: params.position,
           fontSize,
           color: params.color,
-          box: params.box,
+          background: params.box ? "box" : "none",
+          shadow: false,
+          outline: false,
         }),
       );
     }

@@ -66,11 +66,18 @@ export function offsetCues(cues: Cue[], delta: number): Cue[] {
 
 export type CaptionPosition = "bottom" | "center" | "top";
 
+// The backing drawn behind caption text: "none" is text only, "box" is a translucent solid
+// panel (the original look), "blur" is a frosted, darkened strip (rendered as a separate video
+// layer under the text — see narratedScenes in effects.ts).
+export type CaptionBackground = "none" | "box" | "blur";
+
 export interface CaptionStyle {
   color: string; // highlight/primary color: hex #RRGGBB or a basic name
   position: CaptionPosition;
   fontScale: number; // multiplier on the resolution-derived base size
-  box: boolean;
+  background: CaptionBackground;
+  shadow: boolean; // drop shadow under the text
+  outline: boolean; // dark outline around the glyphs
 }
 
 // A cue-level style also picks the render mode, so one video can mix static and karaoke segments.
@@ -145,16 +152,21 @@ export function buildAss(
     // spoken. A dim grey secondary keeps the sweep visible even when the primary (highlight) is
     // the default white, so word-highlight never looks like a static caption.
     const secondary = karaoke ? "&H00B4B4B4" : primary;
-    const borderStyle = s.box ? 3 : 1;
-    const outline = s.box ? 0 : Math.max(2, Math.round(fontSize / 14));
-    return `Style: ${name},Liberation Sans,${fontSize},${primary},${secondary},&H00000000,&H96000000,1,0,0,0,100,100,0,0,${borderStyle},${outline},0,${alignment},${marginLR},${marginLR},${marginV},1`;
+    // BorderStyle 3 (opaque box) already conveys legibility on its own, so the Outline field
+    // there is left at 0 rather than doubling up with a glyph stroke; BorderStyle 1 (outline
+    // and/or shadow drawn straight onto the glyphs) uses it when the caller asked for an outline.
+    const borderStyle = s.background === "box" ? 3 : 1;
+    const outline =
+      s.background !== "box" && s.outline ? Math.max(2, Math.round(fontSize / 12)) : 0;
+    const shadow = s.shadow ? Math.max(1, Math.round(fontSize / 20)) : 0;
+    return `Style: ${name},Liberation Sans,${fontSize},${primary},${secondary},&H00000000,&H96000000,1,0,0,0,100,100,0,0,${borderStyle},${outline},${shadow},${alignment},${marginLR},${marginLR},${marginV},1`;
   };
   // One ASS style per distinct cue override; cues without one use the track style.
   const overrideNames = new Map<string, string>();
   const styleLines: string[] = [styleLine("Cap", style)];
   const nameFor = (s?: CueStyle): string => {
     if (!s) return "Cap";
-    const key = `${s.color}|${s.position}|${s.fontScale}|${s.box}`;
+    const key = `${s.color}|${s.position}|${s.fontScale}|${s.background}|${s.shadow}|${s.outline}`;
     let name = overrideNames.get(key);
     if (!name) {
       name = `Cap${overrideNames.size + 1}`;

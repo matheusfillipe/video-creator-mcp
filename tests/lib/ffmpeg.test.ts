@@ -34,7 +34,9 @@ describe("buildTimedDrawtext", () => {
     position: "bottom" as const,
     fontSize: 60,
     color: "white",
-    box: true,
+    background: "box" as const,
+    shadow: false,
+    outline: false,
   };
 
   it("emits enable window, centered x, and box", () => {
@@ -44,8 +46,17 @@ describe("buildTimedDrawtext", () => {
     expect(f).toContain("box=1");
   });
 
-  it("drops the box when box is false", () => {
-    expect(buildTimedDrawtext({ ...base, box: false })).not.toContain("box=1");
+  it("drops the box when background is not 'box'", () => {
+    expect(buildTimedDrawtext({ ...base, background: "none" })).not.toContain("box=1");
+    expect(buildTimedDrawtext({ ...base, background: "blur" })).not.toContain("box=1");
+  });
+
+  it("adds an outline and a shadow when requested", () => {
+    const f = buildTimedDrawtext({ ...base, background: "none", outline: true, shadow: true });
+    expect(f).toContain("borderw=5");
+    expect(f).toContain("bordercolor=black@0.85");
+    expect(f).toContain("shadowcolor=black@0.55");
+    expect(f).toContain("shadowx=3");
   });
 
   it("positions center vs top differently", () => {
