@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { run } from "../lib/exec.js";
 import { charsPerLine, validateColor } from "../lib/ffmpeg.js";
+import { contentTypeForExt } from "../lib/mime.js";
 import { alignWords } from "../services/align.js";
 import {
   type Cue,
@@ -1005,29 +1006,6 @@ export async function previewCompositionFrame(
   };
 }
 
-// Extensions this server ever writes into the media cache, mapped to a content type for the
-// upload (storage.save defaults to video/mp4 when the caller omits one).
-const MEDIA_CONTENT_TYPES: Record<string, string> = {
-  ".mp4": "video/mp4",
-  ".mov": "video/quicktime",
-  ".webm": "video/webm",
-  ".mkv": "video/x-matroska",
-  ".mp3": "audio/mpeg",
-  ".wav": "audio/wav",
-  ".m4a": "audio/mp4",
-  ".ogg": "audio/ogg",
-  ".flac": "audio/flac",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".png": "image/png",
-  ".webp": "image/webp",
-  ".gif": "image/gif",
-};
-
-function contentTypeFor(ext: string): string {
-  return MEDIA_CONTENT_TYPES[ext.toLowerCase()] ?? "application/octet-stream";
-}
-
 // Every source media_id a resolved composition actually references: video/image sources by
 // their original id (not a derived trim or math render), the music bed, and any voice clone
 // reference. These are the same ids that appear in the composition JSON stored as the recipe.
@@ -1061,7 +1039,11 @@ async function publishReferencedMedia(
       if (!meta) continue;
       const buffer = await readFile(meta.path);
       const ext = extname(meta.path) || extname(meta.filename);
-      media[mediaId] = await storage().save(buffer, `media/${mediaId}${ext}`, contentTypeFor(ext));
+      media[mediaId] = await storage().save(
+        buffer,
+        `media/${mediaId}${ext}`,
+        contentTypeForExt(ext),
+      );
     } catch (error) {
       errors.push(`${mediaId}: ${error instanceof Error ? error.message : String(error)}`);
     }

@@ -2,6 +2,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { type StorageConfig, config } from "../config.js";
+import { contentTypeForFilename } from "../lib/mime.js";
 
 export interface Storage {
   readonly type: "local" | "s3";
@@ -21,13 +22,15 @@ function createS3Storage(storage: StorageConfig): Storage {
   });
   return {
     type: "s3",
-    async save(buffer, filename, contentType = "video/mp4") {
+    async save(buffer, filename, contentType) {
       await client.send(
         new PutObjectCommand({
           Bucket: bucket,
           Key: filename,
           Body: buffer,
-          ContentType: contentType,
+          // Default to the type implied by the extension so a .png/.json/.wav isn't served as
+          // video/mp4 (which browsers, with nosniff, then refuse to render).
+          ContentType: contentType ?? contentTypeForFilename(filename),
         }),
       );
       return `${storage.publicUrl}/${filename}`;
