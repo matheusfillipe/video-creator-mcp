@@ -132,7 +132,7 @@ Downloads are SSRF-guarded by default — hosts resolving to private/internal ad
 
 ## Under the hood
 
-HTML compositions (`video_graphic` kind html, `video_render_timeline`, slideshow, tierlist) are HTML + [GSAP](https://gsap.com), rasterized by [Hyperframes](https://hyperframes.dev) (headless Chrome) and assembled with ffmpeg. The slideshow path groups consecutive same-media segments into one continuous chrome render so the background plays through text transitions naturally. `video_compose` narrated scenes and math graphics take a different path: pure ffmpeg (plus manim for the math), no browser. For the authoring rules an agent follows, see <https://hyperframes.mintlify.app/llms.txt>.
+HTML compositions (`video_graphic` kind html, `video_render_timeline`, slideshow, tierlist) are HTML + [GSAP](https://gsap.com), rasterized by [Hyperframes](https://hyperframes.dev) (headless Chrome) and assembled with ffmpeg. The slideshow path groups consecutive same-media segments into one continuous chrome render so the background plays through text transitions naturally. `video_compose` narrated scenes and math graphics take a different path: pure ffmpeg (plus manim for the math), no browser. Its JSON, which is also the video's editable project file, is documented in [docs/composition.md](docs/composition.md). For the authoring rules an agent follows, see <https://hyperframes.mintlify.app/llms.txt>.
 
 ## Development
 
