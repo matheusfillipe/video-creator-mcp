@@ -58,6 +58,14 @@ ENV HF_CACHE_DIR=/app/.hf-cache \
     ALIGN_MODEL=Xenova/wav2vec2-base-960h
 RUN node -e "(async()=>{const t=await import('@huggingface/transformers');t.env.cacheDir=process.env.HF_CACHE_DIR;const m=process.env.ALIGN_MODEL;await t.AutoModelForCTC.from_pretrained(m);await t.AutoProcessor.from_pretrained(m);await t.AutoTokenizer.from_pretrained(m);console.log('baked align model',m);})().catch(e=>{console.error(e);process.exit(1)})"
 
+# Bake the MDX-Net vocal-separation model (~64MB) the same way, so a `sung` transcript can isolate
+# the vocals in-process (onnxruntime-node, no PyTorch) before force-aligning, without a runtime
+# fetch. The exact model params are pinned in src/services/separate-worker.ts.
+ENV MDX_MODEL=/app/models/mdx/UVR-MDX-NET-Voc_FT.onnx
+RUN mkdir -p /app/models/mdx \
+    && curl -fsSL "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR-MDX-NET-Voc_FT.onnx" -o "$MDX_MODEL" \
+    && test -s "$MDX_MODEL"
+
 # Bake the Hyperframes render engine into the image (its native sharp dep resolves a Linux
 # prebuilt here, unlike on dev machines). System chromium is reused via PUPPETEER_EXECUTABLE_PATH.
 RUN npm install -g hyperframes@0.6.81 && npm cache clean --force \

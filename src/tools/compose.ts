@@ -29,6 +29,7 @@ import {
   wavDurationSec,
 } from "../services/narration.js";
 import { saveRender } from "../services/publish.js";
+import { separateVocals } from "../services/separate.js";
 import { storage } from "../services/storage.js";
 import { dimsFor } from "../services/timeline.js";
 import type { MediaMeta } from "../types.js";
@@ -230,6 +231,12 @@ const TRANSCRIPT = z
       .describe(
         "Audio to align the words to. Omit to use the audio track's media_id (the usual case: the same clip you play IS what the words align to).",
       ),
+    audio_kind: z
+      .enum(["speech", "sung"])
+      .default("speech")
+      .describe(
+        "sung = the audio is a SONG (vocals over music); the vocals are isolated before aligning so the words land on the beat (use this for karaoke over a real song). speech = plain spoken audio, aligned directly. Sung adds a separation pass (~real-time, CPU).",
+      ),
     caption: CAPTION_STYLE_FIELDS.optional().describe(
       "Style for the words. Defaults to karaoke highlight, centered.",
     ),
@@ -266,7 +273,7 @@ export const COMPOSITION = z
         "media_id -> durable url, copied from a prior render's recipe sidecar. Lets media_ids this composition references be fetched back into the cache when they're missing locally (e.g. a reopened recipe on a fresh pod).",
       ),
     transcript: TRANSCRIPT.optional().describe(
-      "Word-synced captions over the whole video, aligned to a provided audio clip (song lyrics OR a plain speech/narration transcript). Put the audio on an audio track (volume ~1.0, it is the main track not a background bed) and its words here; each word highlights as heard. Size the scenes to sum to the audio's length (video_analyze_audio reports it).",
+      "Word-synced captions over the whole video, aligned to a provided audio clip (song lyrics OR a plain speech/narration transcript). Put the audio on an audio track (volume ~1.0, it is the main track not a background bed) and its words here; each word highlights as heard. For a SONG set audio_kind:'sung' (the vocals are isolated before aligning, or the backing music throws the sync off). Size the scenes to sum to the audio's length (video_analyze_audio reports it).",
     ),
   })
   .strict();
@@ -322,7 +329,7 @@ interface ResolvedComposition {
   findings: Finding[];
   scenes: ResolvedScene[];
   music?: { mediaId: string; volume: number };
-  transcript?: { text: string; mediaId: string; style: CueStyle };
+  transcript?: { text: string; mediaId: string; style: CueStyle; audioKind: "speech" | "sung" };
   leadInSec: number;
   resolution: z.infer<typeof RESOLUTION>;
   fps: number;
@@ -532,6 +539,7 @@ export async function resolveComposition(comp: Composition): Promise<ResolvedCom
         text: comp.transcript.text,
         mediaId: transcriptMediaId,
         style: toCueStyle(spec),
+        audioKind: comp.transcript.audio_kind,
       };
     }
   }
@@ -1259,9 +1267,18 @@ async function renderComposition(
     }
     const style = resolved.transcript.style;
     const fontSize = Math.max(22, Math.round((h / 26) * style.fontScale));
-    const words = await alignWords(audioMeta.path, resolved.transcript.text);
-    const cues = groupIntoCues(words, { maxChars: 2 * charsPerLine(w, fontSize), maxWords: 14 });
-    for (const cue of cues) captions.push({ ...cue, style });
+    // A song is a bad alignment target (wav2vec2 hears the backing track as noise), so isolate the
+    // vocals first; the stem is only the alignment reference, the played audio is still the mix.
+    const separated =
+      resolved.transcript.audioKind === "sung" ? await separateVocals(audioMeta.path) : undefined;
+    try {
+      const alignPath = separated?.path ?? audioMeta.path;
+      const words = await alignWords(alignPath, resolved.transcript.text);
+      const cues = groupIntoCues(words, { maxChars: 2 * charsPerLine(w, fontSize), maxWords: 14 });
+      for (const cue of cues) captions.push({ ...cue, style });
+    } finally {
+      await separated?.cleanup();
+    }
   }
 
   // Clamp only after the cues sit on the final timeline: a negative caption offset may

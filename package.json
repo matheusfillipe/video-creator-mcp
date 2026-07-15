@@ -49,6 +49,7 @@
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "express": "^4.21.2",
+    "fft.js": "^4.0.4",
     "zod": "^4.4.3"
   },
   "devDependencies": {

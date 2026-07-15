@@ -335,6 +335,24 @@ describe("resolveComposition", () => {
       expect(errorsOf(resolved.findings)).toEqual([]);
       expect(resolved.transcript?.mediaId).toBe(AUDIO_ID);
       expect(resolved.transcript?.style.mode).toBe("karaoke");
+      expect(resolved.transcript?.audioKind).toBe("speech");
+    });
+
+    it("carries audio_kind 'sung' through for a song transcript", async () => {
+      const comp = COMPOSITION.parse({
+        tracks: [
+          {
+            clips: [
+              { type: "composition", id: "s0", duration: 30, tracks: [{ clips: [graphic(1)] }] },
+            ],
+          },
+          { clips: [{ type: "audio", media_id: AUDIO_ID, volume: 1 }] },
+        ],
+        transcript: { text: "sung lyrics over music", audio_kind: "sung" },
+      });
+      const resolved = await resolveComposition(comp);
+      expect(errorsOf(resolved.findings)).toEqual([]);
+      expect(resolved.transcript?.audioKind).toBe("sung");
     });
 
     it("flags a transcript with no audio to align to", async () => {
