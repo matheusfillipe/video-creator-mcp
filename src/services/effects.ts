@@ -511,6 +511,13 @@ function blurBandPre(
   const pad = Math.round(capFont * 0.55);
   const textH = lineH * lines;
   const bandH = textH + pad * 2;
+  // Width hugs the widest wrapped line (same 0.52em glyph model the wrap uses), centered, so the
+  // band brackets the text instead of spanning the whole frame and covering picture that could
+  // show footage. Capped at the frame width for a cue that genuinely fills the line.
+  const glyphW = capFont * 0.52;
+  const maxLineChars = Math.min(cpl, Math.max(...blurCues.map((cue) => cue.text.length)));
+  const bandW = Math.min(width, Math.round(maxLineChars * glyphW) + pad * 2);
+  const bandX = Math.round((width - bandW) / 2);
   // The caption text sits this far from its edge (matches the drawtext/ASS margins), so the band
   // is placed to bracket the text with `pad` above and below rather than floating over it.
   const textMargin = Math.round(height * 0.075);
@@ -526,9 +533,9 @@ function blurBandPre(
     .map((cue) => `between(t\\,${cue.start.toFixed(3)}\\,${cue.end.toFixed(3)})`)
     .join("+");
   return (
-    `[0:v]split=2[cb0][cb1];[cb1]crop=iw:${bandH}:0:${bandY},` +
+    `[0:v]split=2[cb0][cb1];[cb1]crop=${bandW}:${bandH}:${bandX}:${bandY},` +
     `boxblur=luma_radius=14:luma_power=1,drawbox=x=0:y=0:w=iw:h=${bandH}:color=black@0.22:t=fill[cbb];` +
-    `[cb0][cbb]overlay=0:${bandY}:enable='${windows}'[cbg];[cbg]${captionChain}[v];`
+    `[cb0][cbb]overlay=${bandX}:${bandY}:enable='${windows}'[cbg];[cbg]${captionChain}[v];`
   );
 }
 
