@@ -98,13 +98,40 @@ export function normalizeYouTubeUrl(url: string): string {
   return BARE_ID_RE.test(url) ? `https://www.youtube.com/watch?v=${url}` : url;
 }
 
+export function parseJsonLines(stdout: string): YtdlpEntry[] {
+  const entries: YtdlpEntry[] = [];
+  for (const line of stdout.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("{")) continue;
+    try {
+      entries.push(JSON.parse(trimmed) as YtdlpEntry);
+    } catch {
+      // YouTube intermittently serves a non-JSON consent/rate-limit page (mostly
+      // to search queries from a throttled IP); skip the junk instead of failing
+      // the whole call on it.
+    }
+  }
+  return entries;
+}
+
+// Retries once because the consent/rate-limit page is transient — a second
+// attempt (which re-triggers yt-dlp's consent bypass) usually comes back clean.
 async function dumpJson(target: string): Promise<YtdlpEntry[]> {
-  const args = ["--no-download", "--dump-json", ...(await cookieArgs()), target];
-  const { stdout } = await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
-  return stdout
-    .split("\n")
-    .filter((line) => line.trim())
-    .map((line) => JSON.parse(line) as YtdlpEntry);
+  let hadOutput = false;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
+    const args = ["--no-download", "--dump-json", ...(await cookieArgs()), target];
+    const { stdout } = await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
+    const entries = parseJsonLines(stdout);
+    if (entries.length > 0) return entries;
+    if (stdout.trim()) hadOutput = true;
+  }
+  if (hadOutput) {
+    throw new Error(
+      `yt-dlp returned a non-JSON response for "${target}": YouTube is serving a consent/rate-limit page to this IP. Retry shortly or use a direct video URL.`,
+    );
+  }
+  return [];
 }
 
 function formatDuration(seconds: number): string {
