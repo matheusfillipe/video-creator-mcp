@@ -41,6 +41,16 @@ export function sanitizedEnv(): NodeJS.ProcessEnv {
   return clean;
 }
 
+// Only the tail of a subprocess's output is ever used (error messages, small probe markers), but a
+// chatty ffmpeg over a long render can emit hundreds of MB. Retaining it all overflows Node's max
+// string length ("RangeError: Invalid string length") and crashes the process, so cap what we keep.
+const CAPTURE_TAIL_BYTES = 1 << 20;
+
+function appendCapped(buffer: string, chunk: Buffer): string {
+  const next = buffer + chunk.toString();
+  return next.length > CAPTURE_TAIL_BYTES ? next.slice(next.length - CAPTURE_TAIL_BYTES) : next;
+}
+
 export function run(
   command: string,
   args: string[],
@@ -57,10 +67,10 @@ export function run(
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
+      stdout = appendCapped(stdout, chunk);
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      stderr = appendCapped(stderr, chunk);
     });
     child.on("error", reject);
     child.on("close", (code) => {
@@ -93,12 +103,11 @@ export function spawnStreaming(
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
+      stdout = appendCapped(stdout, chunk);
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      stderr += text;
-      for (const line of text.split("\n")) {
+      stderr = appendCapped(stderr, chunk);
+      for (const line of chunk.toString().split("\n")) {
         if (line.trim()) {
           onStderrLine(line);
         }
