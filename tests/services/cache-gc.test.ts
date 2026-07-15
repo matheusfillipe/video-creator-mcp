@@ -61,15 +61,28 @@ describe("sweepCacheOnce", () => {
   });
 
   it("evicts the oldest items first when over the size budget", async () => {
-    // Two 4 GiB items (default budget is 6 GiB), both young so age never triggers.
+    // Two 4 GiB items (default budget is 6 GiB), both past the retain floor so only size triggers.
     const fourGiB = 4 * 1024 ** 3;
-    await seedItem("older", fourGiB, 2);
-    await seedItem("newer", fourGiB, 1);
+    await seedItem("older", fourGiB, 3);
+    await seedItem("newer", fourGiB, 2);
 
     const result = await sweepCacheOnce(NOW, dir);
 
     expect(result.items).toBe(1);
     expect(await exists("older.mp4")).toBe(false);
     expect(await exists("newer.mp4")).toBe(true);
+  });
+
+  it("keeps a fresh working set even over the size budget (a live generation)", async () => {
+    // 8 GiB of media, all minutes old — one in-flight generation must not lose any of it.
+    const fourGiB = 4 * 1024 ** 3;
+    await seedItem("music", fourGiB, 0.2);
+    await seedItem("clip", fourGiB, 0.1);
+
+    const result = await sweepCacheOnce(NOW, dir);
+
+    expect(result.items).toBe(0);
+    expect(await exists("music.mp4")).toBe(true);
+    expect(await exists("clip.mp4")).toBe(true);
   });
 });

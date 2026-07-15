@@ -8,6 +8,12 @@ const SWEEP_INTERVAL_MS = 30 * 60_000;
 // forever. A miss just re-downloads (or re-fetches from a recipe's durable url), so eviction is safe.
 const MAX_AGE_MS = Number(process.env.CACHE_MAX_AGE_HOURS ?? 6) * 3_600_000;
 const MAX_TOTAL_BYTES = Number(process.env.CACHE_MAX_GB ?? 6) * 1024 ** 3;
+// A single generation downloads its media (music first, then clips, TTS, renders)
+// and only references it all at the final compose, which can be 30+ min of slow
+// TTS and renders later. Size eviction must never touch an item younger than this,
+// or a live generation loses media it still needs mid-run; only genuinely stale
+// items get culled to hit the size cap.
+const MIN_RETAIN_MS = Number(process.env.CACHE_MIN_RETAIN_MIN ?? 90) * 60_000;
 
 interface CacheItem {
   base: string;
@@ -64,6 +70,7 @@ export async function sweepCacheOnce(
   let total = survivors.reduce((sum, item) => sum + item.size, 0);
   for (const item of survivors) {
     if (total <= MAX_TOTAL_BYTES) break;
+    if (now - item.mtime < MIN_RETAIN_MS) continue;
     doomed.set(item.base, item);
     total -= item.size;
   }
