@@ -47,6 +47,26 @@ export function coverFilter(width: number, height: number): string {
   return `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`;
 }
 
+// A slow Ken-Burns push-in for a still image: cover-fit to the frame, upscale so zoompan's
+// integer per-frame crop stays sub-pixel (otherwise the zoom visibly jitters), then zoom linearly
+// to ~1.12 over the clip. Without this a still sits frozen at its cover-fit and reads as a static
+// "already zoomed" shot. Driven from a SINGLE input frame (the caller must NOT -loop it): zoompan
+// emits `frames` outputs from the one input and `zoom` accumulates across them, which also sets the
+// clip length (frames / fps). Under -loop the zoom resets every input frame and never progresses.
+// The comma inside min() is escaped so it survives the filter chain's own comma splitting.
+export function kenBurnsFilter(width: number, height: number, fps: number, durSec: number): string {
+  const frames = Math.max(1, Math.round(durSec * fps));
+  const maxZoom = 1.12;
+  const rate = ((maxZoom - 1) / frames).toFixed(6);
+  return [
+    `scale=${width}:${height}:force_original_aspect_ratio=increase`,
+    `crop=${width}:${height}`,
+    `scale=${width * 2}:${height * 2}`,
+    `zoompan=z='min(zoom+${rate}\\,${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`,
+    "setsar=1",
+  ].join(",");
+}
+
 // Fits the whole source inside the cell, letterboxed with black bars, no crop. For split-screen
 // cells whose aspect differs sharply from the source (a landscape clip in a half-width column),
 // cover would zoom into a tiny center patch; contain keeps the full subject visible.

@@ -4,7 +4,13 @@ import { join } from "node:path";
 import { decodeComposition } from "../lib/composition-checks.js";
 import { checkComposition } from "../lib/composition-checks.js";
 import { ExecError, run } from "../lib/exec.js";
-import { buildTimedDrawtext, charsPerLine, coverFilter, wrapText } from "../lib/ffmpeg.js";
+import {
+  buildTimedDrawtext,
+  charsPerLine,
+  coverFilter,
+  kenBurnsFilter,
+  wrapText,
+} from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
 import { type CaptionStyle, type Cue, buildAss } from "./captions.js";
@@ -341,10 +347,12 @@ export async function narratedScenes(params: {
         (i === 0 ? scene.duration + params.leadInSec : scene.duration) +
         (i === lastIndex ? tailSec : 0);
       const out = join(dir, `scene${i}.mp4`);
-      // -stream_loop repeats a real video source to cover clipDur; a still image has nothing to
-      // loop and needs the image demuxer's own -loop instead.
-      const inputArgs = IMAGE_RE.test(scene.footagePath)
-        ? ["-loop", "1", "-i", scene.footagePath, "-t", clipDur.toFixed(3)]
+      // -stream_loop repeats a real video source to cover clipDur. A still image is fed as a single
+      // frame instead: kenBurnsFilter's zoompan emits the whole clip's frames from it (and its zoom
+      // only accumulates when the input is one frame, not -loop'd), so no -loop/-t here.
+      const isImage = IMAGE_RE.test(scene.footagePath);
+      const inputArgs = isImage
+        ? ["-i", scene.footagePath]
         : ["-stream_loop", "-1", "-i", scene.footagePath, "-t", clipDur.toFixed(3)];
       const fadeFilters: string[] = [];
       if (scene.fadeInSec !== undefined) {
@@ -361,7 +369,10 @@ export async function narratedScenes(params: {
           "-y",
           ...inputArgs,
           "-vf",
-          [coverFilter(w, h), `fps=${fps}`, ...fadeFilters].join(","),
+          [
+            isImage ? kenBurnsFilter(w, h, fps, clipDur) : `${coverFilter(w, h)},fps=${fps}`,
+            ...fadeFilters,
+          ].join(","),
           "-an",
           "-c:v",
           "libx264",
