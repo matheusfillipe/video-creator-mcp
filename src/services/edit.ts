@@ -429,6 +429,70 @@ export async function combineSceneVisuals(params: {
   }
 }
 
+// Play 2-6 already-resolved visual clips back-to-back over `durationSec`, each holding an equal
+// share, into ONE silent clip. The temporal sibling of combineSceneVisuals: a scene's single voice +
+// captions span the whole thing while the picture cuts, so a still-image scene stops being one frozen
+// shot. Cover-fit per segment; the cuts carry the motion. Cached by idSeed like any derived render.
+export async function sequenceSceneVisuals(params: {
+  visuals: string[];
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  idSeed: string;
+}): Promise<{ path: string }> {
+  const cached = await getCached(mediaIdFor(params.idSeed));
+  if (cached) return { path: cached.path };
+
+  const n = params.visuals.length;
+  const share = params.durationSec / n;
+  const cell = { width: params.width, height: params.height };
+  const jobId = randomUUID().slice(0, 8);
+  const dir = join(config.workDir, `compose-seq-${jobId}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const parts: string[] = [];
+    for (const [i, visualPath] of params.visuals.entries()) {
+      const partPath = join(dir, `s${i}.mp4`);
+      await normalizeSceneVisual(visualPath, cell, params.fps, share, "cover", partPath);
+      parts.push(partPath);
+    }
+    const combined = join(dir, "sequence.mp4");
+    const inputs = parts.flatMap((p) => ["-i", p]);
+    const streams = parts.map((_, i) => `[${i}:v]`).join("");
+    await run(
+      "ffmpeg",
+      [
+        "-nostdin",
+        "-y",
+        ...inputs,
+        "-filter_complex",
+        `${streams}concat=n=${n}:v=1:a=0[vout]`,
+        "-map",
+        "[vout]",
+        "-an",
+        "-r",
+        String(params.fps),
+        ...X264_ARGS,
+        "-movflags",
+        "+faststart",
+        combined,
+      ],
+      { timeoutMs: 600_000 },
+    );
+    const buffer = await readFile(combined);
+    const meta = await writeMediaFromBuffer({
+      idSeed: params.idSeed,
+      buffer,
+      ext: ".mp4",
+      sourceUrl: `compose-sequence://${n}`,
+    });
+    return { path: meta.path };
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
+  }
+}
+
 export function textFilters(
   overlays: EditText[],
   textFiles: string[],
