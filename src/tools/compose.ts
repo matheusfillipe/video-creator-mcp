@@ -14,7 +14,7 @@ import {
   groupIntoCues,
   offsetCues,
 } from "../services/captions.js";
-import { combineSceneVisuals, sequenceSceneVisuals } from "../services/edit.js";
+import { combineSceneVisuals, containVisual, sequenceSceneVisuals } from "../services/edit.js";
 import { type NarratedScene, frameBufferFromPath, narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { renderMathShortCached } from "../services/manim.js";
@@ -109,6 +109,12 @@ const VIDEO_CLIP = z
         "Seconds into the source to start playing from (a source trim), independent of the scene's own duration.",
       ),
     out: z.number().positive().optional().describe("Seconds into the source to stop playing at."),
+    fit: z
+      .enum(["cover", "contain"])
+      .optional()
+      .describe(
+        "How a still image fills the frame: cover (default) crops it to fill with a slow zoom-in; contain shows the WHOLE image (no crop) centered over a blurred fill of itself, with a gentle push-in. Use contain for screenshots/text where cropping the borders loses the point. Only applies to a single-visual still-image scene.",
+      ),
   })
   .strict();
 
@@ -302,7 +308,7 @@ interface ResolvedVoice {
 }
 
 type ResolvedVisual =
-  | { kind: "video"; mediaId: string; in?: number; out?: number }
+  | { kind: "video"; mediaId: string; in?: number; out?: number; fit?: "cover" | "contain" }
   | { kind: "math"; math: MathGraphic };
 
 // Minimum/maximum visual clip count each layout accepts; "single" is checked separately so its
@@ -611,7 +617,13 @@ async function resolveScene(
         }
         visuals.push({
           path: clipPath,
-          clip: { kind: "video", mediaId: clip.media_id, in: clip.in, out: clip.out },
+          clip: {
+            kind: "video",
+            mediaId: clip.media_id,
+            in: clip.in,
+            out: clip.out,
+            fit: clip.fit,
+          },
         });
       } else if (clip.type === "graphic") {
         if (clip.accent_color && !validateColor(clip.accent_color)) {
@@ -843,7 +855,7 @@ const PRESET = `{
   ]
 }`;
 
-const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). A caption's style also takes background (none, box, or blur; blur is a frosted darkened strip behind the text), shadow, and outline. Put a box or blur behind captions over uncontrolled footage (a YouTube clip that may be bright or busy), and use none over a math or graphic scene, whose dark controlled background already reads text cleanly. Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) arranges multiple visual clips: sequence plays 2-6 of them back-to-back, each for an equal share of the scene, while the scene's one voice + captions keep going (the picture cuts without cutting the narration — use it so a scene is not one frozen image); vstack/hstack/pip combine exactly 2 into one simultaneous view (top/bottom, left/right, or corner inset), grid combines 2-4. A composition may include a top-level media map (media_id -> url) copied from a prior render's recipe sidecar, so referenced media_ids missing from the local cache are fetched back in automatically. Fill this preset:
+const LANGUAGE_RULES = `The composition is declarative: tracks are parallel layers, clips on a track play in order. Scenes are composition clips on one track; each scene has one visual clip (video footage OR graphic math), at most one voice clip (its narration; the scene is cut to its real spoken length), and at most one caption clip (word-synced subtitles aligned to that voice; no caption clip = no captions for that scene). A caption's style also takes background (none, box, or blur; blur is a frosted darkened strip behind the text), shadow, and outline. Put a box or blur behind captions over uncontrolled footage (a YouTube clip that may be bright or busy), and use none over a math or graphic scene, whose dark controlled background already reads text cleanly. Styling cascades: root defaults -> scene defaults -> the clip's own style, nearest wins per key. A voice clip's start delays the speech into the scene (footage/music play first). A numeric scene duration holds a scene longer than its voice (or makes a silent beat). Music is one audio clip on its own track: it loops, plays from 0:00 and ducks under the voice. A video clip's media_id may be footage or a still image; its optional in/out trims which part of the source plays, independent of the scene's own duration. A still image on a single-visual scene takes fit: cover (default, crops to fill with a slow zoom-in) or contain (shows the WHOLE image over a blurred fill of itself, gentle push-in) — use contain for screenshots/text so the borders are not cropped. A scene's transition_out fades it to black and fades the next scene in from black, without changing either scene's duration. A scene's layout (single by default) arranges multiple visual clips: sequence plays 2-6 of them back-to-back, each for an equal share of the scene, while the scene's one voice + captions keep going (the picture cuts without cutting the narration — use it so a scene is not one frozen image); vstack/hstack/pip combine exactly 2 into one simultaneous view (top/bottom, left/right, or corner inset), grid combines 2-4. A composition may include a top-level media map (media_id -> url) copied from a prior render's recipe sidecar, so referenced media_ids missing from the local cache are fetched back in automatically. Fill this preset:
 ${PRESET}`;
 
 export function registerComposeTools(server: McpServer): void {
@@ -1048,7 +1060,22 @@ export async function previewCompositionFrame(
 
   let footagePath: string;
   if (scene.layout === "single") {
-    footagePath = visualPaths[0] as string;
+    const only = visualPaths[0] as string;
+    const v0 = scene.visuals[0];
+    if (v0?.kind === "video" && v0.fit === "contain" && /\.(jpe?g|png|webp)$/i.test(only)) {
+      footagePath = (
+        await containVisual({
+          image: only,
+          durationSec: onScreen,
+          width: resolved.width,
+          height: resolved.height,
+          fps: resolved.fps,
+          idSeed: `compose-contain:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${only}`,
+        })
+      ).path;
+    } else {
+      footagePath = only;
+    }
   } else if (scene.layout === "sequence") {
     const seqIdSeed = `compose-sequence:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${visualPaths.join("|")}`;
     footagePath = (
@@ -1200,7 +1227,22 @@ async function renderComposition(
 
     let footagePath: string;
     if (scene.layout === "single") {
-      footagePath = visualPaths[0] as string;
+      const only = visualPaths[0] as string;
+      const v0 = scene.visuals[0];
+      if (v0?.kind === "video" && v0.fit === "contain" && /\.(jpe?g|png|webp)$/i.test(only)) {
+        footagePath = (
+          await containVisual({
+            image: only,
+            durationSec: onScreen,
+            width: w,
+            height: h,
+            fps,
+            idSeed: `compose-contain:${w}x${h}:${onScreen.toFixed(2)}:${only}`,
+          })
+        ).path;
+      } else {
+        footagePath = only;
+      }
     } else if (scene.layout === "sequence") {
       const seqIdSeed = `compose-sequence:${w}x${h}:${onScreen.toFixed(2)}:${visualPaths.join("|")}`;
       footagePath = (

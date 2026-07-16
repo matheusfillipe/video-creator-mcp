@@ -493,6 +493,72 @@ export async function sequenceSceneVisuals(params: {
   }
 }
 
+// Fit a still fully inside the frame (nothing cropped) over a blurred, darkened cover of itself, with
+// a gentle push-in. For screenshots/text where cover-fit would crop the borders and a full Ken-Burns
+// would start too close: here the whole image reads from the first frame. Single input frame so the
+// composite is built once, then zoompan emits the clip's frames with a slow zoom (zoom only
+// accumulates from a single input frame). Cached by idSeed like any derived render.
+export async function containVisual(params: {
+  image: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  idSeed: string;
+}): Promise<{ path: string }> {
+  const cached = await getCached(mediaIdFor(params.idSeed));
+  if (cached) return { path: cached.path };
+
+  const { width: w, height: h, fps } = params;
+  const frames = Math.max(1, Math.round(params.durationSec * fps));
+  const maxZoom = 1.04;
+  const rate = ((maxZoom - 1) / frames).toFixed(6);
+  const filter = [
+    "[0:v]split=2[bg][fg]",
+    `[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.12[bgb]`,
+    `[fg]scale=${w}:${h}:force_original_aspect_ratio=decrease[fgc]`,
+    "[bgb][fgc]overlay=(W-w)/2:(H-h)/2[comp]",
+    `[comp]scale=${w * 2}:${h * 2},zoompan=z='min(zoom+${rate}\\,${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${w}x${h}:fps=${fps},setsar=1[out]`,
+  ].join(";");
+  const jobId = randomUUID().slice(0, 8);
+  const dir = join(config.workDir, `compose-contain-${jobId}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const out = join(dir, "contain.mp4");
+    await run(
+      "ffmpeg",
+      [
+        "-nostdin",
+        "-y",
+        "-i",
+        params.image,
+        "-filter_complex",
+        filter,
+        "-map",
+        "[out]",
+        "-an",
+        "-r",
+        String(fps),
+        ...X264_ARGS,
+        "-movflags",
+        "+faststart",
+        out,
+      ],
+      { timeoutMs: 600_000 },
+    );
+    const buffer = await readFile(out);
+    const meta = await writeMediaFromBuffer({
+      idSeed: params.idSeed,
+      buffer,
+      ext: ".mp4",
+      sourceUrl: "compose-contain://",
+    });
+    return { path: meta.path };
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
+  }
+}
+
 export function textFilters(
   overlays: EditText[],
   textFiles: string[],
