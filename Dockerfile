@@ -17,7 +17,7 @@ WORKDIR /app
 # so YouTube's n-signature challenges resolve offline, without a runtime fetch from GitHub.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ffmpeg python3 python3-pip curl ca-certificates chromium unzip tini \
-      fonts-liberation fonts-noto-color-emoji fonts-noto-core libglib2.0-0 \
+      fonts-liberation fonts-noto-color-emoji fonts-noto-core fonts-wqy-zenhei libglib2.0-0 \
       mesa-vulkan-drivers libgl1-mesa-dri libegl-mesa0 libglvnd0 libegl1 libgles2 libgbm1 \
       libva-drm2 libva2 mesa-va-drivers vainfo \
       libcairo2-dev libpango1.0-dev pkg-config python3-dev build-essential \
