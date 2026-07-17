@@ -47,22 +47,40 @@ export function coverFilter(width: number, height: number): string {
   return `scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1`;
 }
 
-// A slow Ken-Burns push-in for a still image: cover-fit to the frame, upscale so zoompan's
-// integer per-frame crop stays sub-pixel (otherwise the zoom visibly jitters), then zoom linearly
-// to ~1.12 over the clip. Without this a still sits frozen at its cover-fit and reads as a static
-// "already zoomed" shot. Driven from a SINGLE input frame (the caller must NOT -loop it): zoompan
-// emits `frames` outputs from the one input and `zoom` accumulates across them, which also sets the
-// clip length (frames / fps). Under -loop the zoom resets every input frame and never progresses.
-// The comma inside min() is escaped so it survives the filter chain's own comma splitting.
+// zoompan snaps its crop origin to whole pixels; on a slow push that 1px snap lands as a visible
+// periodic shake. Supersampling the source before zoompan shrinks each snap to a sub-pixel fraction of
+// the output, and driving the zoom off the output frame index (`on`, a clean linear ramp) instead of a
+// per-frame accumulator keeps it even. The supersample long-edge is budgeted so peak memory stays
+// bounded whatever the output resolution — a slow push needs the crop-origin step to be well over 1px
+// in this supersampled space, which ~11.5k on the long edge gives at 1080p-class outputs.
+const SUPERSAMPLE_LONG_EDGE = 11520;
+
+export function smoothZoompan(
+  width: number,
+  height: number,
+  fps: number,
+  frames: number,
+  maxZoom: number,
+): string {
+  const factor = Math.max(
+    2,
+    Math.min(8, Math.round(SUPERSAMPLE_LONG_EDGE / Math.max(width, height))),
+  );
+  const zoom = `1+${(maxZoom - 1).toFixed(6)}*on/${frames}`;
+  return `scale=${width * factor}:${height * factor},zoompan=z='${zoom}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`;
+}
+
+// A slow Ken-Burns push-in for a still image: cover-fit to the frame, then a smooth zoom to ~1.12 over
+// the clip. Without it a still sits frozen at its cover-fit and reads as a static "already zoomed" shot.
+// Driven from a SINGLE input frame (the caller must NOT -loop it): zoompan emits `frames` outputs from
+// the one input, which also sets the clip length (frames / fps). Under -loop the zoom resets every input
+// frame and never progresses.
 export function kenBurnsFilter(width: number, height: number, fps: number, durSec: number): string {
   const frames = Math.max(1, Math.round(durSec * fps));
-  const maxZoom = 1.12;
-  const rate = ((maxZoom - 1) / frames).toFixed(6);
   return [
     `scale=${width}:${height}:force_original_aspect_ratio=increase`,
     `crop=${width}:${height}`,
-    `scale=${width * 2}:${height * 2}`,
-    `zoompan=z='min(zoom+${rate}\\,${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${width}x${height}:fps=${fps}`,
+    smoothZoompan(width, height, fps, frames, 1.12),
     "setsar=1",
   ].join(",");
 }

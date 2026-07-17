@@ -10,6 +10,7 @@ import {
   buildTimedDrawtext,
   containFilter,
   coverFilter,
+  smoothZoompan,
   validateColor,
 } from "../lib/ffmpeg.js";
 import type { Resolution } from "../types.js";
@@ -511,14 +512,12 @@ export async function containVisual(params: {
 
   const { width: w, height: h, fps } = params;
   const frames = Math.max(1, Math.round(params.durationSec * fps));
-  const maxZoom = 1.04;
-  const rate = ((maxZoom - 1) / frames).toFixed(6);
   const filter = [
     "[0:v]split=2[bg][fg]",
     `[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.12[bgb]`,
     `[fg]scale=${w}:${h}:force_original_aspect_ratio=decrease[fgc]`,
     "[bgb][fgc]overlay=(W-w)/2:(H-h)/2[comp]",
-    `[comp]scale=${w * 2}:${h * 2},zoompan=z='min(zoom+${rate}\\,${maxZoom})':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=${frames}:s=${w}x${h}:fps=${fps},setsar=1[out]`,
+    `[comp]${smoothZoompan(w, h, fps, frames, 1.04)},setsar=1[out]`,
   ].join(";");
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `compose-contain-${jobId}`);
