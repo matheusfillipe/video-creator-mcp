@@ -107,6 +107,25 @@ function stripEscapedTagJunk(html: string): string {
   );
 }
 
+// The html render is sandboxed and cannot fetch external URLs, so images/video must come from the
+// media array. A composition references them by media_id as `media://<id>`, rewritten here to the
+// file's real local asset path — the author never has to know the filename or extension the download
+// produced. Returns any `media://` refs still unresolved (a media_id that was not in the media array),
+// which would otherwise render as a silent broken image.
+function rewriteMediaRefs(
+  html: string,
+  mediaSrc: Map<string, string>,
+): { html: string; unresolved: string[] } {
+  let out = html;
+  for (const [mediaId, assetPath] of mediaSrc) {
+    out = out.split(`media://${mediaId}`).join(assetPath);
+  }
+  const unresolved = [
+    ...new Set(Array.from(out.matchAll(/media:\/\/([\w-]+)/g), (m) => m[1] as string)),
+  ];
+  return { html: out, unresolved };
+}
+
 async function copyGsap(assetsDir: string): Promise<void> {
   for (const [source, name] of [
     [GSAP_SOURCE, "gsap.min.js"],
@@ -134,9 +153,12 @@ export async function renderComposition(
   try {
     let html = ensureDocument(stripEscapedTagJunk(decodeComposition(params.htmlBase64)));
     await copyGsap(assetsDir);
+    const mediaSrc = new Map<string, string>();
     for (const item of params.media ?? []) {
-      await linkMediaToWorkdir(item.media_id, workDir);
+      mediaSrc.set(item.media_id, await linkMediaToWorkdir(item.media_id, workDir));
     }
+    const { html: withMedia, unresolved } = rewriteMediaRefs(html, mediaSrc);
+    html = withMedia;
     if (params.audioBase64) {
       await writeFile(join(assetsDir, "audio.wav"), Buffer.from(params.audioBase64, "base64"));
       html = injectAudioTag(html, params.audioVolume ?? 0.9);
@@ -188,7 +210,12 @@ export async function renderComposition(
     );
 
     const buffer = await readFile(outputFile);
-    return { buffer, filename: `render-${jobId}.mp4` };
+    const warnings = unresolved.length
+      ? [
+          `media:// references with no matching media array entry — these render as broken images: ${unresolved.join(", ")}. Pass each of these media_ids in the media array.`,
+        ]
+      : undefined;
+    return { buffer, filename: `render-${jobId}.mp4`, warnings };
   } finally {
     await rm(workDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }).catch(
       (error: NodeJS.ErrnoException) => {

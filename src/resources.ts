@@ -65,7 +65,7 @@ Then: vision-check the returned PNGs (or the contact-sheet jpg) for text bleed, 
 </style></head>
 <body>
 <div id="root" data-composition-id="main" data-start="0" data-duration="9" data-width="1920" data-height="1080">
-  <video id="v" src="assets/LOOPED_OR_CLIP_FILENAME.mp4" muted playsinline data-start="0" data-duration="9" data-track-index="0"></video>
+  <video id="v" src="media://YOUR_CLIP_MEDIA_ID" muted playsinline data-start="0" data-duration="9" data-track-index="0"></video>
   <div class="label clip" id="l0" data-start="0" data-duration="3" data-track-index="1">have you given up?</div>
   <div class="label clip" id="l1" data-start="3" data-duration="3" data-track-index="1">still here?</div>
   <div class="label clip" id="l2" data-start="6" data-duration="3" data-track-index="1">rickrolled.</div>
@@ -74,7 +74,7 @@ Then: vision-check the returned PNGs (or the contact-sheet jpg) for text bleed, 
 </body></html>
 \`\`\`
 
-Why it passes (keep these): root div \`data-composition-id="main"\` + \`data-duration\`; the \`<video>\` is \`muted playsinline\` with \`data-start/duration/track-index\`; every timed label has \`class="clip"\` + those data attrs; \`window.__timelines = window.__timelines || {}\` BEFORE assigning \`window.__timelines["main"] = tl\`; timeline built synchronously; no \`Math.random\`. For a looped clip: \`video_loop\` first, then use its returned \`media_id\` + filename here. To place overlays clear of baked-in text, \`video_analyze_static\` returns avoid regions.
+Why it passes (keep these): root div \`data-composition-id="main"\` + \`data-duration\`; the \`<video>\` is \`muted playsinline\` with \`data-start/duration/track-index\`; every timed label has \`class="clip"\` + those data attrs; \`window.__timelines = window.__timelines || {}\` BEFORE assigning \`window.__timelines["main"] = tl\`; timeline built synchronously; no \`Math.random\`. Reference any image/video from the \`media\` array by media_id as \`src="media://<media_id>"\` (e.g. \`<img src="media://abc123">\` for a screenshot behind a card) — it resolves to the local file, no filename needed. The render is sandboxed, so an external \`http(s)\` src is always a broken image; media MUST come through the \`media\` array. For a looped clip, \`video_loop\` first and pass its returned media_id. To place overlays clear of baked-in text, \`video_analyze_static\` returns avoid regions.
 
 Pass \`metadata\` (title/description/tags) to any render tool and it also writes a \`<video>.json\` publish sidecar to the bucket, returning \`metadata_url\` — the YouTube package, in the same call.`;
 

@@ -134,7 +134,12 @@ const HTML_GRAPHIC = z.object({
   audio_base64: z.string().optional().describe("Base64 WAV/MP3, injected as an <audio> track."),
   audio_volume: z.number().min(0).max(1).default(0.9).describe("Audio volume 0-1."),
   fps: z.number().int().min(1).max(60).default(30).describe("Frames per second."),
-  media: z.array(htmlMediaRef).optional().describe("Pre-downloaded media to include."),
+  media: z
+    .array(htmlMediaRef)
+    .optional()
+    .describe(
+      'Images/video to make available to the HTML. Reference each in your markup by media_id as src="media://<media_id>" (e.g. <img src="media://abc123"> or <video src="media://abc123">) — it resolves to the local file automatically, no filename/extension needed. The render is SANDBOXED and cannot load external URLs, so a screenshot/photo must come through here, never an http(s) src (that renders as a broken image).',
+    ),
 });
 
 const GRAPHIC = z.discriminatedUnion("kind", [
