@@ -34,8 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV PUPPETEER_SKIP_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
-    PRODUCER_HEADLESS_SHELL_PATH=/usr/local/bin/chrome-headless-shell \
+    PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chromium-gpu \
+    PRODUCER_HEADLESS_SHELL_PATH=/usr/local/bin/chrome-headless-shell-gpu \
     # Hyperframes self-updates the global install via `npm install -g` at runtime; in an
     # immutable image that's an anti-pattern, and concurrent renders race on the install
     # (ENOENT/ENOTEMPTY). Pin the baked version and disable the runtime update.
@@ -83,6 +83,16 @@ RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable --path /o
     && shell_path="$(find /opt/puppeteer/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" \
     && test -n "$shell_path" \
     && ln -sfn "$shell_path" /usr/local/bin/chrome-headless-shell
+
+# Force Chrome onto the AMD GPU via Vulkan/RADV. Its default GL path falls back to SwiftShader
+# (software) on this headless iGPU, making html renders CPU-bound; --use-angle=vulkan brings up the
+# real 780M. The env above points Hyperframes at these wrappers instead of the raw binaries.
+COPY docker/chrome-gpu-wrapper.sh /usr/local/bin/chrome-gpu-wrapper
+RUN ln -sf /usr/bin/chromium /usr/bin/chromium.real \
+    && ln -sf /usr/local/bin/chrome-headless-shell /usr/local/bin/chrome-headless-shell.real \
+    && chmod +x /usr/local/bin/chrome-gpu-wrapper \
+    && cp /usr/local/bin/chrome-gpu-wrapper /usr/local/bin/chromium-gpu \
+    && cp /usr/local/bin/chrome-gpu-wrapper /usr/local/bin/chrome-headless-shell-gpu
 
 COPY --from=build /app/dist ./dist
 COPY gsap ./gsap
