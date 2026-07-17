@@ -71,9 +71,22 @@ export interface RenderOutput {
   warnings?: string[];
 }
 
+// hyperframes seeks each frame off the GSAP timeline registered at window.__timelines[compositionId].
+// When a composition carries data-composition-id but never registers that timeline (an author omission,
+// or the registering script threw), the capture engine polls for it up to its 45s readiness timeout on
+// EVERY render before falling back — turning a ~3s render into ~48s. These two scripts guarantee the
+// registration exists: the first wraps gsap.timeline() to record every timeline the author creates; the
+// second, after the author's synchronous setup, binds any still-unregistered composition host to a
+// captured root timeline. A composition that already registers correctly is untouched (the loop skips
+// ids that are present), and one that uses no GSAP timeline leaves the pool empty and is a no-op.
+const TL_CAPTURE_SHIM =
+  "<script>(function(){var g=window.gsap;if(!g||!g.timeline||g.__hfHooked)return;g.__hfHooked=1;var orig=g.timeline;window.__hfTLs=[];g.timeline=function(){var t=orig.apply(g,arguments);try{window.__hfTLs.push(t);}catch(e){}return t;};})();</script>";
+const TL_REGISTER_SHIM =
+  '<script>(function(){window.__timelines=window.__timelines||{};var tls=window.__hfTLs||[];var g=window.gsap;var roots=tls.filter(function(t){try{return !t.parent||(g&&t.parent===g.globalTimeline);}catch(e){return true;}});var pool=roots.length?roots:tls;var hosts=document.querySelectorAll("[data-composition-id]");for(var i=0;i<hosts.length;i++){var id=hosts[i].getAttribute("data-composition-id");if(!id||window.__timelines[id])continue;var pick=pool[i]||pool[pool.length-1];if(pick)window.__timelines[id]=pick;}})();</script>';
+
 function ensureDocument(html: string): string {
   if (!html.includes("<!DOCTYPE") && !html.includes("<html")) {
-    return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n${ANIME_TAG}\n</head>\n<body>\n${html}\n</body>\n</html>`;
+    return `<!DOCTYPE html>\n<html>\n<head>\n<meta charset="UTF-8">\n<script src="assets/gsap.min.js"></script>\n${ANIME_TAG}\n${TL_CAPTURE_SHIM}\n</head>\n<body>\n${html}\n${TL_REGISTER_SHIM}\n</body>\n</html>`;
   }
   let out = html;
   // chrome defaults to Latin-1 without an explicit <meta charset>; UTF-8 punctuation breaks.
@@ -87,6 +100,16 @@ function ensureDocument(html: string): string {
   // hyperframes' linter would then flag the library's own Math.random/rAF as the author's.
   if (!out.includes(ANIME_TAG)) {
     out = out.replace("<head>", `<head>\n${ANIME_TAG}`);
+  }
+  // The capture shim must sit after gsap loads and before the author's timeline script; the register
+  // shim must run after it. </head> is after the gsap tag; </body> is after the author's inline setup.
+  if (!out.includes("__hfTLs")) {
+    out = out.includes("</head>")
+      ? out.replace("</head>", `${TL_CAPTURE_SHIM}\n</head>`)
+      : out.replace(/<head[^>]*>/i, (match) => `${match}\n${TL_CAPTURE_SHIM}`);
+    out = out.includes("</body>")
+      ? out.replace("</body>", `${TL_REGISTER_SHIM}\n</body>`)
+      : `${out}\n${TL_REGISTER_SHIM}`;
   }
   return out;
 }
