@@ -54,13 +54,13 @@ const CAPTION_STYLE_FIELDS = z
       .string()
       .optional()
       .describe(
-        "Karaoke: colour of the ACTIVE word as it is spoken. Block: the text colour. Hex #RRGGBB or a basic name.",
+        "Karaoke: colour of the ACTIVE word as it is spoken. Block: the text colour. Hex #RRGGBB or a basic name. Defaults to yellow.",
       ),
     spoken_color: z
       .string()
       .optional()
       .describe(
-        "Karaoke only: colour of words already spoken (behind the highlight). Hex or name. Defaults to a warm gold.",
+        "Karaoke only: colour of words already spoken (behind the highlight). Hex or name. Defaults to white.",
       ),
     upcoming_color: z
       .string()
@@ -368,8 +368,8 @@ type ResolvedCaptionSpec = Required<Omit<CaptionSpec, "box">>;
 
 const BASE_CAPTION: ResolvedCaptionSpec = {
   mode: "block",
-  color: "white",
-  spoken_color: "#FFD24D",
+  color: "#FFD24D",
+  spoken_color: "white",
   upcoming_color: "#8A8A8A",
   position: "bottom",
   size: "medium",

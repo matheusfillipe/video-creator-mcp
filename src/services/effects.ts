@@ -404,8 +404,8 @@ export async function narratedScenes(params: {
     // which the scene content lives. "block" = static phrase cues via drawtext; "karaoke" = ASS
     // (libass) that sweeps each word to the highlight colour as it is spoken, using per-word times.
     const captionStyle: CaptionStyle = params.captionStyle ?? {
-      color: "white",
-      spokenColor: "#FFD24D",
+      color: "#FFD24D",
+      spokenColor: "white",
       upcomingColor: "#8A8A8A",
       position: "bottom",
       fontScale: 1,
