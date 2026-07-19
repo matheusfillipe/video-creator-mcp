@@ -1,7 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { get as httpGet } from "node:http";
 import { join } from "node:path";
 import { config } from "../config.js";
@@ -89,6 +89,9 @@ class RecordSession {
   private readonly port = BASE_PORT + (this.n % 64);
   private readonly display = BASE_DISPLAY + (this.n % 64);
   private readonly pulseSock = `/tmp/vcm-pulse-${this.id}.sock`;
+  // Each session needs its own XDG_RUNTIME_DIR: PulseAudio keeps a PID lock there, so a shared
+  // dir makes a second concurrent session's daemon refuse to start.
+  private readonly runtimeDir = `/tmp/vcm-run-${this.id}`;
   private readonly userDataDir = `/tmp/vcm-cr-${this.id}`;
   private readonly outPath = join(config.workDir, `record-${this.id}.mp4`);
   private readonly deadline: number;
@@ -121,7 +124,7 @@ class RecordSession {
     return {
       ...sanitizedEnv(),
       HOME: "/root",
-      XDG_RUNTIME_DIR: "/tmp",
+      XDG_RUNTIME_DIR: this.runtimeDir,
       DISPLAY: `:${this.display}`,
       PULSE_SERVER: `unix:${this.pulseSock}`,
     };
@@ -134,6 +137,7 @@ class RecordSession {
 
   async start(): Promise<void> {
     const env = this.childEnv();
+    await mkdir(this.runtimeDir, { recursive: true }).catch(() => {});
     // A dedicated PulseAudio server per session (its own socket + null sink as the default)
     // isolates each recording's audio — chrome's Cubeb backend ignores PULSE_SINK and follows the
     // server default, so per-session servers are the only reliable way to keep concurrent captures
@@ -154,8 +158,9 @@ class RecordSession {
       ),
       "pulseaudio",
     );
-    for (let i = 0; i < 60 && !existsSync(this.pulseSock); i++) await sleep(100);
+    for (let i = 0; i < 80 && !existsSync(this.pulseSock); i++) await sleep(100);
     if (!existsSync(this.pulseSock)) throw new Error("pulseaudio did not start");
+    await sleep(500);
 
     await rm(`/tmp/.X${this.display}-lock`, { force: true }).catch(() => {});
     this.xvfb = this.track(
@@ -514,6 +519,7 @@ class RecordSession {
     void rm(this.outPath, { force: true }).catch(() => {});
     void rm(this.userDataDir, { recursive: true, force: true }).catch(() => {});
     void rm(this.pulseSock, { force: true }).catch(() => {});
+    void rm(this.runtimeDir, { recursive: true, force: true }).catch(() => {});
     void rm(`/tmp/.X${this.display}-lock`, { force: true }).catch(() => {});
     setTimeout(() => sessions.delete(this.id), 60_000);
   }
