@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 31 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 35 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -217,6 +217,43 @@ Render SINGLE PNGs of how a shot will look at one or more timestamps, WITHOUT do
 | `at` | array | yes |  | Timestamps (seconds) to capture. html mode: within the composition's data-duration. composition mode: within the ESTIMATED total duration (see video_plan). |
 | `media` | array | no |  | html mode only: media_ids referenced by the HTML (linked into assets/ before snapshot). |
 | `resolution` | `"1080p"` \| `"4k"` \| `"uhd"` \| `"landscape"` \| `"portrait"` \| `"square"` | no | `"1080p"` | html mode only: output resolution preset. composition mode uses composition.output.resolution instead. |
+
+## `video_record_input`
+
+Send interactions to a live recording session while it keeps recording. Actions run in order. Types: click (CSS selector or x/y), type (text into the focused element), key (one control key), scroll, navigate (another http/https URL), wait. No arbitrary JavaScript — only these primitives.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session_id` | string | yes |  | The id from video_record_website. |
+| `actions` | array | yes |  | Interactions to perform in order. |
+
+## `video_record_status`
+
+Check a recording session: state (recording / done / error), elapsed seconds, frame count, and (once done) the mp4 media_id.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session_id` | string | yes |  | The id from video_record_website. |
+
+## `video_record_stop`
+
+Stop a live recording session and finalize the video. Returns the mp4 as a media_id (usable in video_compose / video_edit / captions) plus a downloadable url and the duration. If the session already auto-stopped at its max duration, this returns the finished result.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `session_id` | string | yes |  | The id from video_record_website. |
+
+## `video_record_website`
+
+Open a real browser at a URL and record it to video WITH AUDIO in real time (the page's music/video sound is captured and muxed into the mp4). Public http/https sites only — loopback, LAN, cluster and private IPs are blocked (network + app enforced). Returns a session_id immediately; the recording runs live in the background. Drive it with video_record_input (click / type / key / scroll / navigate — e.g. press Space to start a player) and finish with video_record_stop, which returns an mp4 media_id (with audio) usable anywhere (video_compose, video_edit, captions). Auto-stops at duration_seconds (default 30, MAX 600 = 10 min). EXPENSIVE: recording is real time — a 5 minute capture takes 5 minutes. For a plain grab just start then stop; for an interactive flow interleave video_record_input calls.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `url` | string | yes |  | Public http(s) URL to open and record. |
+| `duration_seconds` | number | no |  | Auto-stop after this long. Default 30, max 600 (10 min). |
+| `width` | integer | no |  | Viewport width. Default 1280. |
+| `height` | integer | no |  | Viewport height. Default 720. |
+| `fps` | integer | no |  | Frames per second. Default 30. |
 
 ## `video_remove_background`
 
