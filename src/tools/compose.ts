@@ -50,7 +50,24 @@ const CAPTION_STYLE_FIELDS = z
       .enum(["block", "karaoke"])
       .optional()
       .describe("block = static phrase cues; karaoke = words highlight as spoken."),
-    color: z.string().optional().describe("Hex #RRGGBB or a basic color name."),
+    color: z
+      .string()
+      .optional()
+      .describe(
+        "Karaoke: colour of the ACTIVE word as it is spoken. Block: the text colour. Hex #RRGGBB or a basic name.",
+      ),
+    spoken_color: z
+      .string()
+      .optional()
+      .describe(
+        "Karaoke only: colour of words already spoken (behind the highlight). Hex or name. Defaults to a warm gold.",
+      ),
+    upcoming_color: z
+      .string()
+      .optional()
+      .describe(
+        "Karaoke only: colour of words not yet spoken (greyed ahead of the highlight). Hex or name. Defaults to grey.",
+      ),
     position: z.enum(["bottom", "center", "top"]).optional(),
     size: z.enum(["small", "medium", "large"]).optional(),
     background: z
@@ -352,6 +369,8 @@ type ResolvedCaptionSpec = Required<Omit<CaptionSpec, "box">>;
 const BASE_CAPTION: ResolvedCaptionSpec = {
   mode: "block",
   color: "white",
+  spoken_color: "#FFD24D",
+  upcoming_color: "#8A8A8A",
   position: "bottom",
   size: "medium",
   background: "box",
@@ -365,6 +384,8 @@ function mergeCaption(...layers: (CaptionSpec | undefined)[]): ResolvedCaptionSp
     if (!layer) continue;
     if (layer.mode !== undefined) merged.mode = layer.mode;
     if (layer.color !== undefined) merged.color = layer.color;
+    if (layer.spoken_color !== undefined) merged.spoken_color = layer.spoken_color;
+    if (layer.upcoming_color !== undefined) merged.upcoming_color = layer.upcoming_color;
     if (layer.position !== undefined) merged.position = layer.position;
     if (layer.size !== undefined) merged.size = layer.size;
     // `box` is a back-compat shorthand for `background`; at each layer it only takes effect
@@ -381,12 +402,34 @@ function toCueStyle(spec: ResolvedCaptionSpec): CueStyle {
   return {
     mode: spec.mode,
     color: spec.color,
+    spokenColor: spec.spoken_color,
+    upcomingColor: spec.upcoming_color,
     position: spec.position,
     fontScale: fontScaleFor(spec.size),
     background: spec.background,
     shadow: spec.shadow,
     outline: spec.outline,
   };
+}
+
+function validateCaptionColors(
+  spec: ResolvedCaptionSpec,
+  pathPrefix: string,
+  findings: Finding[],
+): void {
+  for (const [field, value] of [
+    ["color", spec.color],
+    ["spoken_color", spec.spoken_color],
+    ["upcoming_color", spec.upcoming_color],
+  ] as const) {
+    if (!validateColor(value)) {
+      findings.push({
+        path: `${pathPrefix}.${field}`,
+        severity: "error",
+        message: `"${value}" is not a hex (#RRGGBB) or basic color name`,
+      });
+    }
+  }
 }
 
 function mergeVoice(...layers: (VoiceSpec | undefined)[]): Omit<ResolvedVoice, "text" | "start"> {
@@ -535,13 +578,7 @@ export async function resolveComposition(comp: Composition): Promise<ResolvedCom
         });
       }
       const spec = mergeCaption({ mode: "karaoke", position: "center" }, comp.transcript.caption);
-      if (!validateColor(spec.color)) {
-        findings.push({
-          path: "transcript.caption.color",
-          severity: "error",
-          message: `"${spec.color}" is not a hex (#RRGGBB) or basic color name`,
-        });
-      }
+      validateCaptionColors(spec, "transcript.caption", findings);
       transcript = {
         text: comp.transcript.text,
         mediaId: transcriptMediaId,
@@ -726,13 +763,7 @@ async function resolveScene(
       scene.defaults?.caption,
       captionEntry.clip.style,
     );
-    if (!validateColor(spec.color)) {
-      findings.push({
-        path: `${captionEntry.path}.style.color`,
-        severity: "error",
-        message: `"${spec.color}" is not a hex (#RRGGBB) or basic color name`,
-      });
-    }
+    validateCaptionColors(spec, `${captionEntry.path}.style`, findings);
     caption = { offset: captionEntry.clip.offset, style: toCueStyle(spec) };
   }
 
@@ -790,6 +821,8 @@ function planView(resolved: ResolvedComposition, comp: Composition) {
       captions = {
         mode: s.mode,
         color: s.color,
+        spoken_color: s.spokenColor,
+        upcoming_color: s.upcomingColor,
         position: s.position,
         size: s.fontScale < 1 ? "small" : s.fontScale > 1 ? "large" : "medium",
         background: s.background,

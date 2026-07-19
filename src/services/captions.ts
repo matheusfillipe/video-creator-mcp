@@ -72,7 +72,9 @@ export type CaptionPosition = "bottom" | "center" | "top";
 export type CaptionBackground = "none" | "box" | "blur";
 
 export interface CaptionStyle {
-  color: string; // highlight/primary color: hex #RRGGBB or a basic name
+  color: string; // karaoke: the active (currently-spoken) word. block: the text. hex #RRGGBB or a name
+  spokenColor: string; // karaoke: words already spoken
+  upcomingColor: string; // karaoke: words not yet spoken
   position: CaptionPosition;
   fontScale: number; // multiplier on the resolution-derived base size
   background: CaptionBackground;
@@ -118,6 +120,10 @@ function toAssColor(color: string): string {
   return `&H00${b}${g}${r}`.toUpperCase();
 }
 
+function inlineColor(color: string): string {
+  return `{\\c&H${toAssColor(color).slice(4)}&}`;
+}
+
 function assTime(sec: number): string {
   const cs = Math.max(0, Math.round(sec * 100));
   const h = Math.floor(cs / 360000);
@@ -148,10 +154,7 @@ export function buildAss(
     const fontSize = Math.max(18, Math.round((height / 22) * s.fontScale));
     const alignment = s.position === "top" ? 8 : s.position === "center" ? 5 : 2;
     const primary = toAssColor(s.color);
-    // Karaoke draws each word in the secondary colour, then fills it to the primary as it is
-    // spoken. A dim grey secondary keeps the sweep visible even when the primary (highlight) is
-    // the default white, so word-highlight never looks like a static caption.
-    const secondary = karaoke ? "&H00B4B4B4" : primary;
+    const secondary = primary;
     // BorderStyle 3 (opaque box) already conveys legibility on its own, so the Outline field
     // there is left at 0 rather than doubling up with a glyph stroke; BorderStyle 1 (outline
     // and/or shadow drawn straight onto the glyphs) uses it when the caller asked for an outline.
@@ -177,22 +180,28 @@ export function buildAss(
   };
   const events: string[] = [];
   for (const cue of cues) {
-    let text: string;
-    if (karaoke) {
-      const parts: string[] = [];
+    const styleName = nameFor(cue.style);
+    if (karaoke && cue.words.length) {
+      const cs = cue.style ?? style;
+      const active = inlineColor(cs.color);
+      const spoken = inlineColor(cs.spokenColor);
+      const upcoming = inlineColor(cs.upcomingColor);
       for (const [i, word] of cue.words.entries()) {
         const next = cue.words[i + 1];
-        const spanSec = (next ? next.start : word.end) - word.start;
-        const durCs = Math.max(1, Math.round(spanSec * 100));
-        parts.push(`{\\k${durCs}}${assEscape(word.word)} `);
+        const segEnd = next ? next.start : cue.end;
+        if (segEnd <= word.start) continue;
+        const line = cue.words
+          .map((w, j) => `${j < i ? spoken : j === i ? active : upcoming}${assEscape(w.word)}`)
+          .join(" ");
+        events.push(
+          `Dialogue: 0,${assTime(word.start)},${assTime(segEnd)},${styleName},,0,0,0,,${line}`,
+        );
       }
-      text = parts.join("").trimEnd();
     } else {
-      text = assEscape(cue.text);
+      events.push(
+        `Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},${styleName},,0,0,0,,${assEscape(cue.text)}`,
+      );
     }
-    events.push(
-      `Dialogue: 0,${assTime(cue.start)},${assTime(cue.end)},${nameFor(cue.style)},,0,0,0,,${text}`,
-    );
   }
   return [
     "[Script Info]",

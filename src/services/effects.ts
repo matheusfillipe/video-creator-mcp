@@ -405,6 +405,8 @@ export async function narratedScenes(params: {
     // (libass) that sweeps each word to the highlight colour as it is spoken, using per-word times.
     const captionStyle: CaptionStyle = params.captionStyle ?? {
       color: "white",
+      spokenColor: "#FFD24D",
+      upcomingColor: "#8A8A8A",
       position: "bottom",
       fontScale: 1,
       background: "box",
