@@ -15,6 +15,14 @@ export const MAX_RECORD_SECONDS = 600;
 const MAX_SESSIONS = 3;
 const BASE_PORT = 9500;
 const BASE_DISPLAY = 99;
+// The pulse monitor's capture buffer runs ahead of x11grab by a fixed amount (a property of the
+// capture stack, the same for every page), so the raw mux has audio leading the picture. Padding
+// this much real silence onto the front of the audio realigns them. Calibrated with a page that
+// flashes and beeps on the same frame; overridable per-deployment, coerced to a number so the env
+// value can only ever be a delay, never extra ffmpeg arguments.
+const AUDIO_SYNC_DELAY_MS = ((raw) => (Number.isFinite(raw) && raw >= 0 ? raw : 600))(
+  Number(process.env.RECORD_AV_SYNC_MS ?? 600),
+);
 let seq = 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -245,6 +253,8 @@ class RecordSession {
         "ffmpeg",
         [
           "-y",
+          "-thread_queue_size",
+          "1024",
           "-f",
           "x11grab",
           "-framerate",
@@ -253,10 +263,16 @@ class RecordSession {
           `${this.width}x${this.height}`,
           "-i",
           `:${this.display}`,
+          "-thread_queue_size",
+          "1024",
           "-f",
           "pulse",
           "-i",
           "rec.monitor",
+          // Input timestamp offsets get normalized away by the mp4 muxer, so realign audio to video
+          // by padding real leading silence (see AUDIO_SYNC_DELAY_MS).
+          "-af",
+          `adelay=${Math.round(AUDIO_SYNC_DELAY_MS)}:all=1`,
           "-c:v",
           "libx264",
           "-preset",
