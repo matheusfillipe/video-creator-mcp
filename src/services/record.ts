@@ -64,7 +64,7 @@ interface Pending {
   reject: (e: Error) => void;
 }
 
-function getJson(port: number, path: string): Promise<Record<string, unknown>> {
+function getJsonArray(port: number, path: string): Promise<Array<Record<string, unknown>>> {
   return new Promise((res, rej) => {
     httpGet(`http://127.0.0.1:${port}${path}`, (r) => {
       let s = "";
@@ -101,7 +101,6 @@ class RecordSession {
   private chrome?: ChildProcess;
   private ws?: WebSocket;
   private ff?: ChildProcess;
-  private sid = "";
   private msgId = 0;
   private readonly pending = new Map<number, Pending>();
   private readonly eventWaiters: Array<{ method: string; resolve: () => void }> = [];
@@ -138,6 +137,7 @@ class RecordSession {
   async start(): Promise<void> {
     const env = this.childEnv();
     await mkdir(this.runtimeDir, { recursive: true }).catch(() => {});
+    await mkdir(config.workDir, { recursive: true }).catch(() => {});
     // A dedicated PulseAudio server per session (its own socket + null sink as the default)
     // isolates each recording's audio — chrome's Cubeb backend ignores PULSE_SINK and follows the
     // server default, so per-session servers are the only reliable way to keep concurrent captures
@@ -183,6 +183,8 @@ class RecordSession {
           "--no-first-run",
           "--disable-dev-shm-usage",
           "--autoplay-policy=no-user-gesture-required",
+          // Deny chrome the "localhost" hostname so a recorded page can't fetch the pod's own
+          // in-cluster services (loopback is not governed by the egress NetworkPolicy).
           "--host-resolver-rules=MAP localhost ~NOTFOUND",
           "--start-fullscreen",
           "--window-position=0,0",
@@ -190,25 +192,37 @@ class RecordSession {
           `--user-data-dir=${this.userDataDir}`,
           `--remote-debugging-port=${this.port}`,
           "--remote-debugging-address=127.0.0.1",
-          "about:blank",
+          this.url,
         ],
         { env, stdio: "ignore" },
       ),
       "chromium",
     );
 
-    let version: Record<string, unknown> | undefined;
+    // Connect CDP straight to the page's own debugger endpoint, not the browser endpoint plus a
+    // flatten session: synthetic Input events only count as a user activation on a per-page
+    // connection, so a browser-session click never unlocks the page's Web Audio and captured audio
+    // stays silent. This also records the existing on-screen tab (a fresh Target.createTarget opens
+    // off-screen, where x11grab wouldn't see it).
+    let pageWsUrl: string | undefined;
     for (let i = 0; i < 100; i++) {
       try {
-        version = await getJson(this.port, "/json/version");
-        break;
+        const list = await getJsonArray(this.port, "/json");
+        const page = list.find(
+          (t) => t.type === "page" && typeof t.webSocketDebuggerUrl === "string",
+        );
+        if (page) {
+          pageWsUrl = page.webSocketDebuggerUrl as string;
+          break;
+        }
       } catch {
-        await sleep(100);
+        // devtools not up yet
       }
+      await sleep(100);
     }
-    if (!version?.webSocketDebuggerUrl) throw new Error("chromium devtools did not come up");
+    if (!pageWsUrl) throw new Error("chromium devtools did not come up");
 
-    this.ws = new WebSocket(version.webSocketDebuggerUrl as string);
+    this.ws = new WebSocket(pageWsUrl);
     await new Promise<void>((resolve, reject) => {
       if (!this.ws) return reject(new Error("no ws"));
       this.ws.onopen = () => resolve();
@@ -219,16 +233,12 @@ class RecordSession {
       if (this.state === "recording") void this.finalize("error", "browser closed unexpectedly");
     };
 
-    const target = await this.send("Target.createTarget", { url: "about:blank" }, false);
-    const attached = await this.send(
-      "Target.attachToTarget",
-      { targetId: target.targetId, flatten: true },
-      false,
-    );
-    this.sid = attached.sessionId as string;
     await this.send("Page.enable");
     await this.send("DOM.enable");
-    await this.navigate(this.url);
+    await this.send("Page.bringToFront").catch(() => {});
+    await Promise.race([this.waitEvent("Page.loadEventFired", 12_000), sleep(12_000)]);
+    await sleep(500);
+    await this.primeAudio();
 
     this.ff = this.track(
       spawn(
@@ -263,12 +273,20 @@ class RecordSession {
           "+faststart",
           this.outPath,
         ],
-        { env, stdio: ["pipe", "ignore", "ignore"] },
+        { env, stdio: ["pipe", "ignore", "pipe"] },
       ),
       "ffmpeg",
     );
+    let ffTail = "";
+    this.ff.stderr?.on("data", (d) => {
+      ffTail = (ffTail + d).slice(-2000);
+    });
     this.ff.on("close", () => {
-      if (this.state === "recording") void this.finalize("error", "ffmpeg exited early");
+      if (this.state === "recording")
+        void this.finalize(
+          "error",
+          `ffmpeg exited early: ${ffTail.replace(/\s+/g, " ").slice(-300)}`,
+        );
     });
     this.ff.stdin?.on("error", () => {});
     this.deadlineTimer = setTimeout(
@@ -280,14 +298,10 @@ class RecordSession {
   private send(
     method: string,
     params: Record<string, unknown> = {},
-    withSession = true,
   ): Promise<Record<string, unknown>> {
     if (!this.ws) throw new Error("session not connected");
     const id = ++this.msgId;
-    const payload = withSession
-      ? { id, method, params, sessionId: this.sid }
-      : { id, method, params };
-    this.ws.send(JSON.stringify(payload));
+    this.ws.send(JSON.stringify({ id, method, params }));
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       setTimeout(() => {
@@ -375,6 +389,14 @@ class RecordSession {
   async act(action: RecordAction): Promise<void> {
     if (this.state !== "recording")
       throw new Error(`session ${this.id} is ${this.state}, not recording`);
+    await this.doAct(action);
+  }
+
+  private async doAct(action: RecordAction): Promise<void> {
+    // Re-focus the page on every interaction: on a WM-less Xvfb the tab's focus goes stale between
+    // the separate input calls, and a keypress to an unfocused page is dropped (e.g. Space never
+    // starts a player).
+    await this.send("Page.bringToFront").catch(() => {});
     switch (action.type) {
       case "wait":
         await sleep(Math.max(0, Math.min(30_000, action.ms)));
@@ -435,6 +457,24 @@ class RecordSession {
         }
         return;
       }
+    }
+  }
+
+  // A page's Web Audio starts suspended until a real user gesture; chrome resumes it on a trusted
+  // click, not on a synthetic keydown. Without this, a media page renders visually but stays silent
+  // (no audio stream reaches the capture sink). One click at viewport center at start unlocks it.
+  private async primeAudio(): Promise<void> {
+    const { x, y } = this.clamp(this.width / 2, this.height / 2);
+    await this.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y }).catch(() => {});
+    for (const type of ["mousePressed", "mouseReleased"] as const) {
+      await this.send("Input.dispatchMouseEvent", {
+        type,
+        x,
+        y,
+        button: "left",
+        buttons: 1,
+        clickCount: 1,
+      }).catch(() => {});
     }
   }
 
