@@ -15,13 +15,13 @@ export const MAX_RECORD_SECONDS = 600;
 const MAX_SESSIONS = 3;
 const BASE_PORT = 9500;
 const BASE_DISPLAY = 99;
-// The pulse monitor's capture buffer runs ahead of x11grab by a fixed amount (a property of the
-// capture stack, the same for every page), so the raw mux has audio leading the picture. Padding
-// this much real silence onto the front of the audio realigns them. Calibrated with a page that
-// flashes and beeps on the same frame; overridable per-deployment, coerced to a number so the env
-// value can only ever be a delay, never extra ffmpeg arguments.
-const AUDIO_SYNC_DELAY_MS = ((raw) => (Number.isFinite(raw) && raw >= 0 ? raw : 600))(
-  Number(process.env.RECORD_AV_SYNC_MS ?? 600),
+// The pulse monitor's capture buffer runs ~2.1s ahead of x11grab (a property of the capture stack,
+// the same for every page), so the raw mux has audio leading the picture by that much. Padding this
+// much real silence onto the front of the audio realigns them. Calibrated with a page that flashes
+// and beeps at aperiodic times so the offset is unambiguous; overridable per-deployment, coerced to
+// a number so the env value can only ever be a delay, never extra ffmpeg arguments.
+const AUDIO_SYNC_DELAY_MS = ((raw) => (Number.isFinite(raw) && raw >= 0 ? raw : 2100))(
+  Number(process.env.RECORD_AV_SYNC_MS ?? 2100),
 );
 let seq = 0;
 
