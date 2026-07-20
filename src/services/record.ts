@@ -15,6 +15,8 @@ export const MAX_RECORD_SECONDS = 600;
 const MAX_SESSIONS = 3;
 const BASE_PORT = 9500;
 const BASE_DISPLAY = 99;
+// x11grab needs a moment after start before it delivers frames at a steady rate.
+const CAPTURE_WARMUP_MS = 700;
 let seq = 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -349,6 +351,11 @@ class RecordSession {
   // starts; steps at the same offset run in array order. A failing step is skipped, never crashing
   // the recording. Runs concurrently with the capture, which still auto-stops at its deadline.
   private async runScript(): Promise<void> {
+    // x11grab duplicates frames for the first ~0.3s while the capture rate settles. Firing the
+    // first action immediately would start the page's motion inside that window, so the opening of
+    // every recording stutters. Let the capture stabilise first — the cost is a few frames of the
+    // still page before the action, instead of a visibly janky start.
+    await sleep(CAPTURE_WARMUP_MS);
     const base = Date.now();
     const steps = [...this.script].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
     for (const step of steps) {
