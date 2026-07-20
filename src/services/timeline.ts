@@ -316,7 +316,8 @@ function resolveTracks(
 
 type SegmentResult =
   | { index: number; segment: TimelineSegment; path: string; warning?: string }
-  | { index: number; warning: string };
+  | { index: number; warning: string }
+  | { index: number; fatal: string };
 
 async function rendersBlank(filePath: string): Promise<boolean> {
   try {
@@ -423,11 +424,20 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
               });
               await writeFile(segPath, buffer);
               if (await rendersBlank(segPath)) {
+                // A segment that was given a <video> but came out black is a broken footage render
+                // (embedding a clip in html goes through the browser-capture path, which is slow and
+                // fails on many videos). Fail the whole job loudly instead of shipping black.
+                if (/<video\b/i.test(decodeComposition(segment.html))) {
+                  return {
+                    index,
+                    fatal: `segment ${index} has a <video> but rendered fully black — the browser video-capture path failed to decode the clip. If this segment is just the clip (no HTML overlaid on it), keep the clip out of html: use video_compose to concatenate it with your other segments, or video_edit to trim/fade it. Only overlay via <video> when you truly need HTML on top of the footage.`,
+                  };
+                }
                 return {
                   index,
                   segment,
                   path: segPath,
-                  warning: `segment ${index} renders mostly black even though it didn't error — the HTML probably has a missing <video> source or styling that produces a black frame. Add real footage or drop the segment.`,
+                  warning: `segment ${index} renders mostly black even though it didn't error — the HTML has no footage or styling that produces a black frame. Add real footage or drop the segment.`,
                 };
               }
             } else {
@@ -441,6 +451,13 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
         }),
       ),
     );
+
+    const fatals = results
+      .filter((r): r is { index: number; fatal: string } => "fatal" in r)
+      .map((r) => r.fatal);
+    if (fatals.length > 0) {
+      throw new Error(`timeline render aborted (would ship a black video): ${fatals.join("; ")}`);
+    }
 
     const ok = results
       .filter(
