@@ -4,6 +4,7 @@ import {
   ALLOWED_KEYS,
   MAX_RECORD_SECONDS,
   type RecordAction,
+  type ScriptStep,
   getRecording,
   startRecording,
 } from "../services/record.js";
@@ -48,12 +49,24 @@ const ACTION = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+const SCRIPT_STEP = z
+  .object({
+    at: z
+      .number()
+      .min(0)
+      .max(MAX_RECORD_SECONDS)
+      .optional()
+      .describe("Seconds after recording starts to fire this action. Omit or 0 = at the start."),
+    action: ACTION,
+  })
+  .strict();
+
 export function registerRecordTools(server: McpServer): void {
   registerTool(server, {
     name: "video_record_website",
     title: "Record a website (live browser)",
     description:
-      "Open a real browser at a URL and record it to video WITH AUDIO in real time (the page's music/video sound is captured and muxed into the mp4). Public http/https sites only — loopback, LAN, cluster and private IPs are blocked (network + app enforced). Returns a session_id immediately; the recording runs live in the background. Drive it with video_record_input (click / type / key / scroll / navigate — e.g. press Space to start a player) and finish with video_record_stop, which returns an mp4 media_id (with audio) usable anywhere (video_compose, video_edit, captions). Auto-stops at duration_seconds (default 30, MAX 600 = 10 min). EXPENSIVE: recording is real time — a 5 minute capture takes 5 minutes. For a plain grab just start then stop; for an interactive flow interleave video_record_input calls.",
+      "Open a real browser at a URL and record it to video WITH AUDIO in real time (the page's music/video sound is captured and muxed into the mp4). Public http/https sites only — loopback, LAN, cluster and private IPs are blocked (network + app enforced). Returns a session_id immediately; the recording runs live in the background. To drive the page WITHOUT a dead intro, pass `script` — its actions fire on their own at the moment capture starts (and at later offsets), so e.g. pressing Space to start a player happens instantly with no gap. For ad-hoc/live control you can still call video_record_input. Finish with video_record_stop, which returns an mp4 media_id (with audio) usable anywhere (video_compose, video_edit, captions). Auto-stops at duration_seconds (default 30, MAX 600 = 10 min). EXPENSIVE: recording is real time — a 5 minute capture takes 5 minutes. IMPORTANT: size duration_seconds to cover ALL page activity you want (e.g. a song's full length + a few seconds), or the end gets cut off.",
     inputSchema: {
       url: z.string().describe("Public http(s) URL to open and record."),
       duration_seconds: z
@@ -62,6 +75,12 @@ export function registerRecordTools(server: McpServer): void {
         .max(MAX_RECORD_SECONDS)
         .optional()
         .describe(`Auto-stop after this long. Default 30, max ${MAX_RECORD_SECONDS} (10 min).`),
+      script: z
+        .array(SCRIPT_STEP)
+        .optional()
+        .describe(
+          "Self-driving interactions fired by the recording itself, no round-trip. Each step is {at?, action}; `at` is seconds from capture start (omit = at the start, right after page load). Use this to press Space to start a player at t=0 (no dead intro) and schedule any later inputs in one call. Example: [{action:{type:'key',key:'Space'}}].",
+        ),
       width: z
         .number()
         .int()
@@ -79,19 +98,20 @@ export function registerRecordTools(server: McpServer): void {
       fps: z.number().int().min(1).max(60).optional().describe("Frames per second. Default 30."),
     },
     annotations: { openWorldHint: true },
-    handler: async ({ url, duration_seconds, width, height, fps }) => {
+    handler: async ({ url, duration_seconds, width, height, fps, script }) => {
       const session = await startRecording({
         url,
         width: width ?? 1280,
         height: height ?? 720,
         fps: fps ?? 30,
         maxSeconds: duration_seconds ?? 30,
+        script: script as ScriptStep[] | undefined,
       });
       return {
         session_id: session.id,
         state: session.state,
         max_seconds: duration_seconds ?? 30,
-        note: "Recording live. Use video_record_input to interact, video_record_stop to finish and get the mp4 media_id. It auto-stops at max_seconds.",
+        note: "Recording live. Scripted actions fire automatically; use video_record_input for extra live control, video_record_stop to finish. It auto-stops at max_seconds.",
       };
     },
   });

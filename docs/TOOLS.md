@@ -245,12 +245,13 @@ Stop a live recording session and finalize the video. Returns the mp4 as a media
 
 ## `video_record_website`
 
-Open a real browser at a URL and record it to video WITH AUDIO in real time (the page's music/video sound is captured and muxed into the mp4). Public http/https sites only — loopback, LAN, cluster and private IPs are blocked (network + app enforced). Returns a session_id immediately; the recording runs live in the background. Drive it with video_record_input (click / type / key / scroll / navigate — e.g. press Space to start a player) and finish with video_record_stop, which returns an mp4 media_id (with audio) usable anywhere (video_compose, video_edit, captions). Auto-stops at duration_seconds (default 30, MAX 600 = 10 min). EXPENSIVE: recording is real time — a 5 minute capture takes 5 minutes. For a plain grab just start then stop; for an interactive flow interleave video_record_input calls.
+Open a real browser at a URL and record it to video WITH AUDIO in real time (the page's music/video sound is captured and muxed into the mp4). Public http/https sites only — loopback, LAN, cluster and private IPs are blocked (network + app enforced). Returns a session_id immediately; the recording runs live in the background. To drive the page WITHOUT a dead intro, pass `script` — its actions fire on their own at the moment capture starts (and at later offsets), so e.g. pressing Space to start a player happens instantly with no gap. For ad-hoc/live control you can still call video_record_input. Finish with video_record_stop, which returns an mp4 media_id (with audio) usable anywhere (video_compose, video_edit, captions). Auto-stops at duration_seconds (default 30, MAX 600 = 10 min). EXPENSIVE: recording is real time — a 5 minute capture takes 5 minutes. IMPORTANT: size duration_seconds to cover ALL page activity you want (e.g. a song's full length + a few seconds), or the end gets cut off.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `url` | string | yes |  | Public http(s) URL to open and record. |
 | `duration_seconds` | number | no |  | Auto-stop after this long. Default 30, max 600 (10 min). |
+| `script` | array | no |  | Self-driving interactions fired by the recording itself, no round-trip. Each step is {at?, action}; `at` is seconds from capture start (omit = at the start, right after page load). Use this to press Space to start a player at t=0 (no dead intro) and schedule any later inputs in one call. Example: [{action:{type:'key',key:'Space'}}]. |
 | `width` | integer | no |  | Viewport width. Default 1280. |
 | `height` | integer | no |  | Viewport height. Default 720. |
 | `fps` | integer | no |  | Frames per second. Default 30. |

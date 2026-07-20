@@ -58,6 +58,14 @@ export type RecordAction =
   | { type: "navigate"; url: string }
   | { type: "wait"; ms: number };
 
+// A scripted interaction that fires on its own, `at` seconds after capture starts (default 0 = the
+// moment recording begins, right after page load). Lets a recording drive itself in one call
+// instead of a live round-trip per action.
+export interface ScriptStep {
+  at?: number;
+  action: RecordAction;
+}
+
 export interface RecordResult {
   media_id: string;
   url?: string;
@@ -123,6 +131,7 @@ class RecordSession {
     readonly height: number,
     readonly fps: number,
     maxSeconds: number,
+    private readonly script: ScriptStep[] = [],
   ) {
     this.deadline = this.startedAt + Math.min(maxSeconds, MAX_RECORD_SECONDS) * 1000;
   }
@@ -309,6 +318,21 @@ class RecordSession {
       () => void this.finalize("done", "reached max duration"),
       Math.max(0, this.deadline - Date.now()),
     );
+    void this.runScript();
+  }
+
+  // Drive the pre-supplied script on the live recording. Each step fires `at` seconds after capture
+  // starts; steps at the same offset run in array order. A failing step is skipped, never crashing
+  // the recording. Runs concurrently with the capture, which still auto-stops at its deadline.
+  private async runScript(): Promise<void> {
+    const base = Date.now();
+    const steps = [...this.script].sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
+    for (const step of steps) {
+      const wait = base + (step.at ?? 0) * 1000 - Date.now();
+      if (wait > 0) await sleep(wait);
+      if (this.state !== "recording") return;
+      await this.doAct(step.action).catch(() => {});
+    }
   }
 
   private send(
@@ -605,6 +629,7 @@ export async function startRecording(params: {
   height: number;
   fps: number;
   maxSeconds: number;
+  script?: ScriptStep[];
 }): Promise<RecordSession> {
   const live = [...sessions.values()].filter((s) => s.state === "recording").length;
   if (live >= MAX_SESSIONS) {
@@ -617,6 +642,7 @@ export async function startRecording(params: {
     params.height,
     params.fps,
     params.maxSeconds,
+    params.script ?? [],
   );
   sessions.set(session.id, session);
   try {
