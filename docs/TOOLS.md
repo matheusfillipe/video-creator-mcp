@@ -316,7 +316,7 @@ Build a countdown/tier-list video from ranked entries. Layout: an intro title ca
 
 ## `video_render_timeline`
 
-Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP composition (3-15s, one <video> max), rendered independently then concatenated. A clip's own audio plays at full volume by default — set `volume` (0-1) or `muted` on its media ref to control it, no need to hand-author <video muted> or a parallel track. Use the top-level `audio` for external music/voiceover overlaid at offsets. Asynchronous: returns a job_id to poll with video_render_status. Use for tier lists, compilations, montages, or any video with multiple clips.
+Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP composition (3-15s, one <video> max), rendered independently then concatenated. A clip's own audio plays at full volume by default — set `volume` (0-1) or `muted` on its media ref to control it, no need to hand-author <video muted> or a parallel track. Use the top-level `audio` for external music/voiceover overlaid at offsets. Asynchronous: returns a job_id to poll with video_render_status. Use for tier lists, compilations, montages, or any video with multiple clips. Only embed a <video> when you need HTML drawn ON TOP of the footage — it re-renders the clip through the browser (slow, and can fail to a black frame on long clips). To simply include or trim an existing clip (e.g. a recording), or stitch clips end to end, use video_compose / video_edit instead.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
