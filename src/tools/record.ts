@@ -101,7 +101,7 @@ export function registerRecordTools(server: McpServer): void {
         .max(10000)
         .optional()
         .describe(
-          "Leading silence padded onto the audio to line it up with the video, in ms. Default suits pages that make sound via Web Audio (games, MIDI/soundfont players). Pass 0 for a page that just plays a <video>/<audio> file (already synced) — otherwise its audio lands late.",
+          "Override the automatic A/V sync. By default the recorder measures this page's real audio/video capture skew (a pre-roll flash+beep) and lines them up — leave unset. Pass an explicit leading-silence value in ms to force it, e.g. 0 for a page that just plays a <video>/<audio> file (already synced, and the auto-measure assumes Web Audio).",
         ),
       width: z
         .number()

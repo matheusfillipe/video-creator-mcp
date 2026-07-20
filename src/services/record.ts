@@ -15,15 +15,28 @@ export const MAX_RECORD_SECONDS = 600;
 const MAX_SESSIONS = 3;
 const BASE_PORT = 9500;
 const BASE_DISPLAY = 99;
-// The capture stack (pulse monitor vs x11grab) delivers audio ahead of video by a fixed amount, so
-// the raw mux has audio leading. Pad this much real leading silence to realign. Overridable per
-// deployment, coerced to a number so the env value can only ever be a delay, never extra ffmpeg args.
-const AUDIO_SYNC_DELAY_MS = ((raw) => (Number.isFinite(raw) && raw >= 0 ? raw : 2100))(
-  Number(process.env.RECORD_AV_SYNC_MS ?? 2100),
-);
 let seq = 0;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Injected once during the pre-roll: flash the whole viewport white and play a beep on the SAME
+// tick, through the page's own audio path. The recorded gap between the flash (video) and the beep
+// (audio) is the exact capture skew for this page's audio source, which we then correct.
+const SYNC_MARKER_JS = `(() => {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:2147483647;pointer-events:none';
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ac = new AC();
+  const fire = () => {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.frequency.value = 1000; o.connect(g); g.connect(ac.destination);
+    g.gain.setValueAtTime(0.8, ac.currentTime);
+    (document.body || document.documentElement).appendChild(el);
+    o.start(); o.stop(ac.currentTime + 0.15);
+    setTimeout(() => el.remove(), 140);
+  };
+  ac.state === 'suspended' ? ac.resume().then(fire) : fire();
+})();`;
 
 interface KeyDef {
   key: string;
@@ -139,7 +152,7 @@ class RecordSession {
     maxSeconds: number,
     private readonly script: ScriptStep[] = [],
     private readonly settleMs = 500,
-    private readonly audioSyncMs = AUDIO_SYNC_DELAY_MS,
+    private readonly audioSyncMs?: number,
   ) {
     this.maxSeconds = Math.min(maxSeconds, MAX_RECORD_SECONDS);
   }
@@ -265,6 +278,8 @@ class RecordSession {
     await sleep(this.settleMs);
     await this.primeAudio();
 
+    const syncMs = this.audioSyncMs ?? (await this.measureSyncOffset());
+
     this.ff = this.track(
       spawn(
         "ffmpeg",
@@ -286,11 +301,11 @@ class RecordSession {
           "pulse",
           "-i",
           "rec.monitor",
-          // The capture stack delivers audio ahead of video by a fixed amount; pad that much real
-          // leading silence so they line up (input timestamp offsets get normalized away by the mp4
-          // muxer). See AUDIO_SYNC_DELAY_MS.
+          // Pad the audio by the skew measured in the pre-roll so it lines up with the video (input
+          // timestamp offsets get normalized away by the mp4 muxer, so real leading silence is what
+          // survives).
           "-af",
-          `adelay=${Math.round(this.audioSyncMs)}:all=1`,
+          `adelay=${Math.round(syncMs)}:all=1`,
           "-c:v",
           "libx264",
           "-preset",
@@ -525,6 +540,135 @@ class RecordSession {
         clickCount: 1,
       }).catch(() => {});
     }
+  }
+
+  // Measure this page's true audio/video capture skew instead of guessing a constant: record a short
+  // pre-roll, fire a simultaneous white-flash + beep into it, and read back the gap between the two
+  // in the captured file. That gap is how far the audio leads the video for this page's audio source;
+  // returns the ms of leading silence to pad. Falls back to 0 (no correction) if measurement fails.
+  private async measureSyncOffset(): Promise<number> {
+    const env = this.childEnv();
+    const preroll = `/tmp/vcm-preroll-${this.id}.mp4`;
+    const ff = spawn(
+      "ffmpeg",
+      [
+        "-y",
+        "-thread_queue_size",
+        "1024",
+        "-f",
+        "x11grab",
+        "-framerate",
+        String(this.fps),
+        "-video_size",
+        `${this.width}x${this.height}`,
+        "-i",
+        `:${this.display}`,
+        "-thread_queue_size",
+        "1024",
+        "-f",
+        "pulse",
+        "-i",
+        "rec.monitor",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
+        "-c:a",
+        "aac",
+        preroll,
+      ],
+      { env, stdio: ["pipe", "ignore", "ignore"] },
+    );
+    ff.on("error", () => {});
+    ff.stdin?.on("error", () => {});
+    try {
+      await sleep(600);
+      await this.send("Runtime.enable").catch(() => {});
+      await this.send("Runtime.evaluate", {
+        expression: SYNC_MARKER_JS,
+        awaitPromise: true,
+      }).catch(() => {});
+      await sleep(1000);
+      if (ff.stdin?.writable) ff.stdin.write("q");
+      await new Promise<void>((resolve) => {
+        const to = setTimeout(() => {
+          try {
+            ff.kill("SIGKILL");
+          } catch {}
+          resolve();
+        }, 5000);
+        ff.once("close", () => {
+          clearTimeout(to);
+          resolve();
+        });
+      });
+      const flash = await this.firstWhiteFrame(preroll);
+      const beep = await this.firstBeep(preroll);
+      if (flash === null || beep === null) return 0;
+      const leadSec = flash - beep;
+      if (leadSec < 0.03 || leadSec > 4) return 0;
+      return Math.round(leadSec * 1000);
+    } finally {
+      await rm(preroll, { force: true }).catch(() => {});
+    }
+  }
+
+  private runFfmpeg(args: string[]): Promise<string> {
+    return new Promise((resolve) => {
+      const p = spawn("ffmpeg", args, {
+        env: this.childEnv(),
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      let err = "";
+      p.stderr?.on("data", (d) => {
+        err = (err + d).slice(-40000);
+      });
+      p.on("error", () => resolve(err));
+      p.on("close", () => resolve(err));
+    });
+  }
+
+  private async firstWhiteFrame(path: string): Promise<number | null> {
+    const out = `/tmp/vcm-white-${this.id}.txt`;
+    await this.runFfmpeg([
+      "-i",
+      path,
+      "-vf",
+      `signalstats,metadata=print:file=${out}`,
+      "-an",
+      "-f",
+      "null",
+      "-",
+    ]);
+    const txt = await readFile(out, "utf8").catch(() => "");
+    await rm(out, { force: true }).catch(() => {});
+    let t: number | null = null;
+    for (const line of txt.split("\n")) {
+      const pt = line.match(/pts_time:([0-9.]+)/);
+      if (pt?.[1]) {
+        t = Number.parseFloat(pt[1]);
+        continue;
+      }
+      const y = line.match(/lavfi\.signalstats\.YAVG=([0-9.]+)/);
+      if (y?.[1] && t !== null && Number.parseFloat(y[1]) > 180) return t;
+    }
+    return null;
+  }
+
+  private async firstBeep(path: string): Promise<number | null> {
+    const err = await this.runFfmpeg([
+      "-i",
+      path,
+      "-af",
+      "silencedetect=noise=-40dB:d=0.05",
+      "-f",
+      "null",
+      "-",
+    ]);
+    const m = err.match(/silence_end:\s*([0-9.]+)/);
+    return m?.[1] ? Number.parseFloat(m[1]) : null;
   }
 
   elapsedSec(): number {
