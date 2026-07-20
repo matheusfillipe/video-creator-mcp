@@ -66,7 +66,7 @@ export function registerRecordTools(server: McpServer): void {
     name: "video_record_website",
     title: "Record a website (live browser)",
     description:
-      "Open a real browser at a URL and record it to video WITH AUDIO in real time (the page's music/video sound is captured and muxed into the mp4). Public http/https sites only — loopback, LAN, cluster and private IPs are blocked (network + app enforced). Returns a session_id immediately; the recording runs live in the background. To drive the page WITHOUT a dead intro, pass `script` — its actions fire on their own at the moment capture starts (and at later offsets), so e.g. pressing Space to start a player happens instantly with no gap. For ad-hoc/live control you can still call video_record_input. Finish with video_record_stop, which returns an mp4 media_id (with audio) usable anywhere (video_compose, video_edit, captions). Auto-stops at duration_seconds (default 30, MAX 600 = 10 min). EXPENSIVE: recording is real time — a 5 minute capture takes 5 minutes. IMPORTANT: size duration_seconds to cover ALL page activity you want (e.g. a song's full length + a few seconds), or the end gets cut off.",
+      "Open a real browser at a URL and record it to video WITH AUDIO in real time (the page's music/video sound is captured and muxed into the mp4). Public http/https sites only — loopback, LAN, cluster and private IPs are blocked (network + app enforced). RECOMMENDED one-shot mode: pass `script` (actions the recording fires itself, e.g. Space at the start to play — no dead intro) plus `wait: true`, and the call BLOCKS for the whole recording and returns the finished mp4 media_id directly. Without `wait` it returns a session_id immediately and records in the background; then you MUST let it auto-stop (or poll video_record_status) — calling video_record_stop early truncates it. Auto-stops at duration_seconds (default 30, MAX 600 = 10 min). EXPENSIVE: recording is real time — a 5 minute capture takes 5 minutes (in wait mode the call blocks that long). CRITICAL: size duration_seconds to cover ALL page activity (e.g. a song's full length + a few seconds), or the end gets cut off. The mp4 is usable anywhere (video_compose, video_edit, captions).",
     inputSchema: {
       url: z.string().describe("Public http(s) URL to open and record."),
       duration_seconds: z
@@ -75,11 +75,33 @@ export function registerRecordTools(server: McpServer): void {
         .max(MAX_RECORD_SECONDS)
         .optional()
         .describe(`Auto-stop after this long. Default 30, max ${MAX_RECORD_SECONDS} (10 min).`),
+      wait: z
+        .boolean()
+        .optional()
+        .describe(
+          "Block until the recording finishes and return the finished mp4 (media_id, url) directly, instead of a session_id. Use this for a fully-scripted recording so it can't be truncated. The call blocks for ~duration_seconds.",
+        ),
       script: z
         .array(SCRIPT_STEP)
         .optional()
         .describe(
-          "Self-driving interactions fired by the recording itself, no round-trip. Each step is {at?, action}; `at` is seconds from capture start (omit = at the start, right after page load). Use this to press Space to start a player at t=0 (no dead intro) and schedule any later inputs in one call. Example: [{action:{type:'key',key:'Space'}}].",
+          "Self-driving interactions fired by the recording itself, no round-trip. Each step is {at?, action}; `at` is seconds from capture start (omit = at the start, right after page load + settle). Use this to press Space to start a player at t=0 (no dead intro) and schedule any later inputs in one call. Example: [{action:{type:'key',key:'Space'}}].",
+        ),
+      settle_ms: z
+        .number()
+        .min(0)
+        .max(30000)
+        .optional()
+        .describe(
+          "Wait this long after the page loads before capture starts. Default 500. Raise it (e.g. 3000) to let intro tooltips/overlays fade out so they aren't in the recording.",
+        ),
+      audio_sync_ms: z
+        .number()
+        .min(0)
+        .max(10000)
+        .optional()
+        .describe(
+          "Leading silence padded onto the audio to line it up with the video, in ms. Default suits pages that make sound via Web Audio (games, MIDI/soundfont players). Pass 0 for a page that just plays a <video>/<audio> file (already synced) — otherwise its audio lands late.",
         ),
       width: z
         .number()
@@ -98,7 +120,17 @@ export function registerRecordTools(server: McpServer): void {
       fps: z.number().int().min(1).max(60).optional().describe("Frames per second. Default 30."),
     },
     annotations: { openWorldHint: true },
-    handler: async ({ url, duration_seconds, width, height, fps, script }) => {
+    handler: async ({
+      url,
+      duration_seconds,
+      wait,
+      script,
+      settle_ms,
+      audio_sync_ms,
+      width,
+      height,
+      fps,
+    }) => {
       const session = await startRecording({
         url,
         width: width ?? 1280,
@@ -106,12 +138,20 @@ export function registerRecordTools(server: McpServer): void {
         fps: fps ?? 30,
         maxSeconds: duration_seconds ?? 30,
         script: script as ScriptStep[] | undefined,
+        settleMs: settle_ms,
+        audioSyncMs: audio_sync_ms,
       });
+      if (wait) {
+        const result = await session.done;
+        if (!result.media_id)
+          throw new Error(`recording failed: ${session.status().error ?? "unknown"}`);
+        return { kind: "recorded-website", ...result };
+      }
       return {
         session_id: session.id,
         state: session.state,
         max_seconds: duration_seconds ?? 30,
-        note: "Recording live. Scripted actions fire automatically; use video_record_input for extra live control, video_record_stop to finish. It auto-stops at max_seconds.",
+        note: "Recording live. Scripted actions fire automatically. Let it auto-stop at max_seconds or poll video_record_status — do NOT call video_record_stop early or the recording is truncated.",
       };
     },
   });

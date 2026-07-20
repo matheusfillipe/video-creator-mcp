@@ -15,11 +15,9 @@ export const MAX_RECORD_SECONDS = 600;
 const MAX_SESSIONS = 3;
 const BASE_PORT = 9500;
 const BASE_DISPLAY = 99;
-// The pulse monitor's capture buffer runs ~2.1s ahead of x11grab (a property of the capture stack,
-// the same for every page), so the raw mux has audio leading the picture by that much. Padding this
-// much real silence onto the front of the audio realigns them. Calibrated with a page that flashes
-// and beeps at aperiodic times so the offset is unambiguous; overridable per-deployment, coerced to
-// a number so the env value can only ever be a delay, never extra ffmpeg arguments.
+// The capture stack (pulse monitor vs x11grab) delivers audio ahead of video by a fixed amount, so
+// the raw mux has audio leading. Pad this much real leading silence to realign. Overridable per
+// deployment, coerced to a number so the env value can only ever be a delay, never extra ffmpeg args.
 const AUDIO_SYNC_DELAY_MS = ((raw) => (Number.isFinite(raw) && raw >= 0 ? raw : 2100))(
   Number(process.env.RECORD_AV_SYNC_MS ?? 2100),
 );
@@ -110,7 +108,9 @@ class RecordSession {
   private readonly runtimeDir = `/tmp/vcm-run-${this.id}`;
   private readonly userDataDir = `/tmp/vcm-cr-${this.id}`;
   private readonly outPath = join(config.workDir, `record-${this.id}.mp4`);
-  private readonly deadline: number;
+  // Counted from when ffmpeg actually starts, not session construction: browser launch, page load
+  // and the settle all precede capture, so the requested duration must count from the first frame.
+  private readonly maxSeconds: number;
   private deadlineTimer?: NodeJS.Timeout;
   private pulse?: ChildProcess;
   private xvfb?: ChildProcess;
@@ -124,6 +124,12 @@ class RecordSession {
   private finalizePromise?: Promise<RecordResult>;
   private result?: RecordResult;
   private lastError?: string;
+  private resolveDone!: (r: RecordResult) => void;
+  // Resolves when the recording finalizes (auto-stop or explicit stop), without triggering it —
+  // lets a blocking caller await the finished result instead of stopping the capture early.
+  readonly done = new Promise<RecordResult>((resolve) => {
+    this.resolveDone = resolve;
+  });
 
   constructor(
     private readonly url: string,
@@ -132,8 +138,10 @@ class RecordSession {
     readonly fps: number,
     maxSeconds: number,
     private readonly script: ScriptStep[] = [],
+    private readonly settleMs = 500,
+    private readonly audioSyncMs = AUDIO_SYNC_DELAY_MS,
   ) {
-    this.deadline = this.startedAt + Math.min(maxSeconds, MAX_RECORD_SECONDS) * 1000;
+    this.maxSeconds = Math.min(maxSeconds, MAX_RECORD_SECONDS);
   }
 
   private childEnv(): NodeJS.ProcessEnv {
@@ -254,7 +262,7 @@ class RecordSession {
     await this.send("DOM.enable");
     await this.send("Page.bringToFront").catch(() => {});
     await Promise.race([this.waitEvent("Page.loadEventFired", 12_000), sleep(12_000)]);
-    await sleep(500);
+    await sleep(this.settleMs);
     await this.primeAudio();
 
     this.ff = this.track(
@@ -278,10 +286,11 @@ class RecordSession {
           "pulse",
           "-i",
           "rec.monitor",
-          // Input timestamp offsets get normalized away by the mp4 muxer, so realign audio to video
-          // by padding real leading silence (see AUDIO_SYNC_DELAY_MS).
+          // The capture stack delivers audio ahead of video by a fixed amount; pad that much real
+          // leading silence so they line up (input timestamp offsets get normalized away by the mp4
+          // muxer). See AUDIO_SYNC_DELAY_MS.
           "-af",
-          `adelay=${Math.round(AUDIO_SYNC_DELAY_MS)}:all=1`,
+          `adelay=${Math.round(this.audioSyncMs)}:all=1`,
           "-c:v",
           "libx264",
           "-preset",
@@ -316,7 +325,7 @@ class RecordSession {
     this.ff.stdin?.on("error", () => {});
     this.deadlineTimer = setTimeout(
       () => void this.finalize("done", "reached max duration"),
-      Math.max(0, this.deadline - Date.now()),
+      this.maxSeconds * 1000,
     );
     void this.runScript();
   }
@@ -586,6 +595,7 @@ class RecordSession {
       };
     }
     this.cleanup();
+    this.resolveDone(this.result as RecordResult);
     return this.result as RecordResult;
   }
 
@@ -630,6 +640,8 @@ export async function startRecording(params: {
   fps: number;
   maxSeconds: number;
   script?: ScriptStep[];
+  settleMs?: number;
+  audioSyncMs?: number;
 }): Promise<RecordSession> {
   const live = [...sessions.values()].filter((s) => s.state === "recording").length;
   if (live >= MAX_SESSIONS) {
@@ -643,6 +655,8 @@ export async function startRecording(params: {
     params.fps,
     params.maxSeconds,
     params.script ?? [],
+    params.settleMs,
+    params.audioSyncMs,
   );
   sessions.set(session.id, session);
   try {
