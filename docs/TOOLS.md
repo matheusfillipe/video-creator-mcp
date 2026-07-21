@@ -255,6 +255,7 @@ Open a real browser at a URL and record it to video WITH AUDIO in real time (the
 | `script` | array | no |  | Self-driving interactions fired by the recording itself, no round-trip. Each step is {at?, action}; `at` is seconds from capture start (omit = at the start, right after page load + settle). Use this to press Space to start a player at t=0 (no dead intro) and schedule any later inputs in one call. Example: [{action:{type:'key',key:'Space'}}]. |
 | `settle_ms` | number | no |  | Wait this long after the page loads before capture starts. Default 500. Raise it (e.g. 3000) to let intro tooltips/overlays fade out so they aren't in the recording. |
 | `audio_sync_ms` | number | no |  | Override the automatic A/V sync. By default the recorder measures this page's real audio/video capture skew (a pre-roll flash+beep) and lines them up — leave unset. Pass an explicit leading-silence value in ms to force it, e.g. 0 for a page that just plays a <video>/<audio> file (already synced, and the auto-measure assumes Web Audio). |
+| `show_cursor` | boolean | no |  | Include the mouse cursor in the recording. Default false (hidden). |
 | `width` | integer | no |  | Viewport width. Default 1280. |
 | `height` | integer | no |  | Viewport height. Default 720. |
 | `fps` | integer | no |  | Frames per second. Default 30. |

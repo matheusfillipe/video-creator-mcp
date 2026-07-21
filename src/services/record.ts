@@ -155,6 +155,7 @@ class RecordSession {
     private readonly script: ScriptStep[] = [],
     private readonly settleMs = 500,
     private readonly audioSyncMs?: number,
+    private readonly showCursor = false,
   ) {
     this.maxSeconds = Math.min(maxSeconds, MAX_RECORD_SECONDS);
   }
@@ -289,6 +290,8 @@ class RecordSession {
           "-y",
           "-thread_queue_size",
           "1024",
+          "-draw_mouse",
+          this.showCursor ? "1" : "0",
           "-f",
           "x11grab",
           "-framerate",
@@ -562,6 +565,8 @@ class RecordSession {
         "-y",
         "-thread_queue_size",
         "1024",
+        "-draw_mouse",
+        this.showCursor ? "1" : "0",
         "-f",
         "x11grab",
         "-framerate",
@@ -793,6 +798,7 @@ export async function startRecording(params: {
   script?: ScriptStep[];
   settleMs?: number;
   audioSyncMs?: number;
+  showCursor?: boolean;
 }): Promise<RecordSession> {
   const live = [...sessions.values()].filter((s) => s.state === "recording").length;
   if (live >= MAX_SESSIONS) {
@@ -808,6 +814,7 @@ export async function startRecording(params: {
     params.script ?? [],
     params.settleMs,
     params.audioSyncMs,
+    params.showCursor,
   );
   sessions.set(session.id, session);
   try {

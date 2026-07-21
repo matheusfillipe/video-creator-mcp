@@ -103,6 +103,10 @@ export function registerRecordTools(server: McpServer): void {
         .describe(
           "Override the automatic A/V sync. By default the recorder measures this page's real audio/video capture skew (a pre-roll flash+beep) and lines them up — leave unset. Pass an explicit leading-silence value in ms to force it, e.g. 0 for a page that just plays a <video>/<audio> file (already synced, and the auto-measure assumes Web Audio).",
         ),
+      show_cursor: z
+        .boolean()
+        .optional()
+        .describe("Include the mouse cursor in the recording. Default false (hidden)."),
       width: z
         .number()
         .int()
@@ -127,6 +131,7 @@ export function registerRecordTools(server: McpServer): void {
       script,
       settle_ms,
       audio_sync_ms,
+      show_cursor,
       width,
       height,
       fps,
@@ -140,6 +145,7 @@ export function registerRecordTools(server: McpServer): void {
         script: script as ScriptStep[] | undefined,
         settleMs: settle_ms,
         audioSyncMs: audio_sync_ms,
+        showCursor: show_cursor,
       });
       if (wait) {
         const result = await session.done;
