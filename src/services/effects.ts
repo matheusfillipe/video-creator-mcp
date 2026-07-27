@@ -433,7 +433,15 @@ export async function narratedScenes(params: {
       blurCues = params.captions.filter((cue) => (cue.style ?? captionStyle).background === "blur");
     }
     const videoPre = blurCues.length
-      ? blurBandPre(blurCues, captionStyle, w, h, captionChain)
+      ? await blurBandPre(
+          dir,
+          blurCues,
+          captionStyle,
+          params.captionMode ?? "block",
+          w,
+          h,
+          captionChain,
+        )
       : captionChain
         ? `[0:v]${captionChain}[v];`
         : "";
@@ -498,58 +506,58 @@ export async function narratedScenes(params: {
   }
 }
 
-// A "blur" caption background is drawn as a second video layer, not a drawtext flag: split the
-// frame, blur + darken a horizontal band at the caption's position, and composite that band back
-// under the caption chain so the text renders on top of it. The band's enable window is the union
-// of every blur cue's [start,end], so it only darkens the footage while a blur cue is actually on
-// screen. All blur cues share one band (the track's position), so pick the first one's style.
-function blurBandPre(
+// A "blur" caption background is a second video layer: a blurred, darkened copy of the frame,
+// masked down to one box per cue and composited under the caption chain so the text renders on top
+// of it. Each mask box is a drawtext box at the same font and margin the cue's own renderer uses,
+// so ffmpeg measures that cue's real text extents and the box hugs its own words for its own
+// [start,end].
+async function blurBandPre(
+  dir: string,
   blurCues: Cue[],
   trackStyle: CaptionStyle,
+  defaultMode: "block" | "karaoke",
   width: number,
   height: number,
   captionChain: string,
-): string {
-  const first = blurCues[0] as Cue;
-  const style = first.style ?? trackStyle;
-  // The band must hug the text, so it is sized from the same font the caption renders at and
-  // from how many lines the longest blur cue actually wraps to, not a fixed multiple.
-  const capFont = Math.max(20, Math.round((height / 23) * style.fontScale));
-  const cpl = Math.max(1, charsPerLine(width, capFont));
-  const lines = Math.min(
-    3,
-    Math.max(1, ...blurCues.map((cue) => Math.ceil(cue.text.length / cpl))),
-  );
-  const lineH = Math.round(capFont * 1.3);
-  const pad = Math.round(capFont * 0.55);
-  const textH = lineH * lines;
-  const bandH = textH + pad * 2;
-  // Width hugs the widest wrapped line (same 0.52em glyph model the wrap uses), centered, so the
-  // band brackets the text instead of spanning the whole frame and covering picture that could
-  // show footage. Capped at the frame width for a cue that genuinely fills the line.
-  const glyphW = capFont * 0.52;
-  const maxLineChars = Math.min(cpl, Math.max(...blurCues.map((cue) => cue.text.length)));
-  const bandW = Math.min(width, Math.round(maxLineChars * glyphW) + pad * 2);
-  const bandX = Math.round((width - bandW) / 2);
-  // The caption text sits this far from its edge (matches the drawtext/ASS margins), so the band
-  // is placed to bracket the text with `pad` above and below rather than floating over it.
-  const textMargin = Math.round(height * 0.075);
-  const bandY =
-    style.position === "top"
-      ? Math.max(0, textMargin - pad)
-      : style.position === "center"
-        ? Math.round((height - bandH) / 2)
-        : Math.max(0, height - textMargin - textH - pad);
-  // between()'s own comma-separated arguments must be escaped inside the enable expression,
-  // otherwise ffmpeg's option parser reads them as filter-option separators instead.
-  const windows = blurCues
-    .map((cue) => `between(t\\,${cue.start.toFixed(3)}\\,${cue.end.toFixed(3)})`)
-    .join("+");
-  return (
-    `[0:v]split=2[cb0][cb1];[cb1]crop=${bandW}:${bandH}:${bandX}:${bandY},` +
-    `boxblur=luma_radius=14:luma_power=1,drawbox=x=0:y=0:w=iw:h=${bandH}:color=black@0.22:t=fill[cbb];` +
-    `[cb0][cbb]overlay=${bandX}:${bandY}:enable='${windows}'[cbg];[cbg]${captionChain}[v];`
-  );
+): Promise<string> {
+  const boxes: string[] = [];
+  for (const [i, cue] of blurCues.entries()) {
+    const style = cue.style ?? trackStyle;
+    // libass (karaoke) and drawtext (block) size and inset their text differently, so the mask
+    // mirrors whichever one this cue goes through or the box lands off its glyphs. libass maps an
+    // ASS Fontsize onto the font's design metrics and draws ~0.9x the size drawtext gives the same
+    // number, so the mask font carries that factor to match what libass paints.
+    const karaoke = (cue.style?.mode ?? defaultMode) === "karaoke";
+    const fontSize = karaoke
+      ? Math.round(Math.max(18, Math.round((height / 22) * style.fontScale)) * 0.9)
+      : Math.max(20, Math.round((height / 26) * style.fontScale));
+    const file = join(dir, `blurband${i}.txt`);
+    await writeFile(file, wrapText(cue.text, charsPerLine(width, fontSize)));
+    const drawtext = buildTimedDrawtext({
+      textFile: file,
+      start: cue.start,
+      end: cue.end,
+      position: style.position,
+      fontSize,
+      color: "white@0",
+      background: "none",
+      shadow: false,
+      outline: false,
+      margin: Math.round(height * (karaoke ? 0.07 : 0.08)),
+    });
+    boxes.push(`${drawtext}:box=1:boxcolor=white:boxborderw=${Math.round(fontSize * 0.4)}`);
+  }
+  // The mask is thresholded to 0/255 because a limited-range luma leaves the black areas slightly
+  // opaque, which hazes the blur across the whole frame.
+  return [
+    "[0:v]split=3[cbase][cblur][cmask];",
+    "[cblur]boxblur=luma_radius=14:luma_power=1,",
+    "drawbox=x=0:y=0:w=iw:h=ih:color=black@0.22:t=fill,format=yuva420p[cbb];",
+    `[cmask]drawbox=x=0:y=0:w=iw:h=ih:color=black:t=fill,${boxes.join(",")},`,
+    "format=gray,lutyuv=y='if(gt(val\\,128)\\,255\\,0)'[cmk];",
+    "[cbb][cmk]alphamerge[cband];",
+    `[cbase][cband]overlay=0:0[cbg];[cbg]${captionChain}[v];`,
+  ].join("");
 }
 
 // Comma-joined drawtext chain for a static ("block") caption cue track: each cue wrapped to the
