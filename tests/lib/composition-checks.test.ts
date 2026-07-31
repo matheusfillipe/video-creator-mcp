@@ -100,3 +100,25 @@ describe("unbalanced css braces", () => {
     expect(checkComposition("<style>body{margin:0}\n#card{width:760px}</style>")).toEqual([]);
   });
 });
+
+describe("guessed scroll distance", () => {
+  it("flags a credits roll whose travel is typed in", () => {
+    const html = "<script>tl.to('#scroll', { y: -3760, duration: 14.2 });</script>";
+    expect(checkComposition(html).join()).toMatch(/guessed_scroll_distance/);
+  });
+
+  it("flags the same thing written as a transform", () => {
+    const html = "<script>el.style.transform = 'translateY(-2200px)';</script>";
+    expect(checkComposition(html).join()).toMatch(/guessed_scroll_distance/);
+  });
+
+  it("accepts a travel measured from the content", () => {
+    const html =
+      "<script>const travel = el.scrollHeight - window.innerHeight; tl.to(el, { y: -travel });</script>";
+    expect(checkComposition(html)).toEqual([]);
+  });
+
+  it("leaves ordinary short moves alone", () => {
+    expect(checkComposition("<script>tl.from('#t', { y: -120 });</script>")).toEqual([]);
+  });
+});

@@ -124,8 +124,23 @@ export function checkComposition(html: string): string[] {
     }
   }
 
+  const travels = unique(
+    [...html.matchAll(LONG_TRAVEL_RE)].map((match) => (match[1] ?? match[2]) as string),
+  );
+  if (travels.length > 0 && !MEASURES_CONTENT_RE.test(html)) {
+    findings.push(
+      `✗ guessed_scroll_distance: this moves an element ${travels.join("px, ")}px, further than the canvas is tall, from a number typed into the script. Only the browser knows how tall the content really is, so a typed distance is wrong the moment the text changes: too short and the last lines never arrive, too long and the segment plays out on an empty frame for seconds. Fix: measure it — \`const travel = el.scrollHeight - window.innerHeight\` then \`gsap.to(el, { y: -travel, ... })\`, with \`ease:'none'\` for a credits roll.`,
+    );
+  }
+
   return findings;
 }
+
+// A four-digit negative translate is past the tallest canvas (1080), so it can only be a roll or
+// marquee walking its own content through the frame — the one motion whose distance has to come from
+// the DOM rather than from the author.
+const LONG_TRAVEL_RE = /\by\s*:\s*-\s*(\d{4,})|translateY\(\s*-\s*(\d{4,})px/g;
+const MEASURES_CONTENT_RE = /scrollHeight|offsetHeight|scrollWidth|getBoundingClientRect/;
 
 // Node's base64 decoder is lenient: a string whose length is not a multiple of 4, or that carries a
 // stray character, silently decodes to a truncated document. A composition mangled that way still
