@@ -25,7 +25,7 @@ export function registerRenderTools(server: McpServer): void {
     name: "video_render_timeline",
     title: "Render Multi-Segment Timeline",
     description:
-      "Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP composition (3-15s, one <video> max), rendered independently then concatenated. A clip's own audio plays at full volume by default — set `volume` (0-1) or `muted` on its media ref to control it, no need to hand-author <video muted> or a parallel track. Use the top-level `audio` for external music/voiceover overlaid at offsets. Asynchronous: returns a job_id to poll with video_render_status. Use for tier lists, compilations, montages, or any video with multiple clips. Only embed a <video> when you need HTML drawn ON TOP of the footage — it re-renders the clip through the browser (slow, and can fail to a black frame on long clips). To simply include or trim an existing clip (e.g. a recording), or stitch clips end to end, use video_compose / video_edit instead.",
+      "Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP composition (3-15s, one <video> max), rendered independently then concatenated. A clip's own audio plays at full volume by default — set `volume` (0-1) or `muted` on its media ref to control it, no need to hand-author <video muted> or a parallel track. Use the top-level `audio` for external music/voiceover overlaid at offsets: a track's `offset_ms` places it anywhere in the timeline, which is how you score ONE section (a song only under the closing credits = offset_ms of the durations before them). Score it HERE. Asynchronous: returns a job_id to poll with video_render_status; the finished result carries a `media_id`, so it feeds straight into video_add_audio / video_caption / another composition with no re-download. Use for tier lists, compilations, montages, or any video with multiple clips. Only embed a <video> when you need HTML drawn ON TOP of the footage — it re-renders the clip through the browser (slow, and can fail to a black frame on long clips). To simply include or trim an existing clip (e.g. a recording), or stitch clips end to end, use video_compose / video_edit instead.",
     inputSchema: {
       segments: z
         .array(
@@ -233,6 +233,19 @@ export function registerRenderTools(server: McpServer): void {
         .describe(
           "Delay this track by N seconds so it starts a beat in instead of at 0:00. Use a small lead-in (~1s) for a narration so the footage/music breathes before the voice comes in; the video is extended if the delayed track would run past its end.",
         ),
+      end_sec: z
+        .number()
+        .min(0)
+        .optional()
+        .describe(
+          "Stop the track at this point in the video, so it scores ONE section instead of running from start_sec to wherever the file happens to end. With start_sec this is the window: start_sec:13, end_sec:28 lays the track over 0:13-0:28 only (e.g. a song under closing credits). Pair with fade_sec so it does not stop dead.",
+        ),
+      fade_sec: z
+        .number()
+        .min(0)
+        .max(5)
+        .optional()
+        .describe("Fade the track out over this long at the end of its window."),
       music_media_id: z
         .string()
         .optional()
@@ -257,6 +270,8 @@ export function registerRenderTools(server: McpServer): void {
       existing_volume,
       loop,
       start_sec,
+      end_sec,
+      fade_sec,
       music_media_id,
       music_volume,
       metadata,
@@ -279,6 +294,8 @@ export function registerRenderTools(server: McpServer): void {
               existingVolume: existing_volume,
               loop,
               startSec: start_sec,
+              ...(end_sec !== undefined ? { endSec: end_sec } : {}),
+              ...(fade_sec !== undefined ? { fadeSec: fade_sec } : {}),
             });
         const saved = await saveRender(buffer, meta.filename, metadata);
         return { ...saved, media_id: meta.media_id, duration: meta.duration };

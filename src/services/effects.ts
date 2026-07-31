@@ -15,7 +15,7 @@ import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
 import { type CaptionStyle, type Cue, buildAss } from "./captions.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
-import { saveRender } from "./publish.js";
+import { readSidecar, saveRender } from "./publish.js";
 
 const IMAGE_RE = /\.(jpg|jpeg|png|webp)$/i;
 
@@ -50,6 +50,10 @@ interface AudioMuxOptions {
   existingVolume: number;
   loop: boolean;
   startSec: number;
+  /** Seconds of the track to keep, so it scores one section rather than running from its start
+   * to wherever it happens to end. */
+  windowSec?: number;
+  fadeSec?: number;
 }
 
 // ffmpeg args to mux an audio track onto a video, stream-copying the video. -stream_loop repeats a
@@ -65,10 +69,21 @@ function audioMuxArgs(
   padVideoSeconds = 0,
 ): string[] {
   const delay = opts.startSec > 0 ? `adelay=${Math.round(opts.startSec * 1000)}:all=1,` : "";
+  // The window is cut before the delay, so `atrim` counts seconds of the track and the delay then
+  // places that piece; trimming after would measure from the start of the silence instead.
+  const bounded = opts.windowSec !== undefined && opts.windowSec > 0;
+  const trim = bounded
+    ? `atrim=duration=${(opts.windowSec as number).toFixed(3)},asetpts=N/SR/TB,`
+    : "";
+  const fade =
+    bounded && opts.fadeSec !== undefined && opts.fadeSec > 0
+      ? `afade=t=out:st=${Math.max(0, (opts.windowSec as number) - opts.fadeSec).toFixed(3)}:d=${opts.fadeSec.toFixed(3)},`
+      : "";
+  const track = `[1:a]${trim}${fade}${delay}volume=${opts.volume}`;
   const audioFilter =
     opts.mode === "mix"
-      ? `[0:a]volume=${opts.existingVolume}[a0];[1:a]${delay}volume=${opts.volume}[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`
-      : `[1:a]${delay}volume=${opts.volume}[a]`;
+      ? `[0:a]volume=${opts.existingVolume}[a0];${track}[a1];[a0][a1]amix=inputs=2:duration=first:normalize=0[a]`
+      : `${track}[a]`;
   const args = ["-y", "-i", videoPath];
   if (opts.loop) args.push("-stream_loop", "-1");
   args.push("-i", audioPath);
@@ -147,6 +162,15 @@ export async function muxLoopedMusic(
   }
 }
 
+// Whether a video we rendered was built from this media, meaning its sound is already in the mix at
+// the place the picture uses it. Read from the render's own recipe; media we did not render carries
+// no recipe and is treated as unrelated.
+async function builtFrom(video: MediaMeta, mediaId: string): Promise<boolean> {
+  const sidecar = await readSidecar(video.url).catch(() => null);
+  const recipe = sidecar?.recipe;
+  return recipe ? JSON.stringify(recipe.args).includes(`"${mediaId}"`) : false;
+}
+
 // Mux an audio track onto a video. "replace" makes it the sole audio (TTS narration over muted
 // footage); "mix" blends it UNDER the video's existing audio (background music/ambient — the
 // video must already have an audio stream). The video keeps its full length; with `loop` a track
@@ -160,6 +184,8 @@ export async function addAudioTrack(params: {
   existingVolume: number;
   loop: boolean;
   startSec?: number;
+  endSec?: number;
+  fadeSec?: number;
 }): Promise<{ buffer: Buffer; meta: MediaMeta }> {
   const video = await loadMeta(params.videoId);
   if (!video) {
@@ -176,11 +202,18 @@ export async function addAudioTrack(params: {
       `Video ${params.videoId} has no audio to mix under — use mode "replace" for the first track.`,
     );
   }
+  if (params.mode === "mix" && (await builtFrom(video, params.audioId))) {
+    throw new Error(
+      `${params.audioId} is already one of the clips inside video ${params.videoId}, so mixing it in again would play its sound twice, offset from the picture. Its audio is already there at the right place: drop this call. To score a SECTION with a different track, re-render with video_render_timeline's \`audio\` array and an \`offset_ms\` for that section, which is the only way to bound where a track plays.`,
+    );
+  }
   // A narration (replace, not a looped background track) that runs past the footage would be cut
   // to the video length; hold the last frame so the whole voiceover plays. A lead-in delay pushes
   // the track's end out too, so account for it.
   const startSec = params.startSec ?? 0;
-  const audioEnd = startSec + audio.duration;
+  const windowSec =
+    params.endSec !== undefined ? Math.max(0.1, params.endSec - startSec) : undefined;
+  const audioEnd = startSec + Math.min(audio.duration, windowSec ?? audio.duration);
   const padVideoSeconds =
     params.mode === "replace" && !params.loop && audioEnd > video.duration + 0.1
       ? audioEnd - video.duration
@@ -199,6 +232,8 @@ export async function addAudioTrack(params: {
           existingVolume: params.existingVolume,
           loop: params.loop,
           startSec,
+          ...(windowSec !== undefined ? { windowSec } : {}),
+          ...(params.fadeSec !== undefined ? { fadeSec: params.fadeSec } : {}),
         },
         outFile,
         padVideoSeconds,
@@ -207,7 +242,7 @@ export async function addAudioTrack(params: {
     );
     const buffer = await readFile(outFile);
     const meta = await writeMediaFromBuffer({
-      idSeed: `addaudio:${params.videoId}:${params.audioId}:${params.mode}:${params.volume}:${params.existingVolume}:${params.loop}`,
+      idSeed: `addaudio:${params.videoId}:${params.audioId}:${params.mode}:${params.volume}:${params.existingVolume}:${params.loop}:${startSec}:${params.endSec ?? ""}:${params.fadeSec ?? ""}`,
       buffer,
       ext: ".mp4",
       sourceUrl: `addaudio://${params.videoId}`,

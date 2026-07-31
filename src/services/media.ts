@@ -18,6 +18,7 @@ import { assertSafeUrl } from "../lib/net.js";
 import { Limiter } from "../lib/queue.js";
 import type { MediaMeta, MediaSummary, ProbeInfo } from "../types.js";
 import { cookieArgs } from "./cookies.js";
+import { ytdlpExtractorArgs, ytdlpFailure } from "./ytdlp.js";
 
 const MIN_VALID_BYTES = 100;
 
@@ -198,8 +199,13 @@ async function ytdlpDownload(
   if (TWITTER_RE.test(url)) {
     args.push("--extractor-args", "twitter:api=syndication");
   }
+  args.push(...ytdlpExtractorArgs(url));
   args.push(url);
-  await run(config.ytdlp.path, args, { timeoutMs: 600_000 });
+  try {
+    await run(config.ytdlp.path, args, { timeoutMs: 600_000 });
+  } catch (error) {
+    throw ytdlpFailure(error) ?? error;
+  }
 }
 
 interface RawFetch {

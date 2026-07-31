@@ -1,4 +1,6 @@
 import { config } from "../config.js";
+import type { MediaMeta } from "../types.js";
+import { getCached, writeMediaFromBuffer } from "./media.js";
 import { storage } from "./storage.js";
 
 export interface PublishMetadata {
@@ -29,7 +31,40 @@ export interface SavedRender {
   url: string;
   filename: string;
   size_bytes: number;
+  media_id?: string;
+  duration?: number;
   metadata_url?: string;
+}
+
+const PLAYABLE_RE = /\.(mp4|webm|mov|mkv|m4a|mp3|wav)$/i;
+
+// Every finished render enters the media cache, so its media_id can be handed straight to the tools
+// that take one (audio, captions, edits, a clip in another composition) with no round trip through
+// the bucket. A render whose filename IS a media id is already cached by whoever built it, so its
+// bytes are not stored a second time. Stills (preview frames, thumbnails, contact sheets) stay out
+// of the cache: nothing downstream consumes them by id.
+async function registerRender(
+  buffer: Buffer,
+  filename: string,
+  url: string,
+): Promise<MediaMeta | null> {
+  const base = filename.split("/").pop() ?? filename;
+  if (!PLAYABLE_RE.test(base)) {
+    return null;
+  }
+  const stem = base.replace(/\.[^.]+$/, "");
+  const existing = await getCached(stem);
+  if (existing) {
+    return existing;
+  }
+  // The published url is kept as the source so the render's own sidecar (and the recipe in it) can
+  // be read back from the media id alone.
+  return writeMediaFromBuffer({
+    idSeed: `render:${base}`,
+    buffer,
+    ext: base.slice(base.lastIndexOf(".")),
+    sourceUrl: url,
+  });
 }
 
 // mp4 can't hold YouTube tags/structure, so publish metadata is written as a JSON sidecar
@@ -54,7 +89,13 @@ export async function saveRender(
   recipe?: RenderRecipe,
 ): Promise<SavedRender> {
   const url = await storage().save(buffer, filename);
-  const saved: SavedRender = { url, filename, size_bytes: buffer.byteLength };
+  const media = await registerRender(buffer, filename, url);
+  const saved: SavedRender = {
+    url,
+    filename,
+    size_bytes: buffer.byteLength,
+    ...(media ? { media_id: media.media_id, duration: media.duration } : {}),
+  };
   if (metadata || recipe) {
     const sidecar = metadataSidecarName(filename);
     const body: SidecarBody = {

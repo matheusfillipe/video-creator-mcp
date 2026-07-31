@@ -8,6 +8,7 @@ import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
 import { cookieArgs } from "./cookies.js";
 import { writeMediaFromBuffer } from "./media.js";
+import { ytdlpExtractorArgs, ytdlpFailure } from "./ytdlp.js";
 
 const BARE_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
 const MAX_THUMBNAIL_RESULTS = 5;
@@ -120,8 +121,18 @@ async function dumpJson(target: string): Promise<YtdlpEntry[]> {
   let hadOutput = false;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 1500));
-    const args = ["--no-download", "--dump-json", ...(await cookieArgs()), target];
-    const { stdout } = await run(config.ytdlp.path, args, { timeoutMs: 60_000 });
+    const args = [
+      "--no-download",
+      "--dump-json",
+      ...(await cookieArgs()),
+      ...ytdlpExtractorArgs(target),
+      target,
+    ];
+    const { stdout } = await run(config.ytdlp.path, args, { timeoutMs: 60_000 }).catch(
+      (error: unknown) => {
+        throw ytdlpFailure(error) ?? error;
+      },
+    );
     const entries = parseJsonLines(stdout);
     if (entries.length > 0) return entries;
     if (stdout.trim()) hadOutput = true;
@@ -517,6 +528,7 @@ async function ytdlpSubFetch(
     "--skip-download",
     ...extra,
     ...(await cookieArgs()),
+    ...ytdlpExtractorArgs(normalized),
     "-o",
     join(dir, prefix),
     normalized,

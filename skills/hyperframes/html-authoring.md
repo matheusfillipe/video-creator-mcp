@@ -35,6 +35,20 @@ Always use transitions between scenes (no jump cuts). Every element animates IN 
 ## Animation guardrails
 Offset the first animation 0.1-0.3s; vary eases (3+ per scene); 60px+ headlines, 20px+ body, 16px+ labels for rendered video; `tabular-nums` on number columns; avoid full-screen linear gradients on dark bg (H.264 banding — use radial/solid + localized glow).
 
+## Never hardcode a distance you can measure
+Any animation that travels the length of its content — a credits roll, a long list scrolling past, a marquee — MUST read the distance from the DOM at runtime. A guessed pixel value is wrong every time the text changes: too small and the tail never arrives, too large and the segment ends on an empty screen for seconds. The content height is known only to the browser, so ask it:
+
+```js
+const strip = document.getElementById('scroll');
+const travel = strip.scrollHeight - window.innerHeight;   // exactly off-screen, no overshoot
+tl.to(strip, { y: -travel, duration: 14, ease: 'none' }, 0.4);
+```
+
+Use `ease:'none'` for a roll (a credits crawl moves at constant speed; `power1.inOut` makes it lurch), and size `duration` to the segment so the last line clears just as the segment ends.
+
+## Preview the END of every motion, not the start
+`video_preview_frame` at 0.3s only proves the first frame composed. A scroll, a counter, a reveal and a fade all fail at their *end*. Sample the last 20% of any segment that animates over time (for a 15s credits segment: 12s and 14.5s) and confirm the frame still has content. A frame that is empty, or identical to the one before it, means the motion finished early and the rest of the segment is dead air.
+
 ## HARD layout rules — every segment, no exceptions
 - **Every segment MUST have a `<video>` filling the canvas.** A `video_render_timeline` segment without a `<video>` element renders as a black slide with floating text. If you don't have enough source clips, REUSE clips (same `media_id` at different windows).
 - **Canvas size MUST match the render `resolution` param.** `resolution:"1080p"` = body 1920×1080 AND `data-width="1920" data-height="1080"` AND `<video>` 1920×1080. `resolution:"portrait"` = 1080×1920 everywhere. The server auto-fixes preset mismatches but self-consistent HTML is faster.
