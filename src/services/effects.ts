@@ -204,7 +204,7 @@ export async function addAudioTrack(params: {
   }
   if (params.mode === "mix" && (await builtFrom(video, params.audioId))) {
     throw new Error(
-      `${params.audioId} is already one of the clips inside video ${params.videoId}, so mixing it in again would play its sound twice, offset from the picture. Its audio is already there at the right place: drop this call. To score a SECTION with a different track, re-render with video_render_timeline's \`audio\` array and an \`offset_ms\` for that section, which is the only way to bound where a track plays.`,
+      `${params.audioId} is already one of the clips inside video ${params.videoId}, so mixing it in again plays its sound twice, three seconds out of step with the picture. Its audio is already in there at the right place: drop this call. To score ONE section, pass a DIFFERENT track with start_sec + end_sec (e.g. a song over the closing credits only), or re-render with video_render_timeline's \`audio\` array and that section's \`offset_ms\`.`,
     );
   }
   // A narration (replace, not a looped background track) that runs past the footage would be cut
