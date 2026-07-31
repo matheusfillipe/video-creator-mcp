@@ -36,7 +36,9 @@ export interface TimelineSegment {
 
 export interface TimelineAudioTrack {
   media_id: string;
-  offset_ms: number;
+  offset_ms?: number;
+  /** Segment this track starts on, by index or "last". Resolved against the real durations. */
+  start_segment?: number | "last";
   volume?: number;
   fade_ms?: number;
   max_duration_s?: number;
@@ -293,6 +295,20 @@ async function overlayAudio(
   return out;
 }
 
+// Where a track starts. Naming the segment is exact and survives any edit to the durations before it;
+// working the milliseconds out by hand is the step that puts a closing song over the middle of the
+// video. `start_segment` wins when both are given.
+export function trackStartMs(
+  track: Pick<TimelineAudioTrack, "offset_ms" | "start_segment">,
+  segmentStartsMs: number[],
+  segmentCount: number,
+): number {
+  const at = track.start_segment;
+  if (at === undefined) return track.offset_ms ?? 0;
+  const index = at === "last" ? segmentCount - 1 : at;
+  return segmentStartsMs[Math.max(0, Math.min(segmentCount - 1, index))] ?? 0;
+}
+
 function resolveTracks(
   segments: TimelineSegment[],
   audio: TimelineAudioTrack[] | undefined,
@@ -300,7 +316,7 @@ function resolveTracks(
   const offsets = cumulativeOffsetsMs(segments.map((segment) => segment.duration));
   const tracks: MixTrack[] = (audio ?? []).map((track) => ({
     media_id: track.media_id,
-    offset_ms: track.offset_ms,
+    offset_ms: trackStartMs(track, offsets, segments.length),
     volume: track.volume ?? DEFAULT_OVERLAY_VOLUME,
     fade_ms: track.fade_ms ?? DEFAULT_FADE_MS,
     ...(track.max_duration_s !== undefined ? { max_duration_s: track.max_duration_s } : {}),
@@ -386,10 +402,11 @@ export async function preflightTimeline(params: TimelineParams): Promise<string[
   // A track whose media is not in the cache yet has no known length. For "does anything play here"
   // it counts as covering the rest of the timeline, so an unknown length never invents a silence
   // warning; the length-dependent tail warning below only looks at tracks we could measure.
+  const segmentStarts = cumulativeOffsetsMs(params.segments.map((seg) => seg.duration));
   const covered = await Promise.all(
     (params.audio ?? []).map(async (track) => {
       const meta = await loadMeta(track.media_id);
-      const from = (track.offset_ms ?? 0) / 1000;
+      const from = trackStartMs(track, segmentStarts, params.segments.length) / 1000;
       const known = meta?.duration ?? 0;
       return { from, to: known > 0 ? from + known : totalDuration, known: known > 0 };
     }),
@@ -408,16 +425,30 @@ export async function preflightTimeline(params: TimelineParams): Promise<string[
   // then runs with no sound at all, which is the most common way a montage ships part-mute. Checked
   // per segment against the tracks' real spans, because a track offset into the credits does not
   // cover a clip that ends before it starts.
-  const starts = cumulativeOffsetsMs(params.segments.map((seg) => seg.duration));
   for (const [index, segment] of params.segments.entries()) {
-    const silenced = (segment.media ?? []).filter((ref) => ref.muted === true || ref.volume === 0);
-    if (silenced.length === 0) continue;
-    const from = (starts[index] ?? 0) / 1000;
+    const refs = segment.media ?? [];
+    if (refs.length === 0) continue;
+    const from = (segmentStarts[index] ?? 0) / 1000;
     const to = from + segment.duration;
-    if (covered.some((span) => span.from < to && span.to > from)) continue;
-    preflightWarnings.push(
-      `segment ${index} (${from.toFixed(1)}-${to.toFixed(1)}s) mutes its own clip and no audio track covers that span, so those ${Math.round(segment.duration)}s play in COMPLETE SILENCE. Muting footage is only right when a music/voice track plays over it. If the brief did not ask for a silent stretch, drop \`muted\`/\`volume:0\` from that media ref and let the clip's own sound through — a cut to a clip is normally a cut to its audio too.`,
-    );
+    const overlapping = covered.filter((span) => span.from < to && span.to > from);
+    const silenced = refs.filter((ref) => ref.muted === true || ref.volume === 0);
+    // Silencing footage is right when a track plays over it and wrong when nothing does: that
+    // segment then runs with no sound at all, which is the most common way a montage ships
+    // part-mute. Checked against the tracks' real spans, because a track that starts on the credits
+    // does not cover a clip that ends before it.
+    if (silenced.length > 0 && overlapping.length === 0) {
+      preflightWarnings.push(
+        `segment ${index} (${from.toFixed(1)}-${to.toFixed(1)}s) mutes its own clip and no audio track covers that span, so those ${Math.round(segment.duration)}s play in COMPLETE SILENCE. Muting footage is only right when a music/voice track plays over it. If the brief did not ask for a silent stretch, drop \`muted\`/\`volume:0\` from that media ref and let the clip's own sound through — a cut to a clip is normally a cut to its audio too.`,
+      );
+    }
+    // The other half of the same mistake: the clip keeps its audio but a music track runs over it.
+    // Both are in the mix, and the music wins, because recorded footage sits well below a mastered
+    // track. It reads to a listener as the music having replaced the scene's sound.
+    if (silenced.length === 0 && overlapping.length > 0) {
+      preflightWarnings.push(
+        `segment ${index} (${from.toFixed(1)}-${to.toFixed(1)}s) keeps its clip's own audio, but an audio track also plays across it, and a mastered music track is far louder than recorded footage — the clip's sound will be buried under it, which sounds like the music replaced the scene. If the music is meant for a LATER section (closing credits, an outro), start it there with \`start_segment\` (e.g. \`start_segment:"last"\`) instead of an offset you worked out by hand. If it really is meant to play over this footage, drop the track's \`volume\` to ~0.15 so the scene stays on top, or mute the clip and accept losing its sound.`,
+      );
+    }
   }
   return preflightWarnings;
 }

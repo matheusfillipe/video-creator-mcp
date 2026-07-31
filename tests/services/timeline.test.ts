@@ -5,6 +5,7 @@ import {
   cumulativeOffsetsMs,
   dimsFor,
   preflightTimeline,
+  trackStartMs,
 } from "../../src/services/timeline.js";
 
 describe("cumulativeOffsetsMs", () => {
@@ -119,5 +120,60 @@ describe("silent segment warning", () => {
       resolution: "1080p",
     });
     expect(warnings.join()).not.toMatch(/mutes its own clip/);
+  });
+});
+
+describe("trackStartMs", () => {
+  const starts = [0, 3000, 13000];
+
+  it("resolves a named segment against the real durations", () => {
+    expect(trackStartMs({ start_segment: 2 }, starts, 3)).toBe(13000);
+    expect(trackStartMs({ start_segment: "last" }, starts, 3)).toBe(13000);
+    expect(trackStartMs({ start_segment: 0 }, starts, 3)).toBe(0);
+  });
+
+  it("prefers the named segment over a hand-computed offset", () => {
+    expect(trackStartMs({ start_segment: "last", offset_ms: 4000 }, starts, 3)).toBe(13000);
+  });
+
+  it("falls back to the offset, then to zero", () => {
+    expect(trackStartMs({ offset_ms: 4000 }, starts, 3)).toBe(4000);
+    expect(trackStartMs({}, starts, 3)).toBe(0);
+  });
+
+  it("clamps an index past the end", () => {
+    expect(trackStartMs({ start_segment: 9 }, starts, 3)).toBe(13000);
+  });
+});
+
+describe("music over unmuted footage", () => {
+  const seg = (
+    duration: number,
+    media?: { media_id: string; muted?: boolean; volume?: number }[],
+  ) => ({
+    duration,
+    html: "<div id=root data-composition-id=main><video src=media://x></video></div>",
+    ...(media ? { media } : {}),
+  });
+
+  it("warns that a track across kept footage buries it", async () => {
+    const warnings = await preflightTimeline({
+      segments: [seg(3), seg(10, [{ media_id: "clip" }]), seg(15)],
+      audio: [{ media_id: "song", offset_ms: 0, volume: 0.6, fade_ms: 800 }],
+      fps: 30,
+      resolution: "1080p",
+    });
+    expect(warnings.join()).toMatch(/buried under it/);
+    expect(warnings.join()).toMatch(/start_segment/);
+  });
+
+  it("stays quiet when the track starts on the last segment", async () => {
+    const warnings = await preflightTimeline({
+      segments: [seg(3), seg(10, [{ media_id: "clip" }]), seg(15)],
+      audio: [{ media_id: "song", start_segment: "last", volume: 0.6, fade_ms: 800 }],
+      fps: 30,
+      resolution: "1080p",
+    });
+    expect(warnings.join()).not.toMatch(/buried under it/);
   });
 });

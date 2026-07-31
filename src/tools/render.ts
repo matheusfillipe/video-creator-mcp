@@ -53,7 +53,19 @@ export function registerRenderTools(server: McpServer): void {
         .array(
           z.object({
             media_id: z.string().describe("Cached media to take audio from."),
-            offset_ms: z.number().min(0).describe("Start offset from the video start, ms."),
+            start_segment: z
+              .union([z.number().int().min(0), z.literal("last")])
+              .optional()
+              .describe(
+                'The segment this track starts on, by index, or "last". PREFER THIS over offset_ms whenever the track belongs to a section rather than to a timestamp: a song for the closing credits is start_segment:"last". The server resolves it against the real durations, so it cannot land in the middle of the previous scene the way a hand-computed offset does.',
+              ),
+            offset_ms: z
+              .number()
+              .min(0)
+              .optional()
+              .describe(
+                "Start offset from the video start, ms. Only for a track that genuinely belongs at a timestamp; use start_segment for a track that belongs to a section. Ignored when start_segment is set. Defaults to 0.",
+              ),
             volume: z.number().min(0).max(1).default(0.6).describe("Track volume 0-1."),
             fade_ms: z.number().min(0).default(1000).describe("Fade-out duration, ms."),
           }),
