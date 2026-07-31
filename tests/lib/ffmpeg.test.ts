@@ -118,3 +118,33 @@ describe("buildAudioMixFilters", () => {
     expect(filters.some((f) => f.includes("[0:a]"))).toBe(false);
   });
 });
+
+describe("buildAudioMixFilters — a delayed replace track", () => {
+  const at = (i: number, delayMs: number, mode: "replace" | "mix" | "duck") => ({
+    inputIndex: i,
+    delayMs,
+    volume: 0.8,
+    mode,
+  });
+
+  it("keeps the audio before the track and silences it from there on", () => {
+    const { filters } = buildAudioMixFilters([at(1, 10_000, "replace")], true, 20);
+    const gate = filters.find((f) => f.includes("[0:a]")) as string;
+    expect(gate).toContain("volume='if(lt(t\\,10.000)\\,1\\,0)':eval=frame[gated]");
+    expect(filters.at(-1)).toContain("[gated][t0]amix=inputs=2");
+  });
+
+  it("still drops the base outright when the track starts at 0", () => {
+    const { filters } = buildAudioMixFilters([at(1, 0, "replace")], true, 20);
+    expect(filters.some((f) => f.includes("[0:a]"))).toBe(false);
+  });
+
+  it("gates from the earliest replace track when there are several", () => {
+    const { filters } = buildAudioMixFilters(
+      [at(1, 12_000, "replace"), at(2, 4_000, "replace")],
+      true,
+      20,
+    );
+    expect(filters.find((f) => f.includes("[0:a]"))).toContain("lt(t\\,4.000)");
+  });
+});

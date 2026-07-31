@@ -190,7 +190,10 @@ export interface AudioMixGraph {
 }
 
 // Builds the amix filtergraph laying tracks over a base audio stream (label "0:a").
-// replace drops the base; duck lowers it to 25% under the track; mix layers on top.
+// replace hands the track the audio from where it starts, duck lowers the base to 25% under the
+// track, mix layers on top. A replace track that starts at 0 owns the whole thing (a narration over
+// muted footage); one that starts later leaves the audio before it alone, so scoring the back half of
+// a video keeps the sound of the clips in the front half instead of silencing them.
 // Every track is padded then trimmed to targetDurationSec so a short track can't
 // shorten the mix and a long one can't overrun the video. Returns the graph plus
 // the [label] to -map.
@@ -207,11 +210,20 @@ export function buildAudioMixFilters(
     return `[t${i}]`;
   });
 
-  const dropBase = !baseHasAudio || tracks.some((t) => t.mode === "replace");
-  const duckBase = !dropBase && tracks.some((t) => t.mode === "duck");
+  const replaceStartsMs = tracks.filter((t) => t.mode === "replace").map((t) => t.delayMs);
+  const replaceFromMs = replaceStartsMs.length > 0 ? Math.min(...replaceStartsMs) : null;
+  const dropBase = !baseHasAudio || replaceFromMs === 0;
+  const duckBase = !dropBase && replaceFromMs === null && tracks.some((t) => t.mode === "duck");
   const baseLabels: string[] = [];
   if (!dropBase) {
-    if (duckBase) {
+    if (replaceFromMs !== null) {
+      // Held at full until the replace track starts, then off. The expression's own commas are
+      // escaped so ffmpeg's parser does not read them as filter-option separators, and eval=frame
+      // is what makes the gate follow time rather than being computed once.
+      const from = (replaceFromMs / 1000).toFixed(3);
+      filters.push(`[0:a]volume='if(lt(t\\,${from})\\,1\\,0)':eval=frame[gated]`);
+      baseLabels.push("[gated]");
+    } else if (duckBase) {
       filters.push("[0:a]volume=0.25[ducked]");
       baseLabels.push("[ducked]");
     } else {
