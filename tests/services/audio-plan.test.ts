@@ -55,9 +55,14 @@ describe("audioPlanFindings", () => {
     expect(out.join()).not.toMatch(/COMPLETE SILENCE/);
   });
 
-  it("flags a clip cut short of its source", () => {
+  it("flags a clip cut to half its source", () => {
     const out = msgs([clip({ to: 8, sourceLen: 10 })], [track({ from: 8 })], 28, hint);
     expect(out.join()).toMatch(/cut off 5\.0s early/);
+  });
+
+  it("accepts showing most of a clip, the way a montage trims a tail", () => {
+    const out = msgs([clip({ from: 0, to: 8, sourceLen: 10 })], [track({ from: 8 })], 28, hint);
+    expect(out.join()).not.toMatch(/cut off/);
   });
 
   it("accepts a short cut the author trimmed on purpose", () => {

@@ -32,8 +32,9 @@ export interface AudioPlanFinding {
 const overlaps = (clip: PlacedClip, track: PlacedTrack): boolean =>
   track.from < clip.to && track.to > clip.from;
 
-/** How much shorter than its source a cut may be before it reads as chopped off. */
-const TRIM_SLACK_SEC = 0.5;
+/** How much of a clip has to survive before a cut stops reading as chopped off. Showing an excerpt is
+ * normal in a montage; losing most of the clip is what leaves a scene without its payoff. */
+const TRIM_KEEP_RATIO = 0.6;
 
 /** Every way a soundtrack and its footage can be laid out wrong, in one place, so the timeline and
  * the editor answer the same. Each finding names the fix, because these are all recoverable by
@@ -82,7 +83,7 @@ export function audioPlanFindings(
     if (
       !clip.trimmed &&
       clip.sourceLen > 0 &&
-      clip.to - clip.from < clip.sourceLen - TRIM_SLACK_SEC
+      clip.to - clip.from < clip.sourceLen * TRIM_KEEP_RATIO
     ) {
       const shown = clip.to - clip.from;
       warn(

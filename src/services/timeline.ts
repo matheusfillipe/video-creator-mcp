@@ -52,6 +52,10 @@ export interface TimelineAudioTrack {
 
 export interface TimelineParams {
   segments: TimelineSegment[];
+  /** Set by the template tools, which lay out their own soundtrack: music over footage and a slice of
+   * each clip are the shape they are for, so the soundtrack findings would only be noise there, and
+   * noise is what teaches a caller to skip reading them. */
+  templateAuthored?: boolean;
   audio?: TimelineAudioTrack[];
   fps: number;
   resolution: Resolution;
@@ -437,16 +441,17 @@ export async function preflightTimeline(params: TimelineParams): Promise<string[
       });
     }
   }
-  preflightWarnings.push(
-    ...assertAudioPlan(
-      audioPlanFindings(
-        clips,
-        tracks,
-        totalDuration,
-        'start it there with `start_segment` (e.g. `start_segment:"last"`) rather than an offset worked out by hand.',
+  if (!params.templateAuthored)
+    preflightWarnings.push(
+      ...assertAudioPlan(
+        audioPlanFindings(
+          clips,
+          tracks,
+          totalDuration,
+          'start it there with `start_segment` (e.g. `start_segment:"last"`) rather than an offset worked out by hand.',
+        ),
       ),
-    ),
-  );
+    );
   return preflightWarnings;
 }
 

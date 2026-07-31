@@ -110,6 +110,7 @@ export function registerTemplateTools(server: McpServer): void {
         segments,
         fps: args.fps,
         resolution: args.resolution as Resolution,
+        templateAuthored: true,
       };
       if (args.music_media_id) {
         params.audio = [{ media_id: args.music_media_id, offset_ms: 0, volume: args.music_volume }];
@@ -255,6 +256,7 @@ export function registerTemplateTools(server: McpServer): void {
         segments: timelineSegments,
         fps: args.fps,
         resolution: args.resolution as Resolution,
+        templateAuthored: true,
       };
       if (args.audio_media_id) {
         params.audio = [
