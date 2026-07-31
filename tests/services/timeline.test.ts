@@ -4,6 +4,7 @@ import {
   buildClipOverlayFilter,
   cumulativeOffsetsMs,
   dimsFor,
+  preflightTimeline,
 } from "../../src/services/timeline.js";
 
 describe("cumulativeOffsetsMs", () => {
@@ -76,5 +77,47 @@ describe("buildClipOverlayFilter", () => {
     expect(filter).toContain("textfile=/tmp/name.txt");
     expect(filter).toContain("fontcolor=0xffd24a");
     expect(filter).not.toContain("#ffd24a");
+  });
+});
+
+describe("silent segment warning", () => {
+  const seg = (
+    duration: number,
+    media?: { media_id: string; muted?: boolean; volume?: number }[],
+  ) => ({
+    duration,
+    html: "<div id=root data-composition-id=main><video src=media://x></video></div>",
+    ...(media ? { media } : {}),
+  });
+
+  it("names a muted segment that no audio track covers", async () => {
+    const warnings = await preflightTimeline({
+      segments: [seg(3), seg(10, [{ media_id: "clip", muted: true }]), seg(15)],
+      audio: [{ media_id: "song", offset_ms: 13_000, volume: 0.85, fade_ms: 800 }],
+      fps: 30,
+      resolution: "1080p",
+    });
+    expect(warnings.join()).toMatch(/segment 1 \(3\.0-13\.0s\) mutes its own clip/);
+    expect(warnings.join()).toMatch(/COMPLETE SILENCE/);
+  });
+
+  it("stays quiet when a track plays over the muted segment", async () => {
+    const warnings = await preflightTimeline({
+      segments: [seg(3), seg(10, [{ media_id: "clip", muted: true }]), seg(15)],
+      audio: [{ media_id: "song", offset_ms: 0, volume: 0.85, fade_ms: 800 }],
+      fps: 30,
+      resolution: "1080p",
+    });
+    expect(warnings.join()).not.toMatch(/mutes its own clip/);
+  });
+
+  it("stays quiet when the clip keeps its own audio", async () => {
+    const warnings = await preflightTimeline({
+      segments: [seg(3), seg(10, [{ media_id: "clip", volume: 1 }]), seg(15)],
+      audio: [{ media_id: "song", offset_ms: 13_000, volume: 0.85, fade_ms: 800 }],
+      fps: 30,
+      resolution: "1080p",
+    });
+    expect(warnings.join()).not.toMatch(/mutes its own clip/);
   });
 });

@@ -359,12 +359,9 @@ function summarizeWarnings(all: string[]): string[] {
   return [...standalone, ...summarized];
 }
 
-export async function assembleTimeline(params: TimelineParams): Promise<RenderOutput> {
-  const jobId = randomUUID().slice(0, 8);
-  const dir = join(config.workDir, `timeline-${jobId}`);
-  const segDir = join(dir, "segments");
-  await mkdir(segDir, { recursive: true });
-
+// Everything worth telling the author before a render costs minutes: a segment with no footage, a
+// soundtrack that runs out before the video does, a clip muted where nothing else plays.
+export async function preflightTimeline(params: TimelineParams): Promise<string[]> {
   const preflightWarnings: string[] = [];
   for (const [index, segment] of params.segments.entries()) {
     if (segment.html) {
@@ -382,22 +379,52 @@ export async function assembleTimeline(params: TimelineParams): Promise<RenderOu
       `the timeline is ${Math.round(totalDuration)}s long but has NO audio. Pass an "audio" array of {media_id, offset_ms, volume, fade_ms} so the video has a soundtrack — download the audio URL from the brief with video_download_media first to get its media_id. A silent ${Math.round(totalDuration)}s documentary is almost always wrong; if the user explicitly asked for silence, ignore this warning.`,
     );
   }
-  if (params.audio && params.audio.length > 0) {
-    const audioCovers = await Promise.all(
-      params.audio.map(async (track) => {
-        const meta = await loadMeta(track.media_id);
-        const dur = meta?.duration ?? 0;
-        return dur > 0 ? (track.offset_ms ?? 0) / 1000 + dur : 0;
-      }),
-    );
-    const audioEnd = Math.max(...audioCovers, 0);
-    if (audioEnd > 0 && totalDuration > audioEnd + 1) {
+  // A track whose media is not in the cache yet has no known length. For "does anything play here"
+  // it counts as covering the rest of the timeline, so an unknown length never invents a silence
+  // warning; the length-dependent tail warning below only looks at tracks we could measure.
+  const covered = await Promise.all(
+    (params.audio ?? []).map(async (track) => {
+      const meta = await loadMeta(track.media_id);
+      const from = (track.offset_ms ?? 0) / 1000;
+      const known = meta?.duration ?? 0;
+      return { from, to: known > 0 ? from + known : totalDuration, known: known > 0 };
+    }),
+  );
+  const measured = covered.filter((span) => span.known);
+  if (measured.length > 0) {
+    const audioEnd = Math.max(...measured.map((span) => span.to));
+    if (totalDuration > audioEnd + 1) {
       const tail = Math.round(totalDuration - audioEnd);
       preflightWarnings.push(
         `the timeline is ${Math.round(totalDuration)}s but the audio only covers ${Math.round(audioEnd)}s, so the last ${tail}s of the video will play in SILENCE with no soundtrack. Either drop trailing segments to match the audio length, or add another audio track to cover the tail.`,
       );
     }
   }
+  // Silencing footage is right when a track plays over it and wrong when nothing does: that segment
+  // then runs with no sound at all, which is the most common way a montage ships part-mute. Checked
+  // per segment against the tracks' real spans, because a track offset into the credits does not
+  // cover a clip that ends before it starts.
+  const starts = cumulativeOffsetsMs(params.segments.map((seg) => seg.duration));
+  for (const [index, segment] of params.segments.entries()) {
+    const silenced = (segment.media ?? []).filter((ref) => ref.muted === true || ref.volume === 0);
+    if (silenced.length === 0) continue;
+    const from = (starts[index] ?? 0) / 1000;
+    const to = from + segment.duration;
+    if (covered.some((span) => span.from < to && span.to > from)) continue;
+    preflightWarnings.push(
+      `segment ${index} (${from.toFixed(1)}-${to.toFixed(1)}s) mutes its own clip and no audio track covers that span, so those ${Math.round(segment.duration)}s play in COMPLETE SILENCE. Muting footage is only right when a music/voice track plays over it. If the brief did not ask for a silent stretch, drop \`muted\`/\`volume:0\` from that media ref and let the clip's own sound through — a cut to a clip is normally a cut to its audio too.`,
+    );
+  }
+  return preflightWarnings;
+}
+
+export async function assembleTimeline(params: TimelineParams): Promise<RenderOutput> {
+  const jobId = randomUUID().slice(0, 8);
+  const dir = join(config.workDir, `timeline-${jobId}`);
+  const segDir = join(dir, "segments");
+  await mkdir(segDir, { recursive: true });
+
+  const preflightWarnings = await preflightTimeline(params);
 
   try {
     // Segments are independent and rendered concurrently (bounded). A segment that fails to

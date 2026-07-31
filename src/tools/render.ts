@@ -16,8 +16,15 @@ const segmentMediaRef = z.object({
     .min(0)
     .max(1)
     .optional()
-    .describe("This clip's own audio volume 0-1 (default 1.0). 0 mutes it."),
-  muted: z.boolean().optional().describe("Mute this clip's own audio entirely."),
+    .describe(
+      "This clip's own audio volume 0-1 (default 1.0). Leave it at the default: a cut to a clip is a cut to its sound. 0 is what makes a segment play silent.",
+    ),
+  muted: z
+    .boolean()
+    .optional()
+    .describe(
+      "Silence this clip's own audio. ONLY right when a music or voice track plays over this segment, or the brief asked for silence here. A muted clip with no track over it is a silent hole in the video.",
+    ),
 });
 
 export function registerRenderTools(server: McpServer): void {
