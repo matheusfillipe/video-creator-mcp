@@ -107,6 +107,18 @@ describe("guessed scroll distance", () => {
     expect(checkComposition(html).join()).toMatch(/guessed_scroll_distance/);
   });
 
+  it("flags a roll animated on top, the way agents actually write it", () => {
+    const html =
+      "<script>tl.to('#credits', { top: -2300, duration: 15, ease: 'none' }, 0);</script>";
+    expect(checkComposition(html).join()).toMatch(/guessed_scroll_distance/);
+  });
+
+  it("ignores a big negative offset in the stylesheet", () => {
+    const html =
+      "<style>#deco{position:absolute;top:-1200px}</style><script>tl.from('#t',{y:-40});</script>";
+    expect(checkComposition(html)).toEqual([]);
+  });
+
   it("flags the same thing written as a transform", () => {
     const html = "<script>el.style.transform = 'translateY(-2200px)';</script>";
     expect(checkComposition(html).join()).toMatch(/guessed_scroll_distance/);

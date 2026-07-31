@@ -61,6 +61,10 @@ interface MixTrack {
 const DEFAULT_OVERLAY_VOLUME = 0.6;
 const DEFAULT_CLIP_VOLUME = 1.0;
 const DEFAULT_FADE_MS = 1000;
+// A clip's own sound is part of the picture: the last second of a cut is usually the payoff, so it
+// gets only enough of a fade to keep the splice from clicking. The full second belongs to a music
+// bed, which is meant to be heard ending.
+const CLIP_FADE_MS = 120;
 
 const DEFAULT_ACCENT = "#ffd24a";
 
@@ -310,7 +314,7 @@ function resolveTracks(
         media_id: ref.media_id,
         offset_ms: offsets[index] ?? 0,
         volume: ref.volume ?? DEFAULT_CLIP_VOLUME,
-        fade_ms: DEFAULT_FADE_MS,
+        fade_ms: CLIP_FADE_MS,
         max_duration_s: segment.duration,
       });
     }

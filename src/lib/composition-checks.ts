@@ -124,23 +124,28 @@ export function checkComposition(html: string): string[] {
     }
   }
 
+  // Only the scripts: a four-digit negative `top` in a stylesheet is ordinary offscreen positioning,
+  // while the same number handed to an animation is a roll's travel.
+  const scripts = [...html.matchAll(SCRIPT_BLOCK_RE)].map((match) => match[1] ?? "").join("\n");
   const travels = unique(
-    [...html.matchAll(LONG_TRAVEL_RE)].map((match) => (match[1] ?? match[2]) as string),
+    [...scripts.matchAll(LONG_TRAVEL_RE)].map((match) => (match[1] ?? match[2]) as string),
   );
   if (travels.length > 0 && !MEASURES_CONTENT_RE.test(html)) {
     findings.push(
-      `✗ guessed_scroll_distance: this moves an element ${travels.join("px, ")}px, further than the canvas is tall, from a number typed into the script. Only the browser knows how tall the content really is, so a typed distance is wrong the moment the text changes: too short and the last lines never arrive, too long and the segment plays out on an empty frame for seconds. Fix: measure it — \`const travel = el.scrollHeight - window.innerHeight\` then \`gsap.to(el, { y: -travel, ... })\`, with \`ease:'none'\` for a credits roll.`,
+      `✗ guessed_scroll_distance: this animates an element by ${travels.join("px, ")}px, further than the canvas is tall, from a number typed into the script. Only the browser knows how tall the content really is, so a typed distance is wrong the moment the text changes: too short and the last lines never arrive, too long and the segment plays out on an empty frame for seconds (the usual bug). Fix: measure it, then animate to that. For a roll starting below the fold at \`top:1080px\`, the travel is \`el.offsetHeight + window.innerHeight\`: \`const strip = document.getElementById('credits'); tl.to(strip, { top: -strip.offsetHeight, duration: D, ease: 'none' }, 0)\`. For one already at the top, it is \`el.scrollHeight - window.innerHeight\`. Keep \`ease:'none'\` so a roll moves at constant speed.`,
     );
   }
 
   return findings;
 }
 
-// A four-digit negative translate is past the tallest canvas (1080), so it can only be a roll or
-// marquee walking its own content through the frame — the one motion whose distance has to come from
-// the DOM rather than from the author.
-const LONG_TRAVEL_RE = /\by\s*:\s*-\s*(\d{4,})|translateY\(\s*-\s*(\d{4,})px/g;
+// A four-digit negative move is past the tallest canvas (1080), so it can only be a roll or marquee
+// walking its own content through the frame — the one motion whose distance has to come from the DOM
+// rather than from the author. Matched on whichever property the animation drives: GSAP's y, a raw
+// translateY, or top/bottom, which authors reach for just as often.
+const LONG_TRAVEL_RE = /\b(?:y|top|bottom)\s*:\s*-\s*(\d{4,})|translateY\(\s*-\s*(\d{4,})px/g;
 const MEASURES_CONTENT_RE = /scrollHeight|offsetHeight|scrollWidth|getBoundingClientRect/;
+const SCRIPT_BLOCK_RE = /<script[^>]*>([\s\S]*?)<\/script>/gi;
 
 // Node's base64 decoder is lenient: a string whose length is not a multiple of 4, or that carries a
 // stray character, silently decodes to a truncated document. A composition mangled that way still
