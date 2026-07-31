@@ -14,7 +14,12 @@ import {
   validateColor,
 } from "../lib/ffmpeg.js";
 import type { Resolution } from "../types.js";
-import { type PlacedClip, type PlacedTrack, audioPlanWarnings } from "./audio-plan.js";
+import {
+  type PlacedClip,
+  type PlacedTrack,
+  assertAudioPlan,
+  audioPlanFindings,
+} from "./audio-plan.js";
 import { getCached, loadMeta, mediaIdFor, writeMediaFromBuffer } from "./media.js";
 import { dimsFor } from "./timeline.js";
 
@@ -618,11 +623,13 @@ async function preflightEdit(spec: EditSpec): Promise<string[]> {
       };
     }),
   );
-  return audioPlanWarnings(
-    clips,
-    tracks,
-    total,
-    'start it there with `start_clip` (e.g. `start_clip:"last"`) rather than an offset worked out by hand.',
+  return assertAudioPlan(
+    audioPlanFindings(
+      clips,
+      tracks,
+      total,
+      'start it there with `start_clip` (e.g. `start_clip:"last"`) rather than an offset worked out by hand.',
+    ),
   );
 }
 

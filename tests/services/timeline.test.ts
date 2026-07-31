@@ -91,15 +91,15 @@ describe("silent segment warning", () => {
     ...(media ? { media } : {}),
   });
 
-  it("names a muted segment that no audio track covers", async () => {
-    const warnings = await preflightTimeline({
-      segments: [seg(3), seg(10, [{ media_id: "clip", muted: true }]), seg(15)],
-      audio: [{ media_id: "song", offset_ms: 13_000, volume: 0.85, fade_ms: 800 }],
-      fps: 30,
-      resolution: "1080p",
-    });
-    expect(warnings.join()).toMatch(/segment 1 \(3\.0-13\.0s\) silences its own clip/);
-    expect(warnings.join()).toMatch(/COMPLETELY SILENT/);
+  it("refuses a muted segment that no audio track covers", async () => {
+    await expect(
+      preflightTimeline({
+        segments: [seg(3), seg(10, [{ media_id: "clip", muted: true }]), seg(15)],
+        audio: [{ media_id: "song", offset_ms: 13_000, volume: 0.85, fade_ms: 800 }],
+        fps: 30,
+        resolution: "1080p",
+      }),
+    ).rejects.toThrow(/render refused/);
   });
 
   it("stays quiet when a track plays over the muted segment", async () => {

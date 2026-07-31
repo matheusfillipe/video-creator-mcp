@@ -7,7 +7,12 @@ import { ExecError, run } from "../lib/exec.js";
 import { FONT_FILE } from "../lib/ffmpeg.js";
 import { Limiter } from "../lib/queue.js";
 import type { Resolution } from "../types.js";
-import { type PlacedClip, type PlacedTrack, audioPlanWarnings } from "./audio-plan.js";
+import {
+  type PlacedClip,
+  type PlacedTrack,
+  assertAudioPlan,
+  audioPlanFindings,
+} from "./audio-plan.js";
 import { BLACK_OUTPUT_YMAX, maxFrameLumaOfFile } from "./effects.js";
 import { loadMeta } from "./media.js";
 import { type RenderOutput, renderComposition } from "./renderer.js";
@@ -433,11 +438,13 @@ export async function preflightTimeline(params: TimelineParams): Promise<string[
     }
   }
   preflightWarnings.push(
-    ...audioPlanWarnings(
-      clips,
-      tracks,
-      totalDuration,
-      'start it there with `start_segment` (e.g. `start_segment:"last"`) rather than an offset worked out by hand.',
+    ...assertAudioPlan(
+      audioPlanFindings(
+        clips,
+        tracks,
+        totalDuration,
+        'start it there with `start_segment` (e.g. `start_segment:"last"`) rather than an offset worked out by hand.',
+      ),
     ),
   );
   return preflightWarnings;
