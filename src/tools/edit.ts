@@ -55,13 +55,25 @@ export function registerEditTools(server: McpServer): void {
         .array(
           z.object({
             media_id: z.string().min(1).describe("Audio media_id from video_download_media."),
-            offset: z.number().min(0).optional().describe("Start position in the video (seconds)."),
+            start_clip: z
+              .union([z.number().int().min(0), z.literal("last")])
+              .optional()
+              .describe(
+                'The clip this track starts on, by index in the first group, or "last". PREFER THIS over offset when the track belongs to a section rather than a timestamp: a song for the closing credits is start_clip:"last". Resolved against the real cut lengths, so it cannot land in the middle of the previous clip the way a hand-computed offset does.',
+              ),
+            offset: z
+              .number()
+              .min(0)
+              .optional()
+              .describe(
+                "Start position in the video (seconds). Only for a track that genuinely belongs at a timestamp; use start_clip for one that belongs to a section. Ignored when start_clip is set.",
+              ),
             volume: z.number().min(0).max(2).optional().describe("Track volume (default 0.8)."),
             mode: z
               .enum(["replace", "mix", "duck"])
               .default("mix")
               .describe(
-                "replace drops the clips' own audio; mix layers on top; duck lowers the clips' audio to 25% under this track.",
+                "mix layers on top and is the usual choice; duck lowers the clips' audio to 25% under this track; replace throws the clips' own audio away from this track's start onwards — only right for a narration over footage you do not want heard. A song for the closing credits is NOT replace: it is mix with start_clip.",
               ),
           }),
         )

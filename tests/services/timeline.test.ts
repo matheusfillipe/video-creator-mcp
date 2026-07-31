@@ -98,8 +98,8 @@ describe("silent segment warning", () => {
       fps: 30,
       resolution: "1080p",
     });
-    expect(warnings.join()).toMatch(/segment 1 \(3\.0-13\.0s\) mutes its own clip/);
-    expect(warnings.join()).toMatch(/COMPLETE SILENCE/);
+    expect(warnings.join()).toMatch(/segment 1 \(3\.0-13\.0s\) silences its own clip/);
+    expect(warnings.join()).toMatch(/COMPLETELY SILENT/);
   });
 
   it("stays quiet when a track plays over the muted segment", async () => {
@@ -109,7 +109,7 @@ describe("silent segment warning", () => {
       fps: 30,
       resolution: "1080p",
     });
-    expect(warnings.join()).not.toMatch(/mutes its own clip/);
+    expect(warnings.join()).not.toMatch(/silences its own clip/);
   });
 
   it("stays quiet when the clip keeps its own audio", async () => {
@@ -119,7 +119,7 @@ describe("silent segment warning", () => {
       fps: 30,
       resolution: "1080p",
     });
-    expect(warnings.join()).not.toMatch(/mutes its own clip/);
+    expect(warnings.join()).not.toMatch(/silences its own clip/);
   });
 });
 
@@ -163,7 +163,7 @@ describe("music over unmuted footage", () => {
       fps: 30,
       resolution: "1080p",
     });
-    expect(warnings.join()).toMatch(/buried under it/);
+    expect(warnings.join()).toMatch(/ends up buried/);
     expect(warnings.join()).toMatch(/start_segment/);
   });
 
@@ -174,7 +174,7 @@ describe("music over unmuted footage", () => {
       fps: 30,
       resolution: "1080p",
     });
-    expect(warnings.join()).not.toMatch(/buried under it/);
+    expect(warnings.join()).not.toMatch(/ends up buried/);
   });
 });
 

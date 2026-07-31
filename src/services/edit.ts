@@ -14,6 +14,7 @@ import {
   validateColor,
 } from "../lib/ffmpeg.js";
 import type { Resolution } from "../types.js";
+import { type PlacedClip, type PlacedTrack, audioPlanWarnings } from "./audio-plan.js";
 import { getCached, loadMeta, mediaIdFor, writeMediaFromBuffer } from "./media.js";
 import { dimsFor } from "./timeline.js";
 
@@ -45,6 +46,8 @@ export interface EditText {
 export interface EditAudio {
   media_id: string;
   offset?: number;
+  /** Clip this track starts on, by index or "last". Resolved against the real cut lengths. */
+  start_clip?: number | "last";
   volume?: number;
   mode?: "replace" | "mix" | "duck";
 }
@@ -578,6 +581,64 @@ export function textFilters(
   );
 }
 
+// The same soundtrack rules the timeline answers to, applied to a cut list: clips run one after
+// another inside a group, so a clip's place on the finished video is the sum of the ones before it.
+async function preflightEdit(spec: EditSpec): Promise<string[]> {
+  const group = spec.groups[0] ?? [];
+  const clips: PlacedClip[] = [];
+  let at = 0;
+  for (const [index, seg] of group.entries()) {
+    const meta = await loadMeta(seg.media_id);
+    const sourceLen = meta?.duration ?? 0;
+    const trimmed = seg.start !== undefined || seg.end !== undefined;
+    const window = trimmed ? (seg.end ?? sourceLen) - (seg.start ?? 0) : sourceLen;
+    const shown = window / (seg.speed ?? 1);
+    clips.push({
+      label: `clip ${index}`,
+      mediaId: seg.media_id,
+      from: at,
+      to: at + shown,
+      silent: seg.volume === 0,
+      sourceLen,
+      trimmed,
+    });
+    at += shown;
+  }
+  const total = at;
+  const tracks: PlacedTrack[] = await Promise.all(
+    (spec.audio ?? []).map(async (track) => {
+      const meta = await loadMeta(track.media_id);
+      const from = trackStartSec(track, clips, total);
+      const known = meta?.duration ?? 0;
+      return {
+        from,
+        to: known > 0 ? from + known : total,
+        known: known > 0,
+        exclusive: (track.mode ?? "mix") === "replace",
+      };
+    }),
+  );
+  return audioPlanWarnings(
+    clips,
+    tracks,
+    total,
+    'start it there with `start_clip` (e.g. `start_clip:"last"`) rather than an offset worked out by hand.',
+  );
+}
+
+// Where a track starts: the clip it names, else its own offset, else the beginning.
+export function trackStartSec(
+  track: Pick<EditAudio, "offset" | "start_clip">,
+  clips: { from: number }[],
+  total: number,
+): number {
+  const at = track.start_clip;
+  if (at === undefined) return track.offset ?? 0;
+  if (clips.length === 0) return 0;
+  const index = at === "last" ? clips.length - 1 : Math.max(0, Math.min(clips.length - 1, at));
+  return clips[index]?.from ?? total;
+}
+
 export async function renderEdit(spec: EditSpec): Promise<EditOutput> {
   const errors = validateSpec(spec);
   if (errors.length) throw new Error(`Invalid edit spec: ${errors.join("; ")}`);
@@ -591,6 +652,8 @@ export async function renderEdit(spec: EditSpec): Promise<EditOutput> {
   const fit = fitForLayout(layout);
   const warnings: string[] = [];
 
+  warnings.push(...(await preflightEdit(spec)));
+
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `edit-${jobId}`);
   await mkdir(dir, { recursive: true });
@@ -598,6 +661,8 @@ export async function renderEdit(spec: EditSpec): Promise<EditOutput> {
   try {
     const groupFiles: string[] = [];
     const groupDurations: number[] = [];
+    // Start time of each clip in the first group, so an audio track can name the clip it begins on.
+    const clipStarts: { from: number }[] = [];
     for (const [gi, group] of spec.groups.entries()) {
       const cell = cells[gi] as { width: number; height: number };
       const parts: string[] = [];
@@ -606,6 +671,13 @@ export async function renderEdit(spec: EditSpec): Promise<EditOutput> {
         const partPath = join(dir, `g${gi}s${si}.mp4`);
         durations.push(await normalizeSegment(seg, cell, fps, fit, partPath));
         parts.push(partPath);
+      }
+      if (gi === 0) {
+        let at = 0;
+        for (const shown of durations) {
+          clipStarts.push({ from: at });
+          at += shown;
+        }
       }
       groupFiles.push(await concatGroup(dir, gi, parts, fade, fps, durations));
       const overlap = fade > 0 ? fade * (group.length - 1) : 0;
@@ -698,7 +770,7 @@ export async function renderEdit(spec: EditSpec): Promise<EditOutput> {
         inputs.push("-i", meta.path);
         tracks.push({
           inputIndex: i + 1,
-          delayMs: Math.round((track.offset ?? 0) * 1000),
+          delayMs: Math.round(trackStartSec(track, clipStarts, totalDuration) * 1000),
           volume: track.volume ?? 0.8,
           mode: track.mode ?? "mix",
         });

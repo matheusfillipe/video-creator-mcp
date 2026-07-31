@@ -7,6 +7,7 @@ import { ExecError, run } from "../lib/exec.js";
 import { FONT_FILE } from "../lib/ffmpeg.js";
 import { Limiter } from "../lib/queue.js";
 import type { Resolution } from "../types.js";
+import { type PlacedClip, type PlacedTrack, audioPlanWarnings } from "./audio-plan.js";
 import { BLACK_OUTPUT_YMAX, maxFrameLumaOfFile } from "./effects.js";
 import { loadMeta } from "./media.js";
 import { type RenderOutput, renderComposition } from "./renderer.js";
@@ -399,69 +400,46 @@ export async function preflightTimeline(params: TimelineParams): Promise<string[
       `the timeline is ${Math.round(totalDuration)}s long but has NO audio. Pass an "audio" array of {media_id, offset_ms, volume, fade_ms} so the video has a soundtrack — download the audio URL from the brief with video_download_media first to get its media_id. A silent ${Math.round(totalDuration)}s documentary is almost always wrong; if the user explicitly asked for silence, ignore this warning.`,
     );
   }
-  // A track whose media is not in the cache yet has no known length. For "does anything play here"
-  // it counts as covering the rest of the timeline, so an unknown length never invents a silence
-  // warning; the length-dependent tail warning below only looks at tracks we could measure.
+  // Where each track and each piece of footage actually lands, handed to the shared rulebook so the
+  // editor answers these the same way.
   const segmentStarts = cumulativeOffsetsMs(params.segments.map((seg) => seg.duration));
-  const covered = await Promise.all(
+  const tracks: PlacedTrack[] = await Promise.all(
     (params.audio ?? []).map(async (track) => {
       const meta = await loadMeta(track.media_id);
       const from = trackStartMs(track, segmentStarts, params.segments.length) / 1000;
       const known = meta?.duration ?? 0;
-      return { from, to: known > 0 ? from + known : totalDuration, known: known > 0 };
+      return {
+        from,
+        to: known > 0 ? from + known : totalDuration,
+        known: known > 0,
+        exclusive: false,
+      };
     }),
   );
-  const measured = covered.filter((span) => span.known);
-  if (measured.length > 0) {
-    const audioEnd = Math.max(...measured.map((span) => span.to));
-    if (totalDuration > audioEnd + 1) {
-      const tail = Math.round(totalDuration - audioEnd);
-      preflightWarnings.push(
-        `the timeline is ${Math.round(totalDuration)}s but the audio only covers ${Math.round(audioEnd)}s, so the last ${tail}s of the video will play in SILENCE with no soundtrack. Either drop trailing segments to match the audio length, or add another audio track to cover the tail.`,
-      );
-    }
-  }
-  // Silencing footage is right when a track plays over it and wrong when nothing does: that segment
-  // then runs with no sound at all, which is the most common way a montage ships part-mute. Checked
-  // per segment against the tracks' real spans, because a track offset into the credits does not
-  // cover a clip that ends before it starts.
+  const clips: PlacedClip[] = [];
   for (const [index, segment] of params.segments.entries()) {
-    const refs = segment.media ?? [];
-    if (refs.length === 0) continue;
     const from = (segmentStarts[index] ?? 0) / 1000;
-    const to = from + segment.duration;
-    // A segment shorter than the clip it shows stops that clip dead partway through. Whatever the
-    // clip was building to is then missing, which is the single most visible way a cut goes wrong.
-    for (const ref of refs) {
-      if (ref.muted === true || ref.volume === 0) continue;
+    for (const ref of segment.media ?? []) {
       const meta = await loadMeta(ref.media_id);
-      const clipLen = meta?.duration ?? 0;
-      if (clipLen > 0 && segment.duration < clipLen - 0.5) {
-        preflightWarnings.push(
-          `segment ${index} runs ${segment.duration}s but its clip ${ref.media_id} is ${clipLen.toFixed(1)}s long, so the clip is cut off ${(clipLen - segment.duration).toFixed(1)}s early, mid-action. Unless the brief asked for a shorter cut or you trimmed this clip deliberately with video_download_media's start/end, set this segment's duration to ${clipLen.toFixed(2)} so the whole clip plays. If you need the video to hit a total length, take the time out of a title/credits card instead — those hold any length, footage does not.`,
-        );
-      }
-    }
-    const overlapping = covered.filter((span) => span.from < to && span.to > from);
-    const silenced = refs.filter((ref) => ref.muted === true || ref.volume === 0);
-    // Silencing footage is right when a track plays over it and wrong when nothing does: that
-    // segment then runs with no sound at all, which is the most common way a montage ships
-    // part-mute. Checked against the tracks' real spans, because a track that starts on the credits
-    // does not cover a clip that ends before it.
-    if (silenced.length > 0 && overlapping.length === 0) {
-      preflightWarnings.push(
-        `segment ${index} (${from.toFixed(1)}-${to.toFixed(1)}s) mutes its own clip and no audio track covers that span, so those ${Math.round(segment.duration)}s play in COMPLETE SILENCE. Muting footage is only right when a music/voice track plays over it. If the brief did not ask for a silent stretch, drop \`muted\`/\`volume:0\` from that media ref and let the clip's own sound through — a cut to a clip is normally a cut to its audio too.`,
-      );
-    }
-    // The other half of the same mistake: the clip keeps its audio but a music track runs over it.
-    // Both are in the mix, and the music wins, because recorded footage sits well below a mastered
-    // track. It reads to a listener as the music having replaced the scene's sound.
-    if (silenced.length === 0 && overlapping.length > 0) {
-      preflightWarnings.push(
-        `segment ${index} (${from.toFixed(1)}-${to.toFixed(1)}s) keeps its clip's own audio, but an audio track also plays across it, and a mastered music track is far louder than recorded footage — the clip's sound will be buried under it, which sounds like the music replaced the scene. If the music is meant for a LATER section (closing credits, an outro), start it there with \`start_segment\` (e.g. \`start_segment:"last"\`) instead of an offset you worked out by hand. If it really is meant to play over this footage, drop the track's \`volume\` to ~0.15 so the scene stays on top, or mute the clip and accept losing its sound.`,
-      );
+      clips.push({
+        label: `segment ${index}`,
+        mediaId: ref.media_id,
+        from,
+        to: from + segment.duration,
+        silent: ref.muted === true || ref.volume === 0,
+        sourceLen: meta?.duration ?? 0,
+        trimmed: meta?.start !== null || meta?.end !== null,
+      });
     }
   }
+  preflightWarnings.push(
+    ...audioPlanWarnings(
+      clips,
+      tracks,
+      totalDuration,
+      'start it there with `start_segment` (e.g. `start_segment:"last"`) rather than an offset worked out by hand.',
+    ),
+  );
   return preflightWarnings;
 }
 
