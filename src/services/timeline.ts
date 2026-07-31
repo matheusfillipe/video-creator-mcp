@@ -253,8 +253,12 @@ async function overlayAudio(
   }
 
   if (mixLabels.length === 0) return concatOut;
+  // normalize=0 keeps every input at the level it was given. amix normalises by default, dividing all
+  // inputs by their count, so laying one music track over a timeline would halve the volume of the
+  // footage's own sound (-6dB for two inputs) and each track's own `volume` would stop meaning what
+  // it says.
   filters.push(
-    `${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0[outa]`,
+    `${mixLabels.join("")}amix=inputs=${mixLabels.length}:duration=first:dropout_transition=0:normalize=0[outa]`,
   );
   const out = join(dir, "final.mp4");
   // Skip re-encoding the video — the concat input is already h264 from the per-segment
