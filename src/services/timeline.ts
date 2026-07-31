@@ -430,6 +430,18 @@ export async function preflightTimeline(params: TimelineParams): Promise<string[
     if (refs.length === 0) continue;
     const from = (segmentStarts[index] ?? 0) / 1000;
     const to = from + segment.duration;
+    // A segment shorter than the clip it shows stops that clip dead partway through. Whatever the
+    // clip was building to is then missing, which is the single most visible way a cut goes wrong.
+    for (const ref of refs) {
+      if (ref.muted === true || ref.volume === 0) continue;
+      const meta = await loadMeta(ref.media_id);
+      const clipLen = meta?.duration ?? 0;
+      if (clipLen > 0 && segment.duration < clipLen - 0.5) {
+        preflightWarnings.push(
+          `segment ${index} runs ${segment.duration}s but its clip ${ref.media_id} is ${clipLen.toFixed(1)}s long, so the clip is cut off ${(clipLen - segment.duration).toFixed(1)}s early, mid-action. Unless the brief asked for a shorter cut or you trimmed this clip deliberately with video_download_media's start/end, set this segment's duration to ${clipLen.toFixed(2)} so the whole clip plays. If you need the video to hit a total length, take the time out of a title/credits card instead — those hold any length, footage does not.`,
+        );
+      }
+    }
     const overlapping = covered.filter((span) => span.from < to && span.to > from);
     const silenced = refs.filter((ref) => ref.muted === true || ref.volume === 0);
     // Silencing footage is right when a track plays over it and wrong when nothing does: that

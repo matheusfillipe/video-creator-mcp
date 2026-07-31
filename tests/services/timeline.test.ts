@@ -177,3 +177,23 @@ describe("music over unmuted footage", () => {
     expect(warnings.join()).not.toMatch(/buried under it/);
   });
 });
+
+describe("clip cut short by its segment", () => {
+  const seg = (
+    duration: number,
+    media?: { media_id: string; muted?: boolean; volume?: number }[],
+  ) => ({
+    duration,
+    html: "<div id=root data-composition-id=main><video src=media://x></video></div>",
+    ...(media ? { media } : {}),
+  });
+
+  it("says nothing when the clip length is unknown to the cache", async () => {
+    const warnings = await preflightTimeline({
+      segments: [seg(5, [{ media_id: "clip" }])],
+      fps: 30,
+      resolution: "1080p",
+    });
+    expect(warnings.join()).not.toMatch(/cut off/);
+  });
+});
