@@ -41,6 +41,12 @@ export function registerRenderTools(server: McpServer): void {
               "This segment's HTML+GSAP markup (plain text; base64 also accepted).",
             ),
             duration: z.number().positive().describe("Segment duration, seconds."),
+            intentional_silence: z
+              .boolean()
+              .optional()
+              .describe(
+                "This segment is MEANT to play with no sound at all. Required to silence footage that no music/voice track covers — without it that render is refused, because a dropped soundtrack looks exactly the same as a deliberate silence. Set it only when the brief asked for silence here.",
+              ),
             media: z
               .array(segmentMediaRef)
               .optional()

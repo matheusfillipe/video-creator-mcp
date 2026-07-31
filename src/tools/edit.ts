@@ -8,6 +8,12 @@ import { RESOLUTION, metadataArg } from "./shared.js";
 
 const segment = z.object({
   media_id: z.string().min(1).describe("Clip from video_download_media."),
+  intentional_silence: z
+    .boolean()
+    .optional()
+    .describe(
+      "This clip is MEANT to play with no sound at all. Required to silence a clip that no audio track covers — without it the render is refused, because a dropped soundtrack looks exactly like a deliberate silence.",
+    ),
   start: z.number().min(0).optional().describe("Trim in-point (seconds into the clip)."),
   end: z.number().min(0).optional().describe("Trim out-point (seconds into the clip)."),
   speed: z.number().min(0.25).max(4).optional().describe("Playback speed (0.25-4, default 1)."),

@@ -32,6 +32,9 @@ export type EditLayout = "single" | "vstack" | "hstack" | "pip" | "grid";
 
 export interface EditSegment {
   media_id: string;
+  /** This clip is meant to play with no sound at all. Required to silence a clip that no other track
+   * covers. */
+  intentional_silence?: boolean;
   start?: number;
   end?: number;
   speed?: number;
@@ -604,6 +607,7 @@ async function preflightEdit(spec: EditSpec): Promise<string[]> {
       from: at,
       to: at + shown,
       silent: seg.volume === 0,
+      silenceIntended: seg.intentional_silence === true,
       sourceLen,
       trimmed,
     });

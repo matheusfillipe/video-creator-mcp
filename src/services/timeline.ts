@@ -35,6 +35,9 @@ export interface ClipOverlay {
 
 export interface TimelineSegment {
   duration: number;
+  /** This segment is meant to play with no sound at all. Required to silence footage that no other
+   * track covers, so a lost soundtrack cannot pass as a creative choice. */
+  intentional_silence?: boolean;
   html?: string;
   media?: SegmentMedia[];
   clipOverlay?: ClipOverlay;
@@ -436,6 +439,7 @@ export async function preflightTimeline(params: TimelineParams): Promise<string[
         from,
         to: from + segment.duration,
         silent: ref.muted === true || ref.volume === 0,
+        silenceIntended: segment.intentional_silence === true,
         sourceLen: meta?.duration ?? 0,
         trimmed: meta?.start !== null || meta?.end !== null,
       });

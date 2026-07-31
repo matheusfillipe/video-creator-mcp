@@ -14,6 +14,7 @@ const clip = (over: Partial<PlacedClip> = {}): PlacedClip => ({
   silent: false,
   sourceLen: 10,
   trimmed: false,
+  silenceIntended: false,
   ...over,
 });
 const track = (over: Partial<PlacedTrack> = {}): PlacedTrack => ({
@@ -78,6 +79,24 @@ describe("audioPlanFindings", () => {
   it("flags a soundtrack that runs out before the video does", () => {
     const out = msgs([clip()], [track({ from: 13, to: 20 })], 40, hint);
     expect(out.join()).toMatch(/last 20s play in SILENCE/);
+  });
+});
+
+describe("intentional silence", () => {
+  const hint = "start it there.";
+
+  it("still refuses silence that was not asked for", () => {
+    expect(() =>
+      assertAudioPlan(audioPlanFindings([clip({ silent: true })], [], 28, hint)),
+    ).toThrow(/render refused/);
+  });
+
+  it("allows it once the author says the silence is the point", () => {
+    expect(
+      assertAudioPlan(
+        audioPlanFindings([clip({ silent: true, silenceIntended: true })], [], 28, hint),
+      ),
+    ).toEqual([]);
   });
 });
 

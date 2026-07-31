@@ -11,6 +11,9 @@ export interface PlacedClip {
   sourceLen: number;
   /** The author trimmed the source deliberately (a start/end window), so a short cut is intended. */
   trimmed: boolean;
+  /** The author stated that this stretch is meant to be silent, so silence is the design, not a
+   * dropped soundtrack. */
+  silenceIntended: boolean;
 }
 
 /** One music/voice track as it sits on the finished timeline. */
@@ -65,10 +68,10 @@ export function audioPlanFindings(
   for (const clip of clips) {
     const over = tracks.filter((track) => overlaps(clip, track));
 
-    if (clip.silent && over.length === 0) {
+    if (clip.silent && over.length === 0 && !clip.silenceIntended) {
       findings.push({
         level: "error",
-        message: `${clip.label} (${clip.from.toFixed(1)}-${clip.to.toFixed(1)}s) silences its own clip and nothing else plays there, so those ${Math.round(clip.to - clip.from)}s would be picture over COMPLETE SILENCE. Fix one of two things and submit again: drop \`muted\`/\`volume:0\` from that clip so its own sound plays (a cut to a clip is a cut to its audio, and this is almost always the answer), or give that stretch a music/voice track. If the brief genuinely asked for a silent passage here, say so in your reply so it is a stated choice rather than a lost soundtrack.`,
+        message: `${clip.label} (${clip.from.toFixed(1)}-${clip.to.toFixed(1)}s) silences its own clip and nothing else plays there, so those ${Math.round(clip.to - clip.from)}s would be picture over COMPLETE SILENCE. Fix one of two things and submit again: drop \`muted\`/\`volume:0\` from that clip so its own sound plays (a cut to a clip is a cut to its audio, and this is almost always the answer), or give that stretch a music/voice track. If the brief genuinely asked for a silent passage here, keep the mute and add \`intentional_silence: true\` alongside it to say so on purpose — then it renders, and silence is a choice on the record rather than a soundtrack that went missing.`,
       });
     }
 
