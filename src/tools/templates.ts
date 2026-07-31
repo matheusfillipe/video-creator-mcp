@@ -19,7 +19,7 @@ export function registerTemplateTools(server: McpServer): void {
     name: "video_render_tierlist",
     title: "Render a Tier-List / Countdown Video",
     description:
-      "Build a countdown/tier-list video from ranked entries. Layout: an intro title card, then for each entry a black '#rank — name' card followed by that entry's video clip with a rank badge (top-right) and a name lower-third. Each clip is a media_id from video_download_media — trim it to the best moment first using video_get_info's heatmap peaks. Clips are muted; pass music_media_id for background music. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Build a countdown/tier-list video from ranked entries. Layout: an intro title card, then for each entry a black '#rank — name' card followed by that entry's video clip with a rank badge (top-right) and a name lower-third. Each clip is a media_id from video_download_media — trim it to the best moment first using video_get_info's heatmap peaks. Clips are muted; pass music_media_id for background music. Asynchronous: returns a job_id; hand it to video_render_status ONCE, which blocks until the render finishes and returns the result.",
     inputSchema: {
       title: z.string().min(1).describe("Intro title, e.g. 'Top 10 Most Awaited Games of 2026'."),
       subtitle: z.string().optional().describe("Intro subtitle line."),
@@ -132,7 +132,7 @@ export function registerTemplateTools(server: McpServer): void {
         job_id: jobId,
         state: "queued",
         entries: args.entries.length,
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       };
     },
   });
@@ -141,7 +141,7 @@ export function registerTemplateTools(server: McpServer): void {
     name: "video_render_slideshow",
     title: "Render a Slideshow / Presentation Video",
     description:
-      "Build a slideshow/presentation/explainer video from a list of {text, media_id, duration_seconds} segments. The server stamps a pre-styled HTML template per segment (full-canvas video background + centered fading caption with correct max-width/word-wrap), then composes them into one MP4. **This is the right tool for any 'present X', 'explore X over scenery', 'documentary-style', 'slides with music' brief — DO NOT write HTML manually for these.** **IF THE BRIEF NAMES A SOUNDTRACK / SONG / NARRATION URL, `audio_media_id` IS NOT OPTIONAL — download the audio with video_download_media first AND AWAIT the response, then pass the returned media_id here. Do NOT call this tool with a media_id you haven't already received from a completed video_download_media call: the audio file might not be in cache yet and the slideshow will retry/fail. Tip: before submitting this render (which takes minutes), build the equivalent composition HTML in your head and run `video_preview_frame` on it at 3 timestamps — a 3-second preview catches text bleed and layout problems that would otherwise eat a full re-render.** Tip: when you want a single thought to span 2-3 quick text beats without a hard cut to a new clip, repeat the SAME `media_id` for those consecutive segments — the server groups them into one continuous render so the bg plays through the text changes. Don't force reuse otherwise; a new clip per scene is the natural default. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Build a slideshow/presentation/explainer video from a list of {text, media_id, duration_seconds} segments. The server stamps a pre-styled HTML template per segment (full-canvas video background + centered fading caption with correct max-width/word-wrap), then composes them into one MP4. **This is the right tool for any 'present X', 'explore X over scenery', 'documentary-style', 'slides with music' brief — DO NOT write HTML manually for these.** **IF THE BRIEF NAMES A SOUNDTRACK / SONG / NARRATION URL, `audio_media_id` IS NOT OPTIONAL — download the audio with video_download_media first AND AWAIT the response, then pass the returned media_id here. Do NOT call this tool with a media_id you haven't already received from a completed video_download_media call: the audio file might not be in cache yet and the slideshow will retry/fail. Tip: before submitting this render (which takes minutes), build the equivalent composition HTML in your head and run `video_preview_frame` on it at 3 timestamps — a 3-second preview catches text bleed and layout problems that would otherwise eat a full re-render.** Tip: when you want a single thought to span 2-3 quick text beats without a hard cut to a new clip, repeat the SAME `media_id` for those consecutive segments — the server groups them into one continuous render so the bg plays through the text changes. Don't force reuse otherwise; a new clip per scene is the natural default. Asynchronous: returns a job_id; hand it to video_render_status ONCE, which blocks until the render finishes and returns the result.",
     inputSchema: {
       segments: z
         .array(
@@ -287,7 +287,7 @@ export function registerTemplateTools(server: McpServer): void {
         state: "queued",
         segments: timelineSegments.length,
         unique_clips: mediaIds.size,
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       };
     },
   });

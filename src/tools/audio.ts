@@ -33,7 +33,7 @@ export function registerAudioTools(server: McpServer): void {
     name: "video_tts",
     title: "Text to Speech (acting voice)",
     description:
-      "Generate an expressive narration/voice clip with Chatterbox. Handles long text (a whole paragraph): it splits into chunks and stitches them in one voice. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime, serialized. Repeat calls with identical text, voice and acting settings are served from cache instantly. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip, including a downloaded video/YouTube clip; its audio is extracted automatically). ASYNCHRONOUS: returns a job_id, poll video_render_status until state is 'done', then read result.url (a downloadable wav), result.duration_sec, and result.media_id. Usable standalone or as a pre-step before a video. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL). To narrate a video: video_tts (take result.media_id) → video_add_audio(media_id:<video>, audio_media_id:<that>, mode:'replace').",
+      "Generate an expressive narration/voice clip with Chatterbox. Handles long text (a whole paragraph): it splits into chunks and stitches them in one voice. EXPENSIVE AND SLOW: autoregressive on CPU, ~5x realtime, serialized. Repeat calls with identical text, voice and acting settings are served from cache instantly. You direct the acting with `exaggeration` (0.3 calm, 0.55 natural, 0.9 dramatic) and `cfg_weight` (drop to ~0.35 so intense lines don't rush). Clone any voice by passing `voice_reference` (a media_id of a reference clip, including a downloaded video/YouTube clip; its audio is extracted automatically). ASYNCHRONOUS: returns a job_id; call video_render_status ONCE (it blocks until done) until state is 'done', then read result.url (a downloadable wav), result.duration_sec, and result.media_id. Usable standalone or as a pre-step before a video. Read the `tts` skill for how to pick acting levels and prep the text. Requires the TTS backend configured (CHATTERBOX_URL). To narrate a video: video_tts (take result.media_id) → video_add_audio(media_id:<video>, audio_media_id:<that>, mode:'replace').",
     inputSchema: {
       text: z
         .string()
@@ -137,7 +137,7 @@ export function registerAudioTools(server: McpServer): void {
       return {
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       };
     },
   });
@@ -185,7 +185,7 @@ export function registerAudioTools(server: McpServer): void {
     name: "video_align",
     title: "Align narration to audio (word timings + cues)",
     description:
-      "Force-align a KNOWN transcript to its spoken audio and return exact word timings plus grouped phrase cues — the timetable for perfectly-synced subtitles, karaoke word-highlighting, cutting to 'where he says X', or trimming dead air. Runs in-process (wav2vec2 CTC, CPU, ~real-time); it is NOT transcription — you supply the exact text, so the words are always right. Input: the audio's media_id (from video_tts or video_download_media) plus the exact words spoken. ASYNCHRONOUS: returns a job_id to poll with video_render_status; result has words [{word,start,end}] and cues [{text,start,end}].",
+      "Force-align a KNOWN transcript to its spoken audio and return exact word timings plus grouped phrase cues — the timetable for perfectly-synced subtitles, karaoke word-highlighting, cutting to 'where he says X', or trimming dead air. Runs in-process (wav2vec2 CTC, CPU, ~real-time); it is NOT transcription — you supply the exact text, so the words are always right. Input: the audio's media_id (from video_tts or video_download_media) plus the exact words spoken. ASYNCHRONOUS: returns a job_id; call video_render_status once, it blocks until done; result has words [{word,start,end}] and cues [{text,start,end}].",
     inputSchema: {
       audio_media_id: z
         .string()
@@ -241,7 +241,7 @@ export function registerAudioTools(server: McpServer): void {
       return Promise.resolve({
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       });
     },
   });

@@ -244,7 +244,7 @@ export function registerGraphicTools(server: McpServer): void {
           return {
             job_id: jobId,
             state: "queued",
-            poll_with: `video_render_status with job_id "${jobId}"`,
+            finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
           };
         }
 
@@ -292,7 +292,7 @@ export function registerGraphicTools(server: McpServer): void {
           return {
             job_id: jobId,
             state: "queued",
-            poll_with: `video_render_status with job_id "${jobId}"`,
+            finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
           };
         }
 
@@ -326,7 +326,7 @@ export function registerGraphicTools(server: McpServer): void {
           return {
             job_id: jobId,
             state: "queued",
-            poll_with: `video_render_status with job_id "${jobId}"`,
+            finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
           };
         }
 
@@ -360,7 +360,7 @@ export function registerGraphicTools(server: McpServer): void {
           return {
             job_id: jobId,
             state: "queued",
-            poll_with: `video_render_status with job_id "${jobId}"`,
+            finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
           };
         }
 
@@ -391,7 +391,7 @@ export function registerGraphicTools(server: McpServer): void {
           return {
             job_id: jobId,
             state: "queued",
-            poll_with: `video_render_status with job_id "${jobId}"`,
+            finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
           };
         }
 
@@ -432,7 +432,7 @@ export function registerGraphicTools(server: McpServer): void {
           return {
             job_id: jobId,
             state: "queued",
-            poll_with: `video_render_status with job_id "${jobId}"`,
+            finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
           };
         }
 

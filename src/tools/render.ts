@@ -2,7 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { addAudioTrack, captionMedia, narrateOverMusic } from "../services/effects.js";
 import { engineStatus } from "../services/engine.js";
-import { getJob, listJobs, submitJob } from "../services/jobs.js";
+import { awaitJob, getJob, listJobs, submitJob } from "../services/jobs.js";
 import { loopMedia, writeMediaFromBuffer } from "../services/media.js";
 import { saveRender } from "../services/publish.js";
 import { assembleTimeline } from "../services/timeline.js";
@@ -25,7 +25,7 @@ export function registerRenderTools(server: McpServer): void {
     name: "video_render_timeline",
     title: "Render Multi-Segment Timeline",
     description:
-      "Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP composition (3-15s, one <video> max), rendered independently then concatenated. A clip's own audio plays at full volume by default — set `volume` (0-1) or `muted` on its media ref to control it, no need to hand-author <video muted> or a parallel track. Use the top-level `audio` for external music/voiceover overlaid at offsets: a track's `offset_ms` places it anywhere in the timeline, which is how you score ONE section (a song only under the closing credits = offset_ms of the durations before them). Score it HERE. Asynchronous: returns a job_id to poll with video_render_status; the finished result carries a `media_id`, so it feeds straight into video_add_audio / video_caption / another composition with no re-download. Use for tier lists, compilations, montages, or any video with multiple clips. Only embed a <video> when you need HTML drawn ON TOP of the footage — it re-renders the clip through the browser (slow, and can fail to a black frame on long clips). To simply include or trim an existing clip (e.g. a recording), or stitch clips end to end, use video_compose / video_edit instead.",
+      "Render a multi-segment video: each segment is a self-contained base64 HTML+GSAP composition (3-15s, one <video> max), rendered independently then concatenated. A clip's own audio plays at full volume by default — set `volume` (0-1) or `muted` on its media ref to control it, no need to hand-author <video muted> or a parallel track. Use the top-level `audio` for external music/voiceover overlaid at offsets: a track's `offset_ms` places it anywhere in the timeline, which is how you score ONE section (a song only under the closing credits = offset_ms of the durations before them). Score it HERE. Asynchronous: returns a job_id; call video_render_status once, it blocks until done; the finished result carries a `media_id`, so it feeds straight into video_add_audio / video_caption / another composition with no re-download. Use for tier lists, compilations, montages, or any video with multiple clips. Only embed a <video> when you need HTML drawn ON TOP of the footage — it re-renders the clip through the browser (slow, and can fail to a black frame on long clips). To simply include or trim an existing clip (e.g. a recording), or stitch clips end to end, use video_compose / video_edit instead.",
     inputSchema: {
       segments: z
         .array(
@@ -75,7 +75,7 @@ export function registerRenderTools(server: McpServer): void {
       return Promise.resolve({
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       });
     },
   });
@@ -84,7 +84,7 @@ export function registerRenderTools(server: McpServer): void {
     name: "video_loop",
     title: "Loop a Clip",
     description:
-      "Repeat a downloaded clip N times into one MP4, keeping its original audio. Uses ffmpeg stream-copy (no re-render), so it's near-instant — use this for any 'loop/repeat this N times' request instead of building an N-segment timeline. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Repeat a downloaded clip N times into one MP4, keeping its original audio. Uses ffmpeg stream-copy (no re-render), so it's near-instant — use this for any 'loop/repeat this N times' request instead of building an N-segment timeline. Asynchronous: returns a job_id; hand it to video_render_status ONCE, which blocks until the render finishes and returns the result.",
     inputSchema: {
       media_id: z
         .string()
@@ -114,7 +114,7 @@ export function registerRenderTools(server: McpServer): void {
       return Promise.resolve({
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       });
     },
   });
@@ -123,7 +123,7 @@ export function registerRenderTools(server: McpServer): void {
     name: "video_caption",
     title: "Burn Captions onto a Clip",
     description:
-      "Burn timed text captions directly onto a clip with ffmpeg — no HTML, no chrome render. Each caption shows only during its own [start, start+duration] window, so this is the right tool for 'loop a clip and show rotating subtitles / talk to the viewer'. Re-encodes once in roughly real time (far faster than a chrome composition). Returns a new media_id (chainable) and a finished MP4 url. Pass the looped clip's media_id (from video_loop) to caption the whole loop in one pass. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Burn timed text captions directly onto a clip with ffmpeg — no HTML, no chrome render. Each caption shows only during its own [start, start+duration] window, so this is the right tool for 'loop a clip and show rotating subtitles / talk to the viewer'. Re-encodes once in roughly real time (far faster than a chrome composition). Returns a new media_id (chainable) and a finished MP4 url. Pass the looped clip's media_id (from video_loop) to caption the whole loop in one pass. Asynchronous: returns a job_id; hand it to video_render_status ONCE, which blocks until the render finishes and returns the result.",
     inputSchema: {
       media_id: z
         .string()
@@ -181,7 +181,7 @@ export function registerRenderTools(server: McpServer): void {
       return Promise.resolve({
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       });
     },
   });
@@ -190,7 +190,7 @@ export function registerRenderTools(server: McpServer): void {
     name: "video_add_audio",
     title: "Add / Mix Audio onto a Video",
     description:
-      "Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. To lay a NARRATION AND BACKGROUND MUSIC together, do it in ONE call: pass audio_media_id (the narration) AND music_media_id — the music plays from 0:00, is auto-ducked (sidechain) whenever the voice speaks so the narration stays clearly on top, and start_sec gives the lead-in; the video is held on its last frame if the narration runs longer. Prefer this over chaining a replace + a mix. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Lay an audio track onto a finished video — the audio counterpart to video_caption. mode 'replace' makes it the only audio (use for TTS narration over muted footage); mode 'mix' blends it UNDER the video's existing audio at `volume` (use to add background music or ambient sound to an already-narrated clip — the video must already have audio). The video keeps its full length; shorter audio just ends. To lay a NARRATION AND BACKGROUND MUSIC together, do it in ONE call: pass audio_media_id (the narration) AND music_media_id — the music plays from 0:00, is auto-ducked (sidechain) whenever the voice speaks so the narration stays clearly on top, and start_sec gives the lead-in; the video is held on its last frame if the narration runs longer. Prefer this over chaining a replace + a mix. THIS is how you add a voiceover/soundtrack to a video built with video_caption or video_render_timeline. Returns a new media_id + finished MP4 url. Asynchronous: returns a job_id; hand it to video_render_status ONCE, which blocks until the render finishes and returns the result.",
     inputSchema: {
       media_id: z.string().min(1).describe("Video media_id to add audio to."),
       audio_media_id: z
@@ -303,7 +303,7 @@ export function registerRenderTools(server: McpServer): void {
       return Promise.resolve({
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       });
     },
   });
@@ -312,7 +312,7 @@ export function registerRenderTools(server: McpServer): void {
     name: "video_render_status",
     title: "Render Job Status",
     description:
-      "Check a render/timeline job. When state is 'done', result holds the rendered video url. When 'error', error holds the message.",
+      "Wait for a render/timeline job and return it. This BLOCKS until the job finishes (up to wait_sec, default 180), so ONE call is normally all you need: do not poll it in a loop. Most renders settle in 5-60s and come back on the first call. When state is 'done', result holds the rendered video url and its media_id; when 'error', error holds the message. Only if it comes back still 'queued'/'running' (the wait ran out on a long render) do you call again. Pass wait_sec:0 for an instant, non-blocking peek.",
     inputSchema: {
       job_id: z
         .string()
@@ -320,12 +320,21 @@ export function registerRenderTools(server: McpServer): void {
         .describe(
           "job_id returned by any asynchronous tool, e.g. video_compose, video_graphic, video_render_timeline.",
         ),
+      wait_sec: z
+        .number()
+        .min(0)
+        .max(600)
+        .optional()
+        .describe(
+          "How long to wait for the job to finish before answering. Default 180. Leave it alone: waiting here costs nothing, while polling costs a round trip every time.",
+        ),
     },
     annotations: { readOnlyHint: true },
-    handler: ({ job_id }) => {
-      const job = getJob(job_id);
+    handler: async ({ job_id, wait_sec }) => {
+      const seconds = wait_sec ?? 180;
+      const job = seconds > 0 ? await awaitJob(job_id, seconds * 1000) : getJob(job_id);
       if (!job) throw new Error(`No job with id "${job_id}" (it may have expired)`);
-      return Promise.resolve(job);
+      return job;
     },
   });
 

@@ -10,7 +10,7 @@ export function registerAnalyzeTools(server: McpServer): void {
     name: "video_analyze_static",
     title: "Find Static Regions (Safe Overlay Zones)",
     description:
-      "Profile any video URL for static, structured regions — baked logos, watermarks, and on-screen text/banners that an overlay should NOT cover. Returns a grid where each cell scores staticness (unchanging over time), clutter (edge/detail density), and avoid (static AND structured = a baked graphic), plus bounding boxes of the avoid regions and the overall static_pct — all in the source video's pixel coordinates. Pick low-avoid, low-clutter cells to place text/graphics. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Profile any video URL for static, structured regions — baked logos, watermarks, and on-screen text/banners that an overlay should NOT cover. Returns a grid where each cell scores staticness (unchanging over time), clutter (edge/detail density), and avoid (static AND structured = a baked graphic), plus bounding boxes of the avoid regions and the overall static_pct — all in the source video's pixel coordinates. Pick low-avoid, low-clutter cells to place text/graphics. Asynchronous: returns a job_id; hand it to video_render_status ONCE, which blocks until the render finishes and returns the result.",
     inputSchema: {
       url: z.string().min(1).describe("Video URL (any yt-dlp source or direct media link)."),
       fps: z
@@ -30,7 +30,7 @@ export function registerAnalyzeTools(server: McpServer): void {
       return Promise.resolve({
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       });
     },
   });
@@ -39,7 +39,7 @@ export function registerAnalyzeTools(server: McpServer): void {
     name: "video_analyze_audio",
     title: "Profile Audio (Loudness & Silence)",
     description:
-      "Profile a clip's audio track — the audio analog of video_analyze_static. Returns duration, mean/max volume (dB), integrated loudness (LUFS) + range, the silence regions, and the complementary active_spans (where there is actually sound). Use it to learn how long generated or fetched narration is, time captions/cuts to where there's speech, or trim dead air. Input is a media_id (e.g. from video_download_media) or any audio/video URL. Asynchronous: returns a job_id to poll with video_render_status.",
+      "Profile a clip's audio track — the audio analog of video_analyze_static. Returns duration, mean/max volume (dB), integrated loudness (LUFS) + range, the silence regions, and the complementary active_spans (where there is actually sound). Use it to learn how long generated or fetched narration is, time captions/cuts to where there's speech, or trim dead air. Input is a media_id (e.g. from video_download_media) or any audio/video URL. Asynchronous: returns a job_id; hand it to video_render_status ONCE, which blocks until the render finishes and returns the result.",
     inputSchema: {
       input: z
         .string()
@@ -68,7 +68,7 @@ export function registerAnalyzeTools(server: McpServer): void {
       return Promise.resolve({
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       });
     },
   });

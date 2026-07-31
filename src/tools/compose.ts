@@ -909,7 +909,7 @@ export function registerComposeTools(server: McpServer): void {
   registerTool(server, {
     name: "video_compose",
     title: "Render a composition (narrated video, synced by construction)",
-    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Downloaded footage/screenshots go in scene \`video\` clips and are mixed in by construction — PREFER this over hand-authoring HTML whenever you have real media to include, so nothing silently gets dropped. For a song or a recorded speech you already have the words for, set top-level \`transcript\` (the audio on an audio track + its text): the words are force-aligned to the real audio into karaoke captions, no TTS/CHATTERBOX needed for that path. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id, poll video_render_status; the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later; the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Narrated (voice) scenes require CHATTERBOX_URL. ${LANGUAGE_RULES}`,
+    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Downloaded footage/screenshots go in scene \`video\` clips and are mixed in by construction — PREFER this over hand-authoring HTML whenever you have real media to include, so nothing silently gets dropped. For a song or a recorded speech you already have the words for, set top-level \`transcript\` (the audio on an audio track + its text): the words are force-aligned to the real audio into karaoke captions, no TTS/CHATTERBOX needed for that path. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id; call video_render_status ONCE (it blocks until done); the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later; the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Narrated (voice) scenes require CHATTERBOX_URL. ${LANGUAGE_RULES}`,
     inputSchema: {
       composition: COMPOSITION.describe("The declarative composition to render."),
       metadata: metadataArg,
@@ -927,7 +927,7 @@ export function registerComposeTools(server: McpServer): void {
       return {
         job_id: jobId,
         state: "queued",
-        poll_with: `video_render_status with job_id "${jobId}"`,
+        finish_with: `video_render_status with job_id "${jobId}" — it BLOCKS until the render is done, so call it ONCE and read the result; do not poll in a loop`,
       };
     },
   });

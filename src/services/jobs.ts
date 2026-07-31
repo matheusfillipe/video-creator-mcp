@@ -88,6 +88,21 @@ export function getJob(id: string): JobView | null {
   return job ? toView(job) : null;
 }
 
+// Waits in-process for a job to settle. Polling from the caller costs a whole model round trip per
+// check, which on a 40s render is minutes of wall clock spent asking "are you done"; polling in here
+// costs nothing. Returns the job as it stands if the wait runs out, so a long render still reports
+// progress rather than failing.
+export async function awaitJob(id: string, timeoutMs: number): Promise<JobView | null> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const job = jobs.get(id);
+    if (!job) return null;
+    if (job.state === "done" || job.state === "error") return toView(job);
+    if (Date.now() >= deadline) return toView(job);
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
+
 export function listJobs(): JobSummary[] {
   return [...jobs.values()].map((job) => ({
     id: job.id,
