@@ -112,8 +112,15 @@ export function registerTemplateTools(server: McpServer): void {
         resolution: args.resolution as Resolution,
         templateAuthored: true,
       };
+      // A tier list plays its clips through the rank-badge overlay, which carries no audio, so the
+      // soundtrack is the only sound there is: without one the whole video is silent.
+      const silentWarnings: string[] = [];
       if (args.music_media_id) {
         params.audio = [{ media_id: args.music_media_id, offset_ms: 0, volume: args.music_volume }];
+      } else {
+        silentWarnings.push(
+          "this tier list has NO soundtrack, and its clips play through the rank overlay with their own audio dropped, so the entire video is SILENT from start to finish. Download a music track with video_download_media and pass it as music_media_id, unless a silent countdown was actually asked for.",
+        );
       }
 
       const jobId = submitJob("tierlist", async () => {
@@ -126,7 +133,7 @@ export function registerTemplateTools(server: McpServer): void {
         return {
           ...saved,
           segments: segments.length,
-          warnings: [...entryWarnings, ...(warnings ?? [])],
+          warnings: [...silentWarnings, ...entryWarnings, ...(warnings ?? [])],
         };
       });
       return {
