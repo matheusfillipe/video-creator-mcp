@@ -1,7 +1,10 @@
+import ctypes
+import gc
 import io
 import os
 import tempfile
 import threading
+import time
 
 import soundfile as sf
 import torch
@@ -13,11 +16,32 @@ from pydantic import BaseModel
 
 torch.set_num_threads(int(os.environ.get("OMP_NUM_THREADS", "8")))
 
-model = ChatterboxTurboTTS.from_pretrained(device=os.environ.get("DEVICE", "cpu"))
+IDLE_BEFORE_UNLOAD_SECONDS = 600
+
+libc = ctypes.CDLL("libc.so.6")
 # The autoregressive sampler is not thread-safe and serializes anyway, so only one
-# generation runs at a time; concurrent callers queue on this lock.
+# generation runs at a time; concurrent callers queue on this lock. Loading and
+# unloading take it too, so we never drop the model under a running generation.
 lock = threading.Lock()
+model = None
+last_used = time.monotonic()
 app = FastAPI()
+
+
+def release_idle_model() -> None:
+    global model
+    while True:
+        time.sleep(60)
+        with lock:
+            if model is not None and time.monotonic() - last_used >= IDLE_BEFORE_UNLOAD_SECONDS:
+                model = None
+                gc.collect()
+                # glibc keeps freed tensors in its heap, so without a trim the process
+                # stays full size with nothing loaded.
+                libc.malloc_trim(0)
+
+
+threading.Thread(target=release_idle_model, daemon=True).start()
 
 
 def render(
@@ -27,7 +51,10 @@ def render(
     temperature: float,
     audio_prompt_path: str | None = None,
 ) -> Response:
+    global model, last_used
     with lock:
+        if model is None:
+            model = ChatterboxTurboTTS.from_pretrained(device=os.environ.get("DEVICE", "cpu"))
         wav = model.generate(
             text,
             audio_prompt_path=audio_prompt_path,
@@ -35,8 +62,10 @@ def render(
             cfg_weight=cfg_weight,
             temperature=temperature,
         )
+        sample_rate = model.sr
+        last_used = time.monotonic()
     buf = io.BytesIO()
-    sf.write(buf, wav.squeeze(0).cpu().numpy(), model.sr, format="WAV")
+    sf.write(buf, wav.squeeze(0).cpu().numpy(), sample_rate, format="WAV")
     return Response(content=buf.getvalue(), media_type="audio/wav")
 
 
