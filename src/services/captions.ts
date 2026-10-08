@@ -148,7 +148,9 @@ export function buildAss(
   style: CaptionStyle,
   karaoke: boolean,
 ): string {
-  const marginV = Math.round(height * 0.07);
+  // Short-form apps lay their buttons and description over the bottom fifth of a portrait video,
+  // so we lift portrait captions above that band.
+  const marginV = Math.round(height * (height > width ? 0.25 : 0.07));
   const marginLR = Math.round(width * 0.06);
   const styleLine = (name: string, s: CaptionStyle): string => {
     const fontSize = Math.max(18, Math.round((height / 22) * s.fontScale));
