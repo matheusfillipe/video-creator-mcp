@@ -13,7 +13,7 @@ import {
 } from "../lib/ffmpeg.js";
 import { assertSafeUrl } from "../lib/net.js";
 import type { MediaMeta } from "../types.js";
-import { type CaptionStyle, type Cue, buildAss } from "./captions.js";
+import { type CaptionStyle, type Cue, buildAss, captionPlacement } from "./captions.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
 import { readSidecar, saveRender } from "./publish.js";
 
@@ -572,13 +572,12 @@ async function blurBandPre(
       textFile: file,
       start: cue.start,
       end: cue.end,
-      position: style.position,
+      ...captionPlacement(style.position, height, Math.round(height * (karaoke ? 0.07 : 0.08))),
       fontSize,
       color: "white@0",
       background: "none",
       shadow: false,
       outline: false,
-      margin: Math.round(height * (karaoke ? 0.07 : 0.08)),
     });
     boxes.push(`${drawtext}:box=1:boxcolor=white:boxborderw=${Math.round(fontSize * 0.4)}`);
   }
@@ -615,13 +614,12 @@ async function captionFilterChain(
         textFile: file,
         start: cue.start,
         end: cue.end,
-        position: cueStyle.position,
+        ...captionPlacement(cueStyle.position, height, Math.round(height * 0.08)),
         fontSize,
         color: cueStyle.color,
         background: cueStyle.background,
         shadow: cueStyle.shadow,
         outline: cueStyle.outline,
-        margin: Math.round(height * 0.08),
       }),
     );
   }

@@ -212,7 +212,7 @@ Generate an instrumental music bed from a caption (genre, instruments, mood, tem
 
 ## `video_paper_media`
 
-The real visual material of an arXiv paper, for explaining it with its own figures instead of generated imagery: every raster figure from the paper's arXiv HTML version with its caption, and the authors' demo videos from its Hugging Face paper page and project page. Each item has an id (fig1.., vid1..) and a url to pass to video_download_media. Papers without an arXiv HTML version return no figures. Read-only.
+The real material of an arXiv paper, for explaining it with its own figures instead of generated imagery: the paper's body text (formulas as LaTeX, no bibliography, capped at 80k characters), every raster figure from its arXiv HTML version with its caption, and the authors' demo videos from its Hugging Face paper page and project page. Each figure and video has an id (fig1.., vid1..) and a url to pass to video_download_media. Papers without an arXiv HTML version return no text and no figures. Read-only.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|

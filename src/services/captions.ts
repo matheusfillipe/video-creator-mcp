@@ -1,3 +1,4 @@
+import type { TextPosition } from "../lib/ffmpeg.js";
 import type { AlignedWord } from "./align.js";
 
 export interface Cue {
@@ -64,7 +65,19 @@ export function offsetCues(cues: Cue[], delta: number): Cue[] {
   }));
 }
 
-export type CaptionPosition = "bottom" | "center" | "top";
+// "lifted" sits a quarter of the frame above the bottom edge, clear of the buttons and description
+// that short-form apps lay over a vertical video.
+export type CaptionPosition = "bottom" | "lifted" | "center" | "top";
+
+export function captionPlacement(
+  position: CaptionPosition,
+  height: number,
+  margin: number,
+): { position: TextPosition; margin: number } {
+  return position === "lifted"
+    ? { position: "bottom", margin: Math.round(height * 0.25) }
+    : { position, margin };
+}
 
 // The backing drawn behind caption text: "none" is text only, "box" is a translucent solid
 // panel (the original look), "blur" is a frosted, darkened strip (rendered as a separate video
@@ -148,13 +161,12 @@ export function buildAss(
   style: CaptionStyle,
   karaoke: boolean,
 ): string {
-  // Short-form apps lay their buttons and description over the bottom fifth of a portrait video,
-  // so we lift portrait captions above that band.
-  const marginV = Math.round(height * (height > width ? 0.25 : 0.07));
+  const baseMarginV = Math.round(height * 0.07);
   const marginLR = Math.round(width * 0.06);
   const styleLine = (name: string, s: CaptionStyle): string => {
     const fontSize = Math.max(18, Math.round((height / 22) * s.fontScale));
     const alignment = s.position === "top" ? 8 : s.position === "center" ? 5 : 2;
+    const marginV = captionPlacement(s.position, height, baseMarginV).margin;
     const primary = toAssColor(s.color);
     const secondary = primary;
     // BorderStyle 3 (opaque box) already conveys legibility on its own, so the Outline field

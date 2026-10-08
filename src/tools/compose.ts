@@ -68,7 +68,12 @@ const CAPTION_STYLE_FIELDS = z
       .describe(
         "Karaoke only: colour of words not yet spoken (greyed ahead of the highlight). Hex or name. Defaults to grey.",
       ),
-    position: z.enum(["bottom", "center", "top"]).optional(),
+    position: z
+      .enum(["bottom", "lifted", "center", "top"])
+      .optional()
+      .describe(
+        "lifted = a quarter of the frame above the bottom edge, clear of the buttons short-form apps draw over a vertical video.",
+      ),
     size: z.enum(["small", "medium", "large"]).optional(),
     background: z
       .enum(["none", "box", "blur"])
