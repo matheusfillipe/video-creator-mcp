@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 35 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 36 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -199,6 +199,14 @@ List cached media, or remove one cached item by media_id.
 |---|---|---|---|---|
 | `action` | `"list"` \| `"remove"` | no | `"list"` | List all, or remove one. |
 | `media_id` | string | no |  | Required when action=remove. |
+
+## `video_paper_media`
+
+The real visual material of an arXiv paper, for explaining it with its own figures instead of generated imagery: every raster figure from the paper's arXiv HTML version with its caption, and the authors' demo videos from its Hugging Face paper page and project page. Each item has an id (fig1.., vid1..) and a url to pass to video_download_media. Papers without an arXiv HTML version return no figures. Read-only.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `arxiv_id` | string | yes |  | arXiv id without version, e.g. 2610.10524. |
 
 ## `video_plan`
 

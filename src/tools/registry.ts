@@ -7,6 +7,7 @@ import { registerEditTools } from "./edit.js";
 import { registerEffectsTools } from "./effects.js";
 import { registerGraphicTools } from "./graphic.js";
 import { registerMediaTools } from "./media.js";
+import { registerPaperTools } from "./paper.js";
 import { registerRecipeTools } from "./recipe.js";
 import { registerRecordTools } from "./record.js";
 import { registerRenderTools } from "./render.js";
@@ -21,6 +22,7 @@ export function registerAllTools(server: McpServer): void {
   registerMediaTools(server);
   registerRecordTools(server);
   registerYoutubeTools(server);
+  registerPaperTools(server);
   registerAudioTools(server);
   registerComposeTools(server);
   registerEffectsTools(server);
