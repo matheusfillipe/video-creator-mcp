@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { run } from "../lib/exec.js";
 import type { MediaMeta } from "../types.js";
 import { getCached, loadMeta, mediaIdFor, writeMediaFromBuffer } from "./media.js";
-import { synthesizeChatterbox } from "./tts.js";
+import { synthesizeChatterbox, synthesizeSpeechService } from "./tts.js";
 
 const MIN_VOICE_REFERENCE_SEC = 2;
 // A clone reference only needs a few seconds of clean speech. Cap the extracted clip so a
@@ -118,14 +118,20 @@ export interface SpeechParams {
   cfgWeight: number;
   temperature: number;
   voiceFile?: { buffer: Buffer; filename: string };
+  // A voice on the speech service (SPEECH_URL); when set, the line is read there.
+  speechVoice?: string;
 }
 
 export async function synthesizeSpeech(params: SpeechParams): Promise<Buffer> {
+  const speak = (text: string) =>
+    params.speechVoice
+      ? synthesizeSpeechService(text, params.speechVoice)
+      : synthesizeChatterbox({ ...params, text });
   const chunks = splitIntoChunks(params.text, MAX_TTS_CHUNK_CHARS);
-  if (chunks.length === 1) return synthesizeChatterbox(params);
+  if (chunks.length === 1) return speak(params.text);
   const parts: Buffer[] = [];
   for (const chunk of chunks) {
-    parts.push(await synthesizeChatterbox({ ...params, text: chunk }));
+    parts.push(await speak(chunk));
   }
   return concatWavs(parts);
 }
@@ -148,7 +154,7 @@ export async function synthesizeSpeechCached(
     idSeed,
     buffer,
     ext: ".wav",
-    sourceUrl: `tts://chatterbox/${voiceLabel}`,
+    sourceUrl: params.speechVoice ? `tts://speech/${voiceLabel}` : `tts://chatterbox/${voiceLabel}`,
   });
   return { buffer, meta, cached: false };
 }

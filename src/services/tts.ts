@@ -78,3 +78,32 @@ export async function synthesizeChatterbox(params: ChatterboxParams): Promise<Bu
     base,
   );
 }
+
+// Reads a line on the OpenAI-compatible speech service (LocalAI) in one of its named voices,
+// such as a designed voice profile. Returns WAV like Chatterbox does.
+export async function synthesizeSpeechService(text: string, voice: string): Promise<Buffer> {
+  const base = config.speech.url;
+  if (!base)
+    throw new ChatterboxRequestError(
+      "speech_voice needs SPEECH_URL (an OpenAI-compatible speech service)",
+    );
+  const url = `${base.replace(/\/+$/, "")}/v1/audio/speech`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: config.speech.model,
+      input: text,
+      voice,
+      response_format: "wav",
+    }),
+    signal: AbortSignal.timeout(config.speech.timeoutMs),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new ChatterboxRequestError(
+      `speech service returned ${res.status}: ${body.slice(0, 300)}`,
+    );
+  }
+  return Buffer.from(await res.arrayBuffer());
+}

@@ -101,6 +101,12 @@ const VOICE_FIELDS = z
       .describe("Acting intensity: 0.3 calm, 0.55 natural, 0.9 dramatic."),
     cfg_weight: z.number().min(0).max(1).optional().describe("Pacing: lower = slower."),
     temperature: z.number().min(0.1).max(1.5).optional().describe("Delivery variation."),
+    speech_voice: z
+      .string()
+      .optional()
+      .describe(
+        "A voice on the speech service (SPEECH_URL), such as a LocalAI voice profile 'localai://voice-profiles/<id>'. Lines with it are read there instead of by Chatterbox; set it in defaults.voice to narrate the whole video with it. The acting dials and reference_media_id apply to Chatterbox only.",
+      ),
   })
   .strict();
 
@@ -127,10 +133,10 @@ const VIDEO_CLIP = z
       ),
     out: z.number().positive().optional().describe("Seconds into the source to stop playing at."),
     fit: z
-      .enum(["cover", "contain"])
+      .enum(["cover", "contain", "pan"])
       .optional()
       .describe(
-        "How the visual fills the frame: cover (default) crops it to fill (a still also gets a slow zoom-in); contain shows the WHOLE picture (no crop) centered over a blurred fill of itself (a still also gets a gentle push-in). Use contain for screenshots/text where cropping the borders loses the point, and for landscape footage in a portrait render. Applies in single and sequence layouts.",
+        "How the visual fills the frame: cover (default) crops it to fill (a still also gets a slow zoom-in); contain shows the WHOLE picture (no crop) centered over a blurred fill of itself (a still also gets a gentle push-in); pan (stills only) shows a wide figure large enough to read on a phone and glides across it over the scene. Use contain for screenshots/text where cropping the borders loses the point and for landscape footage in a portrait render, and pan for wide figures and diagrams in a portrait render. Applies in single and sequence layouts.",
       ),
   })
   .strict();
@@ -322,10 +328,11 @@ interface ResolvedVoice {
   cfgWeight: number;
   temperature: number;
   referenceId?: string;
+  speechVoice?: string;
 }
 
 type ResolvedVisual =
-  | { kind: "video"; mediaId: string; in?: number; out?: number; fit?: "cover" | "contain" }
+  | { kind: "video"; mediaId: string; in?: number; out?: number; fit?: "cover" | "contain" | "pan" }
   | { kind: "math"; math: MathGraphic };
 
 // Minimum/maximum visual clip count each layout accepts; "single" is checked separately so its
@@ -443,6 +450,7 @@ function mergeVoice(...layers: (VoiceSpec | undefined)[]): Omit<ResolvedVoice, "
     if (layer.exaggeration !== undefined) merged.exaggeration = layer.exaggeration;
     if (layer.cfg_weight !== undefined) merged.cfgWeight = layer.cfg_weight;
     if (layer.temperature !== undefined) merged.temperature = layer.temperature;
+    if (layer.speech_voice !== undefined) merged.speechVoice = layer.speech_voice;
   }
   return merged;
 }
@@ -909,7 +917,7 @@ export function registerComposeTools(server: McpServer): void {
   registerTool(server, {
     name: "video_compose",
     title: "Render a composition (narrated video, synced by construction)",
-    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Downloaded footage/screenshots go in scene \`video\` clips and are mixed in by construction — PREFER this over hand-authoring HTML whenever you have real media to include, so nothing silently gets dropped. For a song or a recorded speech you already have the words for, set top-level \`transcript\` (the audio on an audio track + its text): the words are force-aligned to the real audio into karaoke captions, no TTS/CHATTERBOX needed for that path. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id; call video_render_status ONCE (it blocks until done); the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later; the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Narrated (voice) scenes require CHATTERBOX_URL. ${LANGUAGE_RULES}`,
+    description: `Render a declarative composition into a finished MP4: narrated scenes stay PERFECTLY in sync (each scene's visual is cut to its line's real spoken length), captions are force-aligned word-synced cues styled per scene, music ducks under the voice. Downloaded footage/screenshots go in scene \`video\` clips and are mixed in by construction — PREFER this over hand-authoring HTML whenever you have real media to include, so nothing silently gets dropped. For a song or a recorded speech you already have the words for, set top-level \`transcript\` (the audio on an audio track + its text): the words are force-aligned to the real audio into karaoke captions, no TTS/CHATTERBOX needed for that path. Validate with video_plan FIRST and call this exactly ONCE when the plan is valid — if the composition has errors this returns the findings instead of rendering. ASYNCHRONOUS: returns a job_id; call video_render_status ONCE (it blocks until done); the result has the mp4 url, the real scene timeline, and metadata_url (a JSON sidecar carrying this composition as the recipe, so the video can be edited + re-rendered later; the recipe also carries a durable url for every media_id it references, so it renders anywhere, not just this pod). Narrated (voice) scenes require CHATTERBOX_URL, or SPEECH_URL for lines with a speech_voice. ${LANGUAGE_RULES}`,
     inputSchema: {
       composition: COMPOSITION.describe("The declarative composition to render."),
       metadata: metadataArg,
@@ -1103,22 +1111,23 @@ export async function previewCompositionFrame(
   if (scene.layout === "single") {
     const only = visualPaths[0] as string;
     const v0 = scene.visuals[0];
-    if (v0?.kind === "video" && v0.fit === "contain") {
+    if (v0?.kind === "video" && (v0.fit === "contain" || v0.fit === "pan")) {
       footagePath = (
         await containSceneVisual({
+          fit: v0.fit,
           path: only,
           durationSec: onScreen,
           width: resolved.width,
           height: resolved.height,
           fps: resolved.fps,
-          idSeed: `compose-contain:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${only}`,
+          idSeed: `compose-${v0.fit}:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${only}`,
         })
       ).path;
     } else {
       footagePath = only;
     }
   } else if (scene.layout === "sequence") {
-    const seqIdSeed = `compose-sequence:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${visualPaths.join("|")}`;
+    const seqIdSeed = `compose-sequence:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${visualPaths.join("|")}:${scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")).join(",")}`;
     footagePath = (
       await sequenceSceneVisuals({
         visuals: visualPaths,
@@ -1236,14 +1245,19 @@ async function renderComposition(
     let voiceWav: Buffer | undefined;
     let spokenSec = 0;
     if (scene.voice) {
-      const voiceLabel = scene.voice.referenceId ? `cloned:${scene.voice.referenceId}` : "default";
+      const voiceLabel = scene.voice.speechVoice
+        ? `speech:${scene.voice.speechVoice}`
+        : scene.voice.referenceId
+          ? `cloned:${scene.voice.referenceId}`
+          : "default";
       const { buffer } = await synthesizeSpeechCached(
         {
           text: scene.voice.text,
           exaggeration: scene.voice.exaggeration,
           cfgWeight: scene.voice.cfgWeight,
           temperature: scene.voice.temperature,
-          voiceFile: await cloneFor(scene.voice.referenceId),
+          voiceFile: scene.voice.speechVoice ? undefined : await cloneFor(scene.voice.referenceId),
+          speechVoice: scene.voice.speechVoice,
         },
         voiceLabel,
       );
@@ -1274,22 +1288,23 @@ async function renderComposition(
     if (scene.layout === "single") {
       const only = visualPaths[0] as string;
       const v0 = scene.visuals[0];
-      if (v0?.kind === "video" && v0.fit === "contain") {
+      if (v0?.kind === "video" && (v0.fit === "contain" || v0.fit === "pan")) {
         footagePath = (
           await containSceneVisual({
+            fit: v0.fit,
             path: only,
             durationSec: onScreen,
             width: w,
             height: h,
             fps,
-            idSeed: `compose-contain:${w}x${h}:${onScreen.toFixed(2)}:${only}`,
+            idSeed: `compose-${v0.fit}:${w}x${h}:${onScreen.toFixed(2)}:${only}`,
           })
         ).path;
       } else {
         footagePath = only;
       }
     } else if (scene.layout === "sequence") {
-      const seqIdSeed = `compose-sequence:${w}x${h}:${onScreen.toFixed(2)}:${visualPaths.join("|")}`;
+      const seqIdSeed = `compose-sequence:${w}x${h}:${onScreen.toFixed(2)}:${visualPaths.join("|")}:${scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")).join(",")}`;
       footagePath = (
         await sequenceSceneVisuals({
           visuals: visualPaths,

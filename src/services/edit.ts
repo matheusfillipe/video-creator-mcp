@@ -86,6 +86,7 @@ const GROUPS_PER_LAYOUT: Record<EditLayout, number> = {
 };
 
 type FitMode = "cover" | "contain";
+export type SceneFit = FitMode | "pan";
 
 // single/pip cells share the canvas aspect, so cover fills them without distortion. vstack/hstack/
 // grid cells are a different shape than typical footage, so they letterbox (contain) to keep the
@@ -448,7 +449,7 @@ export async function combineSceneVisuals(params: {
 // idSeed like any derived render.
 export async function sequenceSceneVisuals(params: {
   visuals: string[];
-  fits?: FitMode[];
+  fits?: SceneFit[];
   durationSec: number;
   width: number;
   height: number;
@@ -467,14 +468,16 @@ export async function sequenceSceneVisuals(params: {
   try {
     const parts: string[] = [];
     for (const [i, visualPath] of params.visuals.entries()) {
-      if (params.fits?.[i] === "contain") {
+      const fit = params.fits?.[i];
+      if (fit === "contain" || fit === "pan") {
         const contained = await containSceneVisual({
+          fit,
           path: visualPath,
           durationSec: share,
           width: params.width,
           height: params.height,
           fps: params.fps,
-          idSeed: `${params.idSeed}:contain:${i}`,
+          idSeed: `${params.idSeed}:${fit}:${i}`,
         });
         parts.push(contained.path);
         continue;
@@ -619,7 +622,35 @@ export async function containVideo(params: {
   });
 }
 
+// A wide still shown at a readable size: scaled to 60% of the frame height and glided across
+// from its left edge to its right over the scene, over a blurred fill of itself. A still no wider
+// than the frame stays centred.
+export async function panVisual(params: {
+  image: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  idSeed: string;
+}): Promise<{ path: string }> {
+  const { width: w, height: h, fps, durationSec } = params;
+  const figureHeight = Math.round((h * 0.6) / 2) * 2;
+  const glide = `if(gt(w,W),(W-w)*min(t/${durationSec.toFixed(3)},1),(W-w)/2)`;
+  return renderContained({
+    inputArgs: ["-loop", "1", "-t", durationSec.toFixed(3), "-i", params.image],
+    filter: [
+      "[0:v]split=2[bg][fg]",
+      `[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.12[bgb]`,
+      `[fg]scale=-2:${figureHeight}[fgs]`,
+      `[bgb][fgs]overlay=x='${glide}':y=(H-h)/2,fps=${fps},setsar=1,format=yuv420p[out]`,
+    ].join(";"),
+    fps,
+    idSeed: params.idSeed,
+  });
+}
+
 export async function containSceneVisual(params: {
+  fit: "contain" | "pan";
   path: string;
   durationSec: number;
   width: number;
@@ -627,10 +658,11 @@ export async function containSceneVisual(params: {
   fps: number;
   idSeed: string;
 }): Promise<{ path: string }> {
-  const { path, ...rest } = params;
-  return IMAGE_RE.test(path)
-    ? containVisual({ image: path, ...rest })
-    : containVideo({ video: path, ...rest });
+  const { path, fit, ...rest } = params;
+  if (!IMAGE_RE.test(path)) return containVideo({ video: path, ...rest });
+  return fit === "pan"
+    ? panVisual({ image: path, ...rest })
+    : containVisual({ image: path, ...rest });
 }
 
 export function textFilters(

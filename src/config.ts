@@ -47,7 +47,18 @@ const EnvSchema = z.object({
   // tool is registered but every call fails fast. TTS is opt-in infrastructure.
   CHATTERBOX_URL: z.string().url().optional(),
   CHATTERBOX_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  // Optional OpenAI-compatible speech service (POST /v1/audio/speech), such as LocalAI. Voice
+  // clips that name a speech_voice are read here instead of by Chatterbox.
+  SPEECH_URL: z.string().url().optional(),
+  SPEECH_MODEL: z.string().default("qwen3-tts-cpp-1.7b-base"),
+  SPEECH_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
 });
+
+export interface SpeechConfig {
+  url: string | undefined;
+  model: string;
+  timeoutMs: number;
+}
 
 export interface S3Config {
   endpoint: string | undefined;
@@ -88,6 +99,7 @@ export interface Config {
   downloadConcurrency: number;
   ytdlp: YtDlpConfig;
   chatterbox: ChatterboxConfig;
+  speech: SpeechConfig;
   allowPrivateNetwork: boolean;
   manimScenes: boolean;
 }
@@ -141,6 +153,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     downloadConcurrency: parsed.DOWNLOAD_CONCURRENCY,
     ytdlp: { path: parsed.YTDLP_PATH, cookies: parsed.YTDLP_COOKIES, format: parsed.YTDLP_FORMAT },
     chatterbox: { url: parsed.CHATTERBOX_URL, timeoutMs: parsed.CHATTERBOX_TIMEOUT_MS },
+    speech: {
+      url: parsed.SPEECH_URL,
+      model: parsed.SPEECH_MODEL,
+      timeoutMs: parsed.SPEECH_TIMEOUT_MS,
+    },
     allowPrivateNetwork: parsed.ALLOW_PRIVATE_NETWORK,
     manimScenes: parsed.MANIM_SCENES,
   };
