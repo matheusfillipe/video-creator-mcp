@@ -444,9 +444,11 @@ export async function combineSceneVisuals(params: {
 // Play 2-6 already-resolved visual clips back-to-back over `durationSec`, each holding an equal
 // share, into ONE silent clip. The temporal sibling of combineSceneVisuals: a scene's single voice +
 // captions span the whole thing while the picture cuts, so a still-image scene stops being one frozen
-// shot. Cover-fit per segment; the cuts carry the motion. Cached by idSeed like any derived render.
+// shot. Each segment takes its own fit (cover by default); the cuts carry the motion. Cached by
+// idSeed like any derived render.
 export async function sequenceSceneVisuals(params: {
   visuals: string[];
+  fits?: FitMode[];
   durationSec: number;
   width: number;
   height: number;
@@ -465,6 +467,18 @@ export async function sequenceSceneVisuals(params: {
   try {
     const parts: string[] = [];
     for (const [i, visualPath] of params.visuals.entries()) {
+      if (params.fits?.[i] === "contain") {
+        const contained = await containSceneVisual({
+          path: visualPath,
+          durationSec: share,
+          width: params.width,
+          height: params.height,
+          fps: params.fps,
+          idSeed: `${params.idSeed}:contain:${i}`,
+        });
+        parts.push(contained.path);
+        continue;
+      }
       const partPath = join(dir, `s${i}.mp4`);
       await normalizeSceneVisual(visualPath, cell, params.fps, share, "cover", partPath);
       parts.push(partPath);
@@ -505,31 +519,26 @@ export async function sequenceSceneVisuals(params: {
   }
 }
 
-// Fit a still fully inside the frame (nothing cropped) over a blurred, darkened cover of itself, with
-// a gentle push-in. For screenshots/text where cover-fit would crop the borders and a full Ken-Burns
-// would start too close: here the whole image reads from the first frame. Single input frame so the
-// composite is built once, then zoompan emits the clip's frames with a slow zoom (zoom only
-// accumulates from a single input frame). Cached by idSeed like any derived render.
-export async function containVisual(params: {
-  image: string;
-  durationSec: number;
-  width: number;
-  height: number;
+// The whole source scaled to fit the frame, centred over a blurred, darkened cover of itself.
+// Leaves the composite on [comp] for the caller to finish.
+function blurredContainGraph(w: number, h: number): string {
+  return [
+    "[0:v]split=2[bg][fg]",
+    `[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.12[bgb]`,
+    `[fg]scale=${w}:${h}:force_original_aspect_ratio=decrease[fgc]`,
+    "[bgb][fgc]overlay=(W-w)/2:(H-h)/2[comp]",
+  ].join(";");
+}
+
+async function renderContained(params: {
+  inputArgs: string[];
+  filter: string;
   fps: number;
   idSeed: string;
 }): Promise<{ path: string }> {
   const cached = await getCached(mediaIdFor(params.idSeed));
   if (cached) return { path: cached.path };
 
-  const { width: w, height: h, fps } = params;
-  const frames = Math.max(1, Math.round(params.durationSec * fps));
-  const filter = [
-    "[0:v]split=2[bg][fg]",
-    `[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.12[bgb]`,
-    `[fg]scale=${w}:${h}:force_original_aspect_ratio=decrease[fgc]`,
-    "[bgb][fgc]overlay=(W-w)/2:(H-h)/2[comp]",
-    `[comp]${smoothZoompan(w, h, fps, frames, 1.04)},setsar=1[out]`,
-  ].join(";");
   const jobId = randomUUID().slice(0, 8);
   const dir = join(config.workDir, `compose-contain-${jobId}`);
   await mkdir(dir, { recursive: true });
@@ -540,15 +549,14 @@ export async function containVisual(params: {
       [
         "-nostdin",
         "-y",
-        "-i",
-        params.image,
+        ...params.inputArgs,
         "-filter_complex",
-        filter,
+        params.filter,
         "-map",
         "[out]",
         "-an",
         "-r",
-        String(fps),
+        String(params.fps),
         ...X264_ARGS,
         "-movflags",
         "+faststart",
@@ -567,6 +575,62 @@ export async function containVisual(params: {
   } finally {
     await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
   }
+}
+
+// Fit a still fully inside the frame (nothing cropped) over a blurred, darkened cover of itself, with
+// a gentle push-in. For screenshots/text where cover-fit would crop the borders and a full Ken-Burns
+// would start too close: here the whole image reads from the first frame. Single input frame so the
+// composite is built once, then zoompan emits the clip's frames with a slow zoom (zoom only
+// accumulates from a single input frame). Cached by idSeed like any derived render.
+export async function containVisual(params: {
+  image: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  idSeed: string;
+}): Promise<{ path: string }> {
+  const { width: w, height: h, fps } = params;
+  const frames = Math.max(1, Math.round(params.durationSec * fps));
+  return renderContained({
+    inputArgs: ["-i", params.image],
+    filter: `${blurredContainGraph(w, h)};[comp]${smoothZoompan(w, h, fps, frames, 1.04)},setsar=1[out]`,
+    fps,
+    idSeed: params.idSeed,
+  });
+}
+
+// The moving-footage sibling of containVisual: a landscape demo clip in a portrait render keeps its
+// whole picture instead of losing its sides to a cover crop. Looped or cut to the scene's length.
+export async function containVideo(params: {
+  video: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  idSeed: string;
+}): Promise<{ path: string }> {
+  const { width: w, height: h, fps } = params;
+  return renderContained({
+    inputArgs: ["-stream_loop", "-1", "-i", params.video, "-t", params.durationSec.toFixed(3)],
+    filter: `${blurredContainGraph(w, h)};[comp]fps=${fps},setsar=1,format=yuv420p[out]`,
+    fps,
+    idSeed: params.idSeed,
+  });
+}
+
+export async function containSceneVisual(params: {
+  path: string;
+  durationSec: number;
+  width: number;
+  height: number;
+  fps: number;
+  idSeed: string;
+}): Promise<{ path: string }> {
+  const { path, ...rest } = params;
+  return IMAGE_RE.test(path)
+    ? containVisual({ image: path, ...rest })
+    : containVideo({ video: path, ...rest });
 }
 
 export function textFilters(
