@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { parseArxivFigures, parseProjectVideos } from "../../src/services/paper.js";
+import { parseArxivFigures, parseArxivText, parseProjectVideos } from "../../src/services/paper.js";
+
+describe("parseArxivText", () => {
+  it("keeps the article body with formulas as LaTeX and drops the bibliography", () => {
+    const html = `<nav>arXiv menu</nav><article><h1>Title</h1><p>Loss is <math alttext="x^{2}"><mi>x</mi></math> lower.</p>
+      <section class="ltx_bibliography"><p>[1] Someone 2020</p></section></article>`;
+    expect(parseArxivText(html)).toBe("Title Loss is x^{2} lower.");
+  });
+});
 
 describe("parseArxivFigures", () => {
   const page = "https://arxiv.org/html/2610.10524";

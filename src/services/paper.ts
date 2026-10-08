@@ -16,12 +16,14 @@ export interface PaperMedia {
   arxiv_id: string;
   title: string;
   project_page: string | null;
+  text: string;
   figures: PaperFigure[];
   videos: PaperVideo[];
 }
 
 const MAX_FIGURES = 14;
 const MAX_VIDEOS = 6;
+const MAX_TEXT_CHARS = 80_000;
 
 function stripTags(html: string): string {
   return html
@@ -50,6 +52,16 @@ export function parseArxivFigures(html: string, pageUrl: string): PaperFigure[] 
     if (figures.length >= MAX_FIGURES) break;
   }
   return figures;
+}
+
+// The paper body as plain text, so a writer can check every claim against the paper itself. We
+// keep each formula's LaTeX source (MathML alttext) and drop the bibliography.
+export function parseArxivText(html: string): string {
+  const article = html.match(/<article[\s\S]*<\/article>/)?.[0] ?? html;
+  const body = article
+    .replace(/<section[^>]*ltx_bibliography[\s\S]*?<\/section>/g, "")
+    .replace(/<math[^>]*alttext="([^"]*)"[\s\S]*?<\/math>/g, " $1 ");
+  return stripTags(body).slice(0, MAX_TEXT_CHARS);
 }
 
 // Demo clips on a project page: direct video files and embedded YouTube players.
@@ -84,7 +96,8 @@ export async function getPaperMedia(arxivId: string): Promise<PaperMedia> {
     .then((t) => JSON.parse(t) as HfPaper)
     .catch(() => ({}));
   const htmlUrl = `https://arxiv.org/html/${arxivId}`;
-  const figures = parseArxivFigures(await fetchText(htmlUrl).catch(() => ""), htmlUrl);
+  const html = await fetchText(htmlUrl).catch(() => "");
+  const figures = parseArxivFigures(html, htmlUrl);
 
   const videoUrls = new Set((hf.mediaUrls ?? []).filter((u) => /\.(mp4|webm|mov|qt)$/i.test(u)));
   if (hf.projectPage) {
@@ -101,6 +114,7 @@ export async function getPaperMedia(arxivId: string): Promise<PaperMedia> {
     arxiv_id: arxivId,
     title: hf.title ?? "",
     project_page: hf.projectPage ?? null,
+    text: html ? parseArxivText(html) : "",
     figures,
     videos,
   };
