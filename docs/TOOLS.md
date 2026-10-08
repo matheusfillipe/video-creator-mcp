@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 36 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 37 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -200,6 +200,15 @@ List cached media, or remove one cached item by media_id.
 |---|---|---|---|---|
 | `action` | `"list"` \| `"remove"` | no | `"list"` | List all, or remove one. |
 | `media_id` | string | no |  | Required when action=remove. |
+
+## `video_music`
+
+Generate an instrumental music bed from a caption (genre, instruments, mood, tempo, ending in 'instrumental') on the LocalAI audio service, for the music track of video_compose. The same caption and length come back from cache instantly, so a few fixed captions act as a channel's music library. ASYNCHRONOUS: returns a job_id; call video_render_status ONCE; the result has the media_id.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `caption` | string | yes |  | Style, instruments, mood and tempo, e.g. 'upbeat synthwave, arpeggiated synths, curious, 110 bpm, instrumental'. |
+| `duration_sec` | integer | no | `90` | Length of the bed; video_compose loops it under the video. |
 
 ## `video_paper_media`
 

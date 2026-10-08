@@ -52,11 +52,14 @@ const EnvSchema = z.object({
   SPEECH_URL: z.string().url().optional(),
   SPEECH_MODEL: z.string().default("qwen3-tts-cpp-1.7b-base"),
   SPEECH_TIMEOUT_MS: z.coerce.number().int().positive().default(300_000),
+  // Music beds for video_music come from the same service (POST /v1/sound-generation).
+  MUSIC_MODEL: z.string().default("ace-step-turbo"),
 });
 
 export interface SpeechConfig {
   url: string | undefined;
   model: string;
+  musicModel: string;
   timeoutMs: number;
 }
 
@@ -156,6 +159,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     speech: {
       url: parsed.SPEECH_URL,
       model: parsed.SPEECH_MODEL,
+      musicModel: parsed.MUSIC_MODEL,
       timeoutMs: parsed.SPEECH_TIMEOUT_MS,
     },
     allowPrivateNetwork: parsed.ALLOW_PRIVATE_NETWORK,

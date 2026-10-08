@@ -107,3 +107,27 @@ export async function synthesizeSpeechService(text: string, voice: string): Prom
   }
   return Buffer.from(await res.arrayBuffer());
 }
+
+// An instrumental music bed from the speech service's sound generation (ACE-Step on LocalAI).
+export async function generateMusic(caption: string, durationSec: number): Promise<Buffer> {
+  const base = config.speech.url;
+  if (!base)
+    throw new ChatterboxRequestError("video_music needs SPEECH_URL (the LocalAI audio service)");
+  const res = await fetch(`${base.replace(/\/+$/, "")}/v1/sound-generation`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model_id: config.speech.musicModel,
+      text: caption,
+      duration_seconds: durationSec,
+    }),
+    signal: AbortSignal.timeout(config.speech.timeoutMs),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new ChatterboxRequestError(
+      `music generation returned ${res.status}: ${body.slice(0, 300)}`,
+    );
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
