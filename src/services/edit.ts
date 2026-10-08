@@ -450,6 +450,7 @@ export async function combineSceneVisuals(params: {
 export async function sequenceSceneVisuals(params: {
   visuals: string[];
   fits?: SceneFit[];
+  raised?: boolean;
   durationSec: number;
   width: number;
   height: number;
@@ -472,6 +473,7 @@ export async function sequenceSceneVisuals(params: {
       if (fit === "contain" || fit === "pan") {
         const contained = await containSceneVisual({
           fit,
+          raised: params.raised,
           path: visualPath,
           durationSec: share,
           width: params.width,
@@ -524,13 +526,18 @@ export async function sequenceSceneVisuals(params: {
 
 // The whole source scaled to fit the frame, centred over a blurred, darkened cover of itself.
 // Leaves the composite on [comp] for the caller to finish.
-function blurredContainGraph(w: number, h: number): string {
+function blurredContainGraph(w: number, h: number, raised = false): string {
   return [
     "[0:v]split=2[bg][fg]",
     `[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.12[bgb]`,
     `[fg]scale=${w}:${h}:force_original_aspect_ratio=decrease[fgc]`,
-    "[bgb][fgc]overlay=(W-w)/2:(H-h)/2[comp]",
+    `[bgb][fgc]overlay=(W-w)/2:${visualTop(h, raised)}[comp]`,
   ].join(";");
+}
+
+// A raised visual sits near the top of the frame, leaving the lower part free for lifted captions.
+function visualTop(frameHeight: number, raised: boolean): string {
+  return raised ? `'min((H-h)/2,${Math.round(frameHeight * 0.04)})'` : "(H-h)/2";
 }
 
 async function renderContained(params: {
@@ -587,6 +594,7 @@ async function renderContained(params: {
 // accumulates from a single input frame). Cached by idSeed like any derived render.
 export async function containVisual(params: {
   image: string;
+  raised?: boolean;
   durationSec: number;
   width: number;
   height: number;
@@ -597,7 +605,7 @@ export async function containVisual(params: {
   const frames = Math.max(1, Math.round(params.durationSec * fps));
   return renderContained({
     inputArgs: ["-i", params.image],
-    filter: `${blurredContainGraph(w, h)};[comp]${smoothZoompan(w, h, fps, frames, 1.04)},setsar=1[out]`,
+    filter: `${blurredContainGraph(w, h, params.raised)};[comp]${smoothZoompan(w, h, fps, frames, 1.04)},setsar=1[out]`,
     fps,
     idSeed: params.idSeed,
   });
@@ -607,6 +615,7 @@ export async function containVisual(params: {
 // whole picture instead of losing its sides to a cover crop. Looped or cut to the scene's length.
 export async function containVideo(params: {
   video: string;
+  raised?: boolean;
   durationSec: number;
   width: number;
   height: number;
@@ -616,7 +625,7 @@ export async function containVideo(params: {
   const { width: w, height: h, fps } = params;
   return renderContained({
     inputArgs: ["-stream_loop", "-1", "-i", params.video, "-t", params.durationSec.toFixed(3)],
-    filter: `${blurredContainGraph(w, h)};[comp]fps=${fps},setsar=1,format=yuv420p[out]`,
+    filter: `${blurredContainGraph(w, h, params.raised)};[comp]fps=${fps},setsar=1,format=yuv420p[out]`,
     fps,
     idSeed: params.idSeed,
   });
@@ -627,6 +636,7 @@ export async function containVideo(params: {
 // than the frame stays centred.
 export async function panVisual(params: {
   image: string;
+  raised?: boolean;
   durationSec: number;
   width: number;
   height: number;
@@ -642,7 +652,7 @@ export async function panVisual(params: {
       "[0:v]split=2[bg][fg]",
       `[bg]scale=${w}:${h}:force_original_aspect_ratio=increase,crop=${w}:${h},boxblur=24:2,eq=brightness=-0.12[bgb]`,
       `[fg]scale=-2:${figureHeight}[fgs]`,
-      `[bgb][fgs]overlay=x='${glide}':y=(H-h)/2,fps=${fps},setsar=1,format=yuv420p[out]`,
+      `[bgb][fgs]overlay=x='${glide}':y=${visualTop(h, params.raised ?? false)},fps=${fps},setsar=1,format=yuv420p[out]`,
     ].join(";"),
     fps,
     idSeed: params.idSeed,
@@ -651,6 +661,7 @@ export async function panVisual(params: {
 
 export async function containSceneVisual(params: {
   fit: "contain" | "pan";
+  raised?: boolean;
   path: string;
   durationSec: number;
   width: number;

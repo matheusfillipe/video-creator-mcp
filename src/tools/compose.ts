@@ -816,6 +816,11 @@ interface PlanScene {
   captions: (ResolvedCaptionSpec & { offset: number }) | null;
 }
 
+// Lifted captions take the lower part of the frame, so a contained or panned visual moves up.
+function raisedForCaptions(scene: ResolvedScene): boolean {
+  return scene.caption?.style.position === "lifted";
+}
+
 function visualLabel(visual: ResolvedVisual): string {
   return visual.kind === "video" ? `video:${visual.mediaId}` : "graphic:math";
 }
@@ -1112,6 +1117,7 @@ export async function previewCompositionFrame(
     visualPaths.push(await resolveVisualPath(visual, resolved.resolution, onScreen));
   }
 
+  const raised = raisedForCaptions(scene);
   let footagePath: string;
   if (scene.layout === "single") {
     const only = visualPaths[0] as string;
@@ -1120,23 +1126,25 @@ export async function previewCompositionFrame(
       footagePath = (
         await containSceneVisual({
           fit: v0.fit,
+          raised,
           path: only,
           durationSec: onScreen,
           width: resolved.width,
           height: resolved.height,
           fps: resolved.fps,
-          idSeed: `compose-${v0.fit}:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${only}`,
+          idSeed: `compose-${v0.fit}:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${only}${raised ? ":raised" : ""}`,
         })
       ).path;
     } else {
       footagePath = only;
     }
   } else if (scene.layout === "sequence") {
-    const seqIdSeed = `compose-sequence:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${visualPaths.join("|")}:${scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")).join(",")}`;
+    const seqIdSeed = `compose-sequence:${resolved.width}x${resolved.height}:${onScreen.toFixed(2)}:${visualPaths.join("|")}:${scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")).join(",")}${raised ? ":raised" : ""}`;
     footagePath = (
       await sequenceSceneVisuals({
         visuals: visualPaths,
         fits: scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")),
+        raised,
         durationSec: onScreen,
         width: resolved.width,
         height: resolved.height,
@@ -1289,6 +1297,7 @@ async function renderComposition(
       visualPaths.push(await resolveVisualPath(visual, resolved.resolution, onScreen));
     }
 
+    const raised = raisedForCaptions(scene);
     let footagePath: string;
     if (scene.layout === "single") {
       const only = visualPaths[0] as string;
@@ -1297,23 +1306,25 @@ async function renderComposition(
         footagePath = (
           await containSceneVisual({
             fit: v0.fit,
+            raised,
             path: only,
             durationSec: onScreen,
             width: w,
             height: h,
             fps,
-            idSeed: `compose-${v0.fit}:${w}x${h}:${onScreen.toFixed(2)}:${only}`,
+            idSeed: `compose-${v0.fit}:${w}x${h}:${onScreen.toFixed(2)}:${only}${raised ? ":raised" : ""}`,
           })
         ).path;
       } else {
         footagePath = only;
       }
     } else if (scene.layout === "sequence") {
-      const seqIdSeed = `compose-sequence:${w}x${h}:${onScreen.toFixed(2)}:${visualPaths.join("|")}:${scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")).join(",")}`;
+      const seqIdSeed = `compose-sequence:${w}x${h}:${onScreen.toFixed(2)}:${visualPaths.join("|")}:${scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")).join(",")}${raised ? ":raised" : ""}`;
       footagePath = (
         await sequenceSceneVisuals({
           visuals: visualPaths,
           fits: scene.visuals.map((v) => (v.kind === "video" ? (v.fit ?? "cover") : "cover")),
+          raised,
           durationSec: onScreen,
           width: w,
           height: h,
