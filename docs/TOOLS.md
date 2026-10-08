@@ -86,6 +86,7 @@ Render a declarative composition into a finished MP4: narrated scenes stay PERFE
 |---|---|---|---|---|
 | `composition` | object | yes |  | The declarative composition to render. |
 | `metadata` | object | no |  | Publish metadata; if set, a <video>.json sidecar is written to the bucket too. |
+| `private` | boolean | no | `false` | Keep the render out of the public bucket: the video, its sidecar and its source media go to the private bucket and come back as signed links valid for 7 days. |
 
 ## `video_download_media`
 

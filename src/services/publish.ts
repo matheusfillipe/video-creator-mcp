@@ -1,7 +1,7 @@
 import { config } from "../config.js";
 import type { MediaMeta } from "../types.js";
 import { getCached, writeMediaFromBuffer } from "./media.js";
-import { storage } from "./storage.js";
+import { type Visibility, storage } from "./storage.js";
 
 export interface PublishMetadata {
   title: string;
@@ -87,8 +87,9 @@ export async function saveRender(
   filename: string,
   metadata?: PublishMetadata,
   recipe?: RenderRecipe,
+  visibility: Visibility = "public",
 ): Promise<SavedRender> {
-  const url = await storage().save(buffer, filename);
+  const url = await storage().save(buffer, filename, undefined, visibility);
   const media = await registerRender(buffer, filename, url);
   const saved: SavedRender = {
     url,
@@ -115,6 +116,7 @@ export async function saveRender(
       Buffer.from(JSON.stringify(body, null, 2)),
       sidecar,
       "application/json",
+      visibility,
     );
   }
   return saved;

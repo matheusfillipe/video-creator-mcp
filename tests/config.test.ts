@@ -21,7 +21,16 @@ describe("loadConfig storage selection", () => {
     expect(cfg.storage.type).toBe("s3");
     expect(cfg.storage.s3.endpoint).toBe("https://s3-api.t3ks.com");
     expect(cfg.storage.s3.bucket).toBe("video-mcp");
+    expect(cfg.storage.s3.privateBucket).toBeUndefined();
     expect(cfg.storage.publicUrl).toBe("https://s3-api.t3ks.com/video-mcp");
+  });
+
+  it("reads the private bucket next to the public one", () => {
+    const cfg = loadConfig({
+      MINIO_BUCKET: "video-mcp",
+      MINIO_PRIVATE_BUCKET: "video-mcp-private",
+    });
+    expect(cfg.storage.s3.privateBucket).toBe("video-mcp-private");
   });
 
   it("honors explicit S3_* vars when no MinIO vars are set", () => {

@@ -11,6 +11,9 @@ const EnvSchema = z.object({
   PUBLIC_URL: z.string().default(""),
   S3_ENDPOINT: z.string().optional(),
   S3_BUCKET: z.string().optional(),
+  // A bucket with no public read, for renders asked for with private: true; they come back
+  // as signed links that expire.
+  S3_PRIVATE_BUCKET: z.string().optional(),
   S3_REGION: z.string().default("us-east-1"),
   S3_ACCESS_KEY: z.string().default(""),
   S3_SECRET_KEY: z.string().default(""),
@@ -20,6 +23,7 @@ const EnvSchema = z.object({
   MINIO_USE_SSL: z.string().optional(),
   MINIO_REGION: z.string().optional(),
   MINIO_BUCKET: z.string().optional(),
+  MINIO_PRIVATE_BUCKET: z.string().optional(),
   MINIO_ACCESS_KEY: z.string().optional(),
   MINIO_SECRET_KEY: z.string().optional(),
   MINIO_PUBLIC_BASE: z.string().optional(),
@@ -48,6 +52,7 @@ const EnvSchema = z.object({
 export interface S3Config {
   endpoint: string | undefined;
   bucket: string | undefined;
+  privateBucket: string | undefined;
   region: string;
   accessKey: string;
   secretKey: string;
@@ -99,6 +104,7 @@ function buildStorage(env: ParsedEnv): StorageConfig {
       s3: {
         endpoint: `${scheme}://${env.MINIO_ENDPOINT ?? ""}`,
         bucket: env.MINIO_BUCKET,
+        privateBucket: env.MINIO_PRIVATE_BUCKET,
         region: env.MINIO_REGION ?? "us-east-1",
         accessKey: env.MINIO_ACCESS_KEY ?? "",
         secretKey: env.MINIO_SECRET_KEY ?? "",
@@ -112,6 +118,7 @@ function buildStorage(env: ParsedEnv): StorageConfig {
     s3: {
       endpoint: env.S3_ENDPOINT,
       bucket: env.S3_BUCKET,
+      privateBucket: env.S3_PRIVATE_BUCKET,
       region: env.S3_REGION,
       accessKey: env.S3_ACCESS_KEY,
       secretKey: env.S3_SECRET_KEY,

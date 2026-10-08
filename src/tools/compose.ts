@@ -30,7 +30,7 @@ import {
 } from "../services/narration.js";
 import { saveRender } from "../services/publish.js";
 import { separateVocals } from "../services/separate.js";
-import { storage } from "../services/storage.js";
+import { type Visibility, storage } from "../services/storage.js";
 import { dimsFor } from "../services/timeline.js";
 import type { MediaMeta } from "../types.js";
 import { registerTool } from "./defineTool.js";
@@ -913,8 +913,14 @@ export function registerComposeTools(server: McpServer): void {
     inputSchema: {
       composition: COMPOSITION.describe("The declarative composition to render."),
       metadata: metadataArg,
+      private: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Keep the render out of the public bucket: the video, its sidecar and its source media go to the private bucket and come back as signed links valid for 7 days.",
+        ),
     },
-    handler: async ({ composition, metadata }) => {
+    handler: async ({ composition, metadata, private: isPrivate }) => {
       const resolved = await resolveComposition(composition);
       if (resolved.findings.some((f) => f.severity === "error")) {
         return {
@@ -923,7 +929,9 @@ export function registerComposeTools(server: McpServer): void {
           hint: "fix the error findings and submit again (validate cheaply with video_plan)",
         };
       }
-      const jobId = submitJob("compose", () => renderComposition(resolved, composition, metadata));
+      const jobId = submitJob("compose", () =>
+        renderComposition(resolved, composition, metadata, isPrivate ? "private" : "public"),
+      );
       return {
         job_id: jobId,
         state: "queued",
@@ -1173,6 +1181,7 @@ function referencedMediaIds(resolved: ResolvedComposition): Set<string> {
 // discarded because an auxiliary source upload failed; ids that fail just miss the map.
 async function publishReferencedMedia(
   resolved: ResolvedComposition,
+  visibility: Visibility,
 ): Promise<{ media: Record<string, string>; errors: string[] }> {
   const media: Record<string, string> = {};
   const errors: string[] = [];
@@ -1186,6 +1195,7 @@ async function publishReferencedMedia(
         buffer,
         `media/${mediaId}${ext}`,
         contentTypeForExt(ext),
+        visibility,
       );
     } catch (error) {
       errors.push(`${mediaId}: ${error instanceof Error ? error.message : String(error)}`);
@@ -1198,6 +1208,7 @@ async function renderComposition(
   resolved: ResolvedComposition,
   composition: Composition,
   metadata: z.infer<typeof metadataArg>,
+  visibility: Visibility,
 ): Promise<unknown> {
   const { width: w, height: h, fps, leadInSec, tailSec, music: musicRef } = resolved;
 
@@ -1423,11 +1434,14 @@ async function renderComposition(
   // reloadable via video_get_recipe for later (agent or human editor) tweaks + re-renders.
   // Its media map carries a durable url for every source this composition references, since
   // those sources only ever lived in this pod's local cache.
-  const referenced = await publishReferencedMedia(resolved);
-  const saved = await saveRender(buffer, meta.filename, metadata, {
-    tool: "video_compose",
-    args: { composition, media: referenced.media },
-  });
+  const referenced = await publishReferencedMedia(resolved, visibility);
+  const saved = await saveRender(
+    buffer,
+    meta.filename,
+    metadata,
+    { tool: "video_compose", args: { composition, media: referenced.media } },
+    visibility,
+  );
 
   let absCursor = leadInSec;
   const timeline = resolved.scenes.map((scene, i) => {
