@@ -88,25 +88,32 @@ export async function synthesizeSpeechService(text: string, voice: string): Prom
       "speech_voice needs SPEECH_URL (an OpenAI-compatible speech service)",
     );
   const url = `${base.replace(/\/+$/, "")}/v1/audio/speech`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: config.speech.model,
-      input: text,
-      voice,
-      response_format: "wav",
-    }),
-    signal: AbortSignal.timeout(config.speech.timeoutMs),
-  });
-  if (!res.ok) {
+  // LocalAI answers 5xx when a backend process dies mid-request and starts a fresh one on the
+  // next call, so we try again before failing the whole render.
+  for (let attempt = 1; ; attempt++) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: config.speech.model,
+        input: text,
+        voice,
+        response_format: "wav",
+      }),
+      signal: AbortSignal.timeout(config.speech.timeoutMs),
+    });
+    if (res.ok) return Buffer.from(await res.arrayBuffer());
     const body = await res.text().catch(() => "");
-    throw new ChatterboxRequestError(
-      `speech service returned ${res.status}: ${body.slice(0, 300)}`,
-    );
+    if (res.status < 500 || attempt >= SPEECH_ATTEMPTS)
+      throw new ChatterboxRequestError(
+        `speech service returned ${res.status}: ${body.slice(0, 300)}`,
+      );
+    await new Promise((resolve) => setTimeout(resolve, SPEECH_RETRY_DELAY_MS));
   }
-  return Buffer.from(await res.arrayBuffer());
 }
+
+const SPEECH_ATTEMPTS = 3;
+const SPEECH_RETRY_DELAY_MS = 3_000;
 
 // An instrumental music bed from the speech service's sound generation (ACE-Step on LocalAI).
 export async function generateMusic(caption: string, durationSec: number): Promise<Buffer> {
