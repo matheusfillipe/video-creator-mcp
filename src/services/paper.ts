@@ -1,4 +1,7 @@
+import { config } from "../config.js";
 import { assertSafeUrl } from "../lib/net.js";
+import { previewFrames } from "./preview.js";
+import { storage } from "./storage.js";
 
 export interface PaperFigure {
   id: string;
@@ -12,16 +15,24 @@ export interface PaperVideo {
   source: string;
 }
 
+export interface PaperTable {
+  id: string;
+  html: string;
+  caption: string;
+}
+
 export interface PaperMedia {
   arxiv_id: string;
   title: string;
   project_page: string | null;
   text: string;
   figures: PaperFigure[];
+  tables: PaperFigure[];
   videos: PaperVideo[];
 }
 
 const MAX_FIGURES = 14;
+const MAX_TABLES = 6;
 const MAX_VIDEOS = 6;
 const MAX_TEXT_CHARS = 80_000;
 
@@ -38,12 +49,13 @@ function stripTags(html: string): string {
 }
 
 // arXiv's HTML version serves each figure as an image beside its caption. Vector figures (svg)
-// are skipped because the renderer only takes raster stills.
+// are skipped because the renderer only takes raster stills, and a figure holding a table is one
+// of the tables, whatever icons sit inside its cells.
 export function parseArxivFigures(html: string, pageUrl: string): PaperFigure[] {
   const figures: PaperFigure[] = [];
   for (const block of html.match(/<figure[\s\S]*?<\/figure>/g) ?? []) {
     const src = block.match(/<img[^>]*src="([^"]+)"/)?.[1];
-    if (!src || src.endsWith(".svg")) continue;
+    if (!src || src.endsWith(".svg") || block.includes("<table")) continue;
     const caption = stripTags(block.match(/<figcaption[\s\S]*?<\/figcaption>/)?.[0] ?? "").slice(
       0,
       300,
@@ -52,6 +64,40 @@ export function parseArxivFigures(html: string, pageUrl: string): PaperFigure[] 
     if (figures.length >= MAX_FIGURES) break;
   }
   return figures;
+}
+
+// The paper's tables as HTML.
+export function parseArxivTables(html: string): PaperTable[] {
+  const tables: PaperTable[] = [];
+  for (const block of html.match(/<figure[^>]*ltx_table[\s\S]*?<\/figure>/g) ?? []) {
+    const table = block.match(/<table[\s\S]*<\/table>/)?.[0];
+    if (!table) continue;
+    const caption = stripTags(block.match(/<figcaption[\s\S]*?<\/figcaption>/)?.[0] ?? "").slice(
+      0,
+      300,
+    );
+    // Cell icons point at relative paths that do not resolve outside arXiv, so we drop them.
+    tables.push({ id: `tab${tables.length + 1}`, html: table.replace(/<img[^>]*>/g, ""), caption });
+    if (tables.length >= MAX_TABLES) break;
+  }
+  return tables;
+}
+
+// A standalone page that shows one table large on white, scaled to fill a 1920x1080 frame.
+export function tablePage(tableHtml: string): string {
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+html,body{margin:0;width:1920px;height:1080px;background:#fff}
+#t{position:absolute;left:50%;top:50%;transform-origin:center;color:#111;font:28px "Liberation Sans",Arial,sans-serif}
+table{border-collapse:collapse}td,th{padding:6px 16px;text-align:center;white-space:nowrap}
+.ltx_border_t{border-top:2px solid #111}.ltx_border_tt{border-top:3px solid #111}
+.ltx_border_b{border-bottom:2px solid #111}.ltx_border_bb{border-bottom:3px solid #111}
+.ltx_border_r{border-right:1px solid #111}.ltx_border_l{border-left:1px solid #111}
+.ltx_font_bold{font-weight:bold}.ltx_font_italic{font-style:italic}
+</style></head><body><div id="t">${tableHtml}</div><script>
+const t=document.getElementById("t");
+const s=Math.min(1840/t.offsetWidth,1000/t.offsetHeight,2.5);
+t.style.transform="translate(-50%,-50%) scale("+s+")";
+</script></body></html>`;
 }
 
 // The paper body as plain text, so a writer can check every claim against the paper itself. We
@@ -89,9 +135,35 @@ interface HfPaper {
   mediaUrls?: string[];
 }
 
+// Each table rendered to a still, kept in the private bucket when the server has one.
+async function renderTables(arxivId: string, tables: PaperTable[]): Promise<PaperFigure[]> {
+  const visibility = config.storage.s3.privateBucket ? "private" : "public";
+  const rendered: PaperFigure[] = [];
+  for (const table of tables) {
+    const { frames } = await previewFrames({
+      htmlBase64: Buffer.from(tablePage(table.html)).toString("base64"),
+      timeSeconds: [0],
+      resolution: "landscape",
+    });
+    const still = frames[0];
+    if (!still) continue;
+    const url = await storage().save(
+      still.buffer,
+      `paper-${arxivId}-${table.id}.png`,
+      "image/png",
+      visibility,
+    );
+    rendered.push({ id: table.id, url, caption: table.caption });
+  }
+  return rendered;
+}
+
 // The paper's own visual material: its figures from arXiv and the authors' demo videos from the
 // Hugging Face paper page and the project page. A missing source only shrinks the result.
-export async function getPaperMedia(arxivId: string): Promise<PaperMedia> {
+export async function getPaperMedia(
+  arxivId: string,
+  { withTables = false }: { withTables?: boolean } = {},
+): Promise<PaperMedia> {
   const hf: HfPaper = await fetchText(`https://huggingface.co/api/papers/${arxivId}`)
     .then((t) => JSON.parse(t) as HfPaper)
     .catch(() => ({}));
@@ -116,6 +188,7 @@ export async function getPaperMedia(arxivId: string): Promise<PaperMedia> {
     project_page: hf.projectPage ?? null,
     text: html ? parseArxivText(html) : "",
     figures,
+    tables: withTables ? await renderTables(arxivId, parseArxivTables(html)) : [],
     videos,
   };
 }

@@ -1,5 +1,33 @@
 import { describe, expect, it } from "vitest";
-import { parseArxivFigures, parseArxivText, parseProjectVideos } from "../../src/services/paper.js";
+import {
+  parseArxivFigures,
+  parseArxivTables,
+  parseArxivText,
+  parseProjectVideos,
+} from "../../src/services/paper.js";
+
+describe("parseArxivTables", () => {
+  const html = `
+    <figure class="ltx_figure"><img src="teaser.png"><figcaption>Figure 1: teaser</figcaption></figure>
+    <figure id="S4.T2" class="ltx_table"><figcaption>Table 2: Main results</figcaption>
+      <table><tr><td><img src="star.png">Ours</td><td>71.4</td></tr></table></figure>`;
+
+  it("returns table figures as tables with cell icons removed", () => {
+    expect(parseArxivTables(html)).toEqual([
+      {
+        id: "tab1",
+        html: "<table><tr><td>Ours</td><td>71.4</td></tr></table>",
+        caption: "Table 2: Main results",
+      },
+    ]);
+  });
+
+  it("leaves table figures out of the figures", () => {
+    expect(parseArxivFigures(html, "https://arxiv.org/html/1").map((f) => f.caption)).toEqual([
+      "Figure 1: teaser",
+    ]);
+  });
+});
 
 describe("parseArxivText", () => {
   it("keeps the article body with formulas as LaTeX and drops the bibliography", () => {
