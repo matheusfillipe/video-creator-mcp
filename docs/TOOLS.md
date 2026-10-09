@@ -210,6 +210,7 @@ Generate an instrumental music bed from a caption (genre, instruments, mood, tem
 |---|---|---|---|---|
 | `caption` | string | yes |  | Style, instruments, mood and tempo, e.g. 'upbeat synthwave, arpeggiated synths, curious, 110 bpm, instrumental'. |
 | `duration_sec` | integer | no | `90` | Length of the bed; video_compose loops it under the video. |
+| `release_gpu` | boolean | no | `false` | Unload the music model from the GPU as soon as the bed is made, so the narration voice that follows has room. Leave it off when more beds come right after. |
 
 ## `video_paper_media`
 

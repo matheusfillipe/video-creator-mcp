@@ -3,7 +3,7 @@ import { z } from "zod";
 import { config } from "../config.js";
 import { submitJob } from "../services/jobs.js";
 import { getCached, mediaIdFor, writeMediaFromBuffer } from "../services/media.js";
-import { generateMusic } from "../services/tts.js";
+import { generateMusic, releaseModel } from "../services/tts.js";
 import { registerTool } from "./defineTool.js";
 
 export function registerMusicTools(server: McpServer): void {
@@ -27,15 +27,23 @@ export function registerMusicTools(server: McpServer): void {
         .max(240)
         .default(90)
         .describe("Length of the bed; video_compose loops it under the video."),
+      release_gpu: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Unload the music model from the GPU as soon as the bed is made, so the narration voice that follows has room. Leave it off when more beds come right after.",
+        ),
     },
-    handler: async ({ caption, duration_sec }) => {
+    handler: async ({ caption, duration_sec, release_gpu }) => {
       const idSeed = `music:${config.speech.musicModel}:${duration_sec}:${caption}`;
       const cached = await getCached(mediaIdFor(idSeed));
       if (cached) return { media_id: cached.media_id, duration: cached.duration, cached: true };
       const jobId = submitJob("music", async () => {
+        const buffer = await generateMusic(caption, duration_sec);
+        if (release_gpu) await releaseModel(config.speech.musicModel);
         const meta = await writeMediaFromBuffer({
           idSeed,
-          buffer: await generateMusic(caption, duration_sec),
+          buffer,
           ext: ".wav",
           sourceUrl: `music://${config.speech.musicModel}`,
         });
