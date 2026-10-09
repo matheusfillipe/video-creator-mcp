@@ -8,12 +8,13 @@ describe("synthesizeSpeechService", () => {
     vi.useRealTimers();
   });
 
-  it("tries again when the speech backend dies mid-request", async () => {
+  it("drops the dead backend and tries again when it dies mid-request", async () => {
     vi.useFakeTimers();
     config.speech.url = "http://speech.test";
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(new Response("backend EOF", { status: 500 }))
+      .mockResolvedValueOnce(new Response("{}"))
       .mockResolvedValueOnce(new Response(new Uint8Array([1, 2, 3])));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -21,7 +22,11 @@ describe("synthesizeSpeechService", () => {
     await vi.runAllTimersAsync();
 
     expect([...(await result)]).toEqual([1, 2, 3]);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map((c) => c[0])).toEqual([
+      "http://speech.test/v1/audio/speech",
+      "http://speech.test/backend/shutdown",
+      "http://speech.test/v1/audio/speech",
+    ]);
   });
 
   it("fails at once on a request the service rejects", async () => {
