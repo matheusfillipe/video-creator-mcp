@@ -124,6 +124,7 @@ Pull a single PNG frame from a downloaded clip at time `time_sec`. Returns the i
 |---|---|---|---|---|
 | `media_id` | string | yes |  | media_id of the clip (from video_download_media). |
 | `time_sec` | number | no | `0` | Time within the clip (seconds) to sample. Clamped to clip duration. |
+| `private` | boolean | no | `false` | Keep the frame out of the public bucket: it goes to the private bucket and comes back as a signed link valid for 7 days. Use it for frames of private renders. |
 
 ## `video_get_info`
 

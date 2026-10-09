@@ -156,11 +156,21 @@ export function registerEffectsTools(server: McpServer): void {
         .min(0)
         .default(0)
         .describe("Time within the clip (seconds) to sample. Clamped to clip duration."),
+      private: z
+        .boolean()
+        .default(false)
+        .describe(
+          "Keep the frame out of the public bucket: it goes to the private bucket and comes back as a signed link valid for 7 days. Use it for frames of private renders.",
+        ),
     },
     annotations: { readOnlyHint: true },
-    handler: async ({ media_id, time_sec }) => {
+    handler: async ({ media_id, time_sec, private: isPrivate }) => {
       const { url, filename, meta } = await runOnEngine(() =>
-        extractFrame({ mediaId: media_id, timeSec: time_sec }),
+        extractFrame({
+          mediaId: media_id,
+          timeSec: time_sec,
+          visibility: isPrivate ? "private" : "public",
+        }),
       );
       return {
         media_id: meta.media_id,

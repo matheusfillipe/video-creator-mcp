@@ -16,6 +16,7 @@ import type { MediaMeta } from "../types.js";
 import { type CaptionStyle, type Cue, buildAss, captionPlacement } from "./captions.js";
 import { loadMeta, writeMediaFromBuffer } from "./media.js";
 import { readSidecar, saveRender } from "./publish.js";
+import type { Visibility } from "./storage.js";
 
 const IMAGE_RE = /\.(jpg|jpeg|png|webp)$/i;
 
@@ -856,6 +857,7 @@ async function sourceDurationSec(path: string): Promise<number> {
 export async function extractFrame(params: {
   mediaId: string;
   timeSec: number;
+  visibility?: Visibility;
 }): Promise<{ buffer: Buffer; meta: MediaMeta; url: string; filename: string }> {
   const meta = await loadMeta(params.mediaId);
   if (!meta) {
@@ -869,7 +871,13 @@ export async function extractFrame(params: {
     ext: ".png",
     sourceUrl: `frame://${params.mediaId}@${time}`,
   });
-  const saved = await saveRender(buffer, imageMeta.filename);
+  const saved = await saveRender(
+    buffer,
+    imageMeta.filename,
+    undefined,
+    undefined,
+    params.visibility,
+  );
   return { buffer, meta: imageMeta, url: saved.url, filename: imageMeta.filename };
 }
 
