@@ -14,7 +14,13 @@ import {
   groupIntoCues,
   offsetCues,
 } from "../services/captions.js";
-import { combineSceneVisuals, containSceneVisual, sequenceSceneVisuals } from "../services/edit.js";
+import {
+  type Crop,
+  combineSceneVisuals,
+  containSceneVisual,
+  cropSource,
+  sequenceSceneVisuals,
+} from "../services/edit.js";
 import { type NarratedScene, frameBufferFromPath, narratedScenes } from "../services/effects.js";
 import { submitJob } from "../services/jobs.js";
 import { renderMathShortCached } from "../services/manim.js";
@@ -142,6 +148,18 @@ const VIDEO_CLIP = z
       .optional()
       .describe(
         "How the visual fills the frame: cover (default) crops it to fill (a still also gets a slow zoom-in); contain shows the WHOLE picture (no crop) centered over a blurred fill of itself (a still also gets a gentle push-in); pan (stills only) shows a wide figure large enough to read on a phone and glides across it over the scene. Use contain for screenshots/text where cropping the borders loses the point and for landscape footage in a portrait render, and pan for wide figures and diagrams in a portrait render. Applies in single and sequence layouts.",
+      ),
+    crop: z
+      .object({
+        x: z.number().min(0).max(1),
+        y: z.number().min(0).max(1),
+        w: z.number().gt(0).max(1),
+        h: z.number().gt(0).max(1),
+      })
+      .strict()
+      .optional()
+      .describe(
+        "Show only this region of the source, as fractions of its width and height (x, y = top-left corner). The region is cut out first, then fitted like a whole picture. Use it to zoom into the part of a figure the narration talks about; in a sequence layout, the same media_id with different crops makes a whole-then-detail cut.",
       ),
   })
   .strict();
@@ -337,7 +355,14 @@ interface ResolvedVoice {
 }
 
 type ResolvedVisual =
-  | { kind: "video"; mediaId: string; in?: number; out?: number; fit?: "cover" | "contain" | "pan" }
+  | {
+      kind: "video";
+      mediaId: string;
+      in?: number;
+      out?: number;
+      fit?: "cover" | "contain" | "pan";
+      crop?: Crop;
+    }
   | { kind: "math"; math: MathGraphic };
 
 // Minimum/maximum visual clip count each layout accepts; "single" is checked separately so its
@@ -673,8 +698,20 @@ async function resolveScene(
             in: clip.in,
             out: clip.out,
             fit: clip.fit,
+            crop: clip.crop,
           },
         });
+        if (
+          clip.crop &&
+          (clip.crop.x + clip.crop.w > 1.0001 || clip.crop.y + clip.crop.h > 1.0001)
+        ) {
+          findings.push({
+            path: `${clipPath}.crop`,
+            severity: "error",
+            message: "crop reaches past the edge of the source",
+            hint: "keep x + w and y + h at or below 1",
+          });
+        }
       } else if (clip.type === "graphic") {
         if (clip.accent_color && !validateColor(clip.accent_color)) {
           findings.push({
@@ -1038,9 +1075,11 @@ async function resolveVisualPath(
       `scene footage not found: ${visual.mediaId} — download it with video_download_media first.`,
     );
   }
-  return visual.in !== undefined || visual.out !== undefined
-    ? await trimVideoSource(footage.path, footage.media_id, visual.in ?? 0, visual.out)
-    : footage.path;
+  const source =
+    visual.in !== undefined || visual.out !== undefined
+      ? await trimVideoSource(footage.path, footage.media_id, visual.in ?? 0, visual.out)
+      : footage.path;
+  return visual.crop ? cropSource(source, footage.media_id, visual.crop) : source;
 }
 
 export interface FrameLocation {

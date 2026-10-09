@@ -535,6 +535,47 @@ function blurredContainGraph(w: number, h: number, raised = false): string {
   ].join(";");
 }
 
+export interface Crop {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export function cropFilter(crop: Crop): string {
+  const even = (expr: string) => `trunc(${expr}/2)*2`;
+  return `crop=${even(`iw*${crop.w}`)}:${even(`ih*${crop.h}`)}:${even(`iw*${crop.x}`)}:${even(`ih*${crop.y}`)}`;
+}
+
+// One region of a still or a clip, cut out before it is fitted, so a figure can show its detail
+// at full size. Cached per source and region.
+export async function cropSource(path: string, mediaId: string, crop: Crop): Promise<string> {
+  const image = IMAGE_RE.test(path);
+  const idSeed = `compose-crop:${mediaId}:${crop.x}:${crop.y}:${crop.w}:${crop.h}`;
+  const cached = await getCached(mediaIdFor(idSeed));
+  if (cached) return cached.path;
+  const dir = join(config.workDir, `compose-crop-${randomUUID().slice(0, 8)}`);
+  await mkdir(dir, { recursive: true });
+  try {
+    const out = join(dir, image ? "crop.png" : "crop.mp4");
+    const encode = image
+      ? []
+      : ["-an", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p"];
+    await run("ffmpeg", ["-nostdin", "-y", "-i", path, "-vf", cropFilter(crop), ...encode, out], {
+      timeoutMs: 300_000,
+    });
+    const meta = await writeMediaFromBuffer({
+      idSeed,
+      buffer: await readFile(out),
+      ext: image ? ".png" : ".mp4",
+      sourceUrl: `crop://${mediaId}`,
+    });
+    return meta.path;
+  } finally {
+    await rm(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 }).catch(() => {});
+  }
+}
+
 // A raised visual sits near the top of the frame, leaving the lower part free for lifted captions.
 function visualTop(frameHeight: number, raised: boolean): string {
   return raised ? `'min((H-h)/2,${Math.round(frameHeight * 0.04)})'` : "(H-h)/2";

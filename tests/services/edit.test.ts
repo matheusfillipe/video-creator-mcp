@@ -3,11 +3,20 @@ import {
   type EditSpec,
   atempoChain,
   cellDims,
+  cropFilter,
   gridRowCellDims,
   segmentDuration,
   textFilters,
   validateSpec,
 } from "../../src/services/edit.js";
+
+describe("cropFilter", () => {
+  it("cuts the region as fractions of the source, rounded to even pixels", () => {
+    expect(cropFilter({ x: 0.5, y: 0.25, w: 0.5, h: 0.5 })).toBe(
+      "crop=trunc(iw*0.5/2)*2:trunc(ih*0.5/2)*2:trunc(iw*0.5/2)*2:trunc(ih*0.25/2)*2",
+    );
+  });
+});
 
 describe("cellDims", () => {
   it("splits portrait canvas into two half-height cells for vstack", () => {
