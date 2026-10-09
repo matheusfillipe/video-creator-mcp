@@ -87,8 +87,7 @@ export async function synthesizeSpeechService(text: string, voice: string): Prom
     throw new ChatterboxRequestError(
       "speech_voice needs SPEECH_URL (an OpenAI-compatible speech service)",
     );
-  const root = base.replace(/\/+$/, "");
-  const url = `${root}/v1/audio/speech`;
+  const url = `${base.replace(/\/+$/, "")}/v1/audio/speech`;
   // When a LocalAI backend process dies mid-request, LocalAI keeps routing to the dead process
   // for about a minute. We ask it to drop that backend so the retry loads a fresh one.
   for (let attempt = 1; ; attempt++) {
@@ -109,16 +108,24 @@ export async function synthesizeSpeechService(text: string, voice: string): Prom
       throw new ChatterboxRequestError(
         `speech service returned ${res.status}: ${body.slice(0, 300)}`,
       );
-    await fetch(`${root}/backend/shutdown`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model: config.speech.model }),
-      signal: AbortSignal.timeout(30_000),
-    }).catch((error: unknown) => {
-      if (!(error instanceof TypeError || (error as Error).name === "TimeoutError")) throw error;
-    });
+    await releaseModel(config.speech.model);
     await new Promise((resolve) => setTimeout(resolve, SPEECH_RETRY_DELAY_MS));
   }
+}
+
+// Asks LocalAI to unload a model and free its GPU memory. An unreachable service only means the
+// memory stays taken, so we carry on.
+export async function releaseModel(model: string): Promise<void> {
+  const base = config.speech.url;
+  if (!base) return;
+  await fetch(`${base.replace(/\/+$/, "")}/backend/shutdown`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+    signal: AbortSignal.timeout(30_000),
+  }).catch((error: unknown) => {
+    if (!(error instanceof TypeError || (error as Error).name === "TimeoutError")) throw error;
+  });
 }
 
 const SPEECH_ATTEMPTS = 3;
