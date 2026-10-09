@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { ExecError } from "../lib/exec.js";
 import { assertSafeUrl } from "../lib/net.js";
 import { previewFrames } from "./preview.js";
 import { storage } from "./storage.js";
@@ -140,11 +141,18 @@ async function renderTables(arxivId: string, tables: PaperTable[]): Promise<Pape
   const visibility = config.storage.s3.privateBucket ? "private" : "public";
   const rendered: PaperFigure[] = [];
   for (const table of tables) {
-    const { frames } = await previewFrames({
+    // A table the browser fails to draw is left out; the rest of the paper's material still counts.
+    const frames = await previewFrames({
       htmlBase64: Buffer.from(tablePage(table.html)).toString("base64"),
       timeSeconds: [0],
       resolution: "landscape",
-    });
+    }).then(
+      (out) => out.frames,
+      (error: unknown) => {
+        if (error instanceof ExecError) return [];
+        throw error;
+      },
+    );
     const still = frames[0];
     if (!still) continue;
     const url = await storage().save(
