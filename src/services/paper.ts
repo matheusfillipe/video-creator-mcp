@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { cacheId } from "../lib/cacheId.js";
 import { ExecError } from "../lib/exec.js";
 import { assertSafeUrl } from "../lib/net.js";
 import { previewFrames } from "./preview.js";
@@ -28,8 +29,14 @@ export interface PaperMedia {
   project_page: string | null;
   text: string;
   figures: PaperFigure[];
-  tables: PaperFigure[];
+  tables: PaperTableStill[];
   videos: PaperVideo[];
+}
+
+// A rendered table plus its rows as text (cells joined by " | "), numbered from 0 in the order
+// video_paper_table_focus takes them.
+export interface PaperTableStill extends PaperFigure {
+  rows: string[];
 }
 
 const MAX_FIGURES = 14;
@@ -137,33 +144,130 @@ interface HfPaper {
 }
 
 // Each table rendered to a still, kept in the private bucket when the server has one.
-async function renderTables(arxivId: string, tables: PaperTable[]): Promise<PaperFigure[]> {
+// Draws a page to a PNG and stores it, in the private bucket when the server has one. Returns
+// null when the browser fails to draw it.
+async function renderStill(page: string, filename: string): Promise<string | null> {
+  const frames = await previewFrames({
+    htmlBase64: Buffer.from(page).toString("base64"),
+    timeSeconds: [0],
+    resolution: "landscape",
+  }).then(
+    (out) => out.frames,
+    (error: unknown) => {
+      if (error instanceof ExecError) return [];
+      throw error;
+    },
+  );
+  const still = frames[0];
+  if (!still) return null;
   const visibility = config.storage.s3.privateBucket ? "private" : "public";
-  const rendered: PaperFigure[] = [];
+  return storage().save(still.buffer, filename, "image/png", visibility);
+}
+
+// Each table rendered to a still. A table the browser fails to draw is left out; the rest of the
+// paper's material still counts.
+async function renderTables(arxivId: string, tables: PaperTable[]): Promise<PaperTableStill[]> {
+  const rendered: PaperTableStill[] = [];
   for (const table of tables) {
-    // A table the browser fails to draw is left out; the rest of the paper's material still counts.
-    const frames = await previewFrames({
-      htmlBase64: Buffer.from(tablePage(table.html)).toString("base64"),
-      timeSeconds: [0],
-      resolution: "landscape",
-    }).then(
-      (out) => out.frames,
-      (error: unknown) => {
-        if (error instanceof ExecError) return [];
-        throw error;
-      },
-    );
-    const still = frames[0];
-    if (!still) continue;
-    const url = await storage().save(
-      still.buffer,
-      `paper-${arxivId}-${table.id}.png`,
-      "image/png",
-      visibility,
-    );
-    rendered.push({ id: table.id, url, caption: table.caption });
+    const url = await renderStill(tablePage(table.html), `paper-${arxivId}-${table.id}.png`);
+    if (!url) continue;
+    const rows = parseTableGrid(table.html).map((cells) => cells.join(" | "));
+    rendered.push({ id: table.id, url, caption: table.caption, rows });
   }
   return rendered;
+}
+
+// The table's cells as text, row by row. A cell spanning several columns is followed by empty
+// cells, so column numbers line up across rows. A cell spanning several rows repeats in each,
+// so every row keeps its label.
+export function parseTableGrid(tableHtml: string): string[][] {
+  const grid: string[][] = [];
+  const carried: { text: string; rowsLeft: number }[] = [];
+  for (const row of tableHtml.match(/<tr[\s\S]*?<\/tr>/g) ?? []) {
+    const cells: string[] = [];
+    const fillCarried = () => {
+      for (let held = carried[cells.length]; held?.rowsLeft; held = carried[cells.length]) {
+        cells.push(held.text);
+        held.rowsLeft--;
+      }
+    };
+    for (const cell of row.matchAll(/<t[dh]([^>]*)>([\s\S]*?)<\/t[dh]>/g)) {
+      fillCarried();
+      const colspan = Number(cell[1]?.match(/colspan="(\d+)"/)?.[1] ?? 1);
+      const rowspan = Number(cell[1]?.match(/rowspan="(\d+)"/)?.[1] ?? 1);
+      const text = stripTags(cell[2] ?? "");
+      for (let i = 0; i < colspan; i++) {
+        if (rowspan > 1) carried[cells.length] = { text: i ? "" : text, rowsLeft: rowspan - 1 };
+        cells.push(i ? "" : text);
+      }
+    }
+    fillCarried();
+    if (cells.some(Boolean)) grid.push(cells);
+  }
+  return grid;
+}
+
+export interface TableFocus {
+  rows: number[];
+  cols?: number[];
+  highlight?: { row: number; col: number }[];
+}
+
+// A near-square card with the header row, the chosen rows and columns, and the cited cells
+// highlighted, so the numbers a line talks about read large in a vertical frame. Row 0 and column 0
+// always stay, since they name what the numbers are.
+export function focusTablePage(grid: string[][], focus: TableFocus): string {
+  const width = Math.max(...grid.map((row) => row.length));
+  const keepRows = [...new Set([0, ...focus.rows])].filter((r) => r >= 0 && r < grid.length);
+  const keepCols = focus.cols?.length
+    ? [...new Set([0, ...focus.cols])].filter((c) => c >= 0 && c < width).sort((a, b) => a - b)
+    : [...Array(width).keys()];
+  const marked = new Set((focus.highlight ?? []).map(({ row, col }) => `${row}:${col}`));
+  const escapeHtml = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const body = keepRows
+    .sort((a, b) => a - b)
+    .map((r) => {
+      const tag = r === 0 ? "th" : "td";
+      const cells = keepCols.map((c) => {
+        const mark = marked.has(`${r}:${c}`) ? ' class="hit"' : "";
+        return `<${tag}${mark}>${escapeHtml(grid[r]?.[c] ?? "")}</${tag}>`;
+      });
+      return `<tr>${cells.join("")}</tr>`;
+    })
+    .join("");
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8"><style>
+html,body{margin:0;width:1920px;height:1080px;background:#fff}
+#t{position:absolute;left:50%;top:50%;transform-origin:center;color:#111;font:40px "Liberation Sans",Arial,sans-serif}
+table{border-collapse:collapse}th,td{padding:14px 26px;text-align:center;white-space:nowrap;border-bottom:2px solid #ccc}
+th{border-bottom:4px solid #111;font-weight:bold}td:first-child,th:first-child{text-align:left;font-weight:bold}
+.hit{background:#ffe14d;font-weight:bold;outline:4px solid #e0a800}
+</style></head><body><div id="t"><table>${body}</table></div><script>
+const t=document.getElementById("t");
+const s=Math.min(1000/t.offsetWidth,1000/t.offsetHeight,3);
+t.style.transform="translate(-50%,-50%) scale("+s+")";
+</script></body></html>`;
+}
+
+// The focused card of one table of a paper, stored like the table stills.
+export async function focusPaperTable(
+  arxivId: string,
+  tableId: string,
+  focus: TableFocus,
+): Promise<{ url: string; rows_shown: number; cols_shown: number }> {
+  const htmlUrl = `https://arxiv.org/html/${arxivId}`;
+  const table = parseArxivTables(await fetchText(htmlUrl)).find((t) => t.id === tableId);
+  if (!table) throw new Error(`${arxivId} has no table ${tableId}`);
+  const grid = parseTableGrid(table.html);
+  const url = await renderStill(
+    focusTablePage(grid, focus),
+    `paper-${arxivId}-${tableId}-focus-${cacheId(JSON.stringify(focus))}.png`,
+  );
+  if (!url) throw new Error(`the browser failed to draw ${tableId} of ${arxivId}`);
+  return {
+    url,
+    rows_shown: new Set([0, ...focus.rows]).size,
+    cols_shown: focus.cols?.length ? new Set([0, ...focus.cols]).size : (grid[0]?.length ?? 0),
+  };
 }
 
 // The paper's own visual material: its figures from arXiv and the authors' demo videos from the

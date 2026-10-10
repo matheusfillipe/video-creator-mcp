@@ -1,10 +1,49 @@
 import { describe, expect, it } from "vitest";
 import {
+  focusTablePage,
   parseArxivFigures,
   parseArxivTables,
   parseArxivText,
   parseProjectVideos,
+  parseTableGrid,
 } from "../../src/services/paper.js";
+
+describe("parseTableGrid", () => {
+  it("lines columns up across rows when a header cell spans several", () => {
+    const html = `<table><tr><th>Model</th><th colspan="2">Score</th></tr>
+      <tr><td>Ours</td><td>71.4</td><td><b>70.1</b></td></tr><tr><td></td><td></td><td></td></tr></table>`;
+    expect(parseTableGrid(html)).toEqual([
+      ["Model", "Score", ""],
+      ["Ours", "71.4", "70.1"],
+    ]);
+  });
+
+  it("repeats a cell spanning several rows in each of them", () => {
+    const html = `<table><tr><td rowspan="2">Brief</td><td>A</td><td>1</td></tr>
+      <tr><td>B</td><td>2</td></tr><tr><td>Edit</td><td>C</td><td>3</td></tr></table>`;
+    expect(parseTableGrid(html)).toEqual([
+      ["Brief", "A", "1"],
+      ["Brief", "B", "2"],
+      ["Edit", "C", "3"],
+    ]);
+  });
+});
+
+describe("focusTablePage", () => {
+  const grid = [
+    ["Model", "A", "B", "C"],
+    ["Base", "1", "2", "3"],
+    ["Ours", "4", "5", "6"],
+  ];
+
+  it("keeps the header and first column, the chosen rows and columns, and marks cited cells", () => {
+    const page = focusTablePage(grid, { rows: [2], cols: [2], highlight: [{ row: 2, col: 2 }] });
+    expect(page).toContain(
+      '<tr><th>Model</th><th>B</th></tr><tr><td>Ours</td><td class="hit">5</td></tr>',
+    );
+    expect(page).not.toContain("Base");
+  });
+});
 
 describe("parseArxivTables", () => {
   const html = `

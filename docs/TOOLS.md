@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 38 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 39 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -229,7 +229,19 @@ The real material of an arXiv paper, for explaining it with its own figures inst
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
 | `arxiv_id` | string | yes |  | arXiv id without version, e.g. 2610.10524. |
-| `render_tables` | boolean | no |  | Render each of the paper's tables (up to 6) to a 1920x1080 still, a few seconds per table. Off by default. |
+| `render_tables` | boolean | no |  | Render each of the paper's tables (up to 6) to a 1920x1080 still, a few seconds per table, and return its rows as text for video_paper_table_focus. Off by default. |
+
+## `video_paper_table_focus`
+
+Render only the part of a paper's table a line talks about: the header row plus the chosen rows, the first column plus the chosen columns, with cited cells highlighted, large on a near-square card that reads in a vertical video. Row and column numbers count from 0 in the rows video_paper_media returns with render_tables (cells split on ' \| '). Returns the still's url for video_download_media.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `arxiv_id` | string | yes |  |  |
+| `table_id` | string | yes |  | Table id from video_paper_media, e.g. tab2. |
+| `rows` | array | yes |  | Rows to show besides the header. |
+| `cols` | array | no |  | Columns to show besides the first; all columns when left out. |
+| `highlight` | array | no |  | Cells to mark, such as the number the narration reads out. |
 
 ## `video_plan`
 
