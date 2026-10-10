@@ -195,7 +195,9 @@ export function parseTableGrid(tableHtml: string): string[][] {
       fillCarried();
       const colspan = Number(cell[1]?.match(/colspan="(\d+)"/)?.[1] ?? 1);
       const rowspan = Number(cell[1]?.match(/rowspan="(\d+)"/)?.[1] ?? 1);
-      const text = stripTags(cell[2] ?? "");
+      const text = stripTags(
+        (cell[2] ?? "").replace(/<annotation[\s\S]*?<\/annotation>|<cite[\s\S]*?<\/cite>/g, ""),
+      );
       for (let i = 0; i < colspan; i++) {
         if (rowspan > 1) carried[cells.length] = { text: i ? "" : text, rowsLeft: rowspan - 1 };
         cells.push(i ? "" : text);
@@ -213,9 +215,9 @@ export interface TableFocus {
   highlight?: { row: number; col: number }[];
 }
 
-// A near-square card with the header row, the chosen rows and columns, and the cited cells
-// highlighted, so the numbers a line talks about read large in a vertical frame. Row 0 and column 0
-// always stay, since they name what the numbers are.
+// A 16:9 card with the header row, the chosen rows and columns, and the cited cells highlighted,
+// scaled to fill the card so the numbers a line talks about read large when a vertical frame shows
+// it full width. Row 0 and column 0 always stay, since they name what the numbers are.
 export function focusTablePage(grid: string[][], focus: TableFocus): string {
   const width = Math.max(...grid.map((row) => row.length));
   const keepRows = [...new Set([0, ...focus.rows])].filter((r) => r >= 0 && r < grid.length);
@@ -243,7 +245,7 @@ th{border-bottom:4px solid #111;font-weight:bold}td:first-child,th:first-child{t
 .hit{background:#ffe14d;font-weight:bold;outline:4px solid #e0a800}
 </style></head><body><div id="t"><table>${body}</table></div><script>
 const t=document.getElementById("t");
-const s=Math.min(1000/t.offsetWidth,1000/t.offsetHeight,3);
+const s=Math.min(1800/t.offsetWidth,1000/t.offsetHeight,3);
 t.style.transform="translate(-50%,-50%) scale("+s+")";
 </script></body></html>`;
 }

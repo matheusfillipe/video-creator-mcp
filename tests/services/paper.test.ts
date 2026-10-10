@@ -18,6 +18,11 @@ describe("parseTableGrid", () => {
     ]);
   });
 
+  it("keeps a formula's symbol and drops its LaTeX source and citation marks", () => {
+    const html = `<table><tr><td>RoMa <cite>[<a>5</a>]</cite></td><td>MSE <math><semantics><mo>↓</mo><annotation encoding="application/x-tex">\\downarrow</annotation></semantics></math></td></tr></table>`;
+    expect(parseTableGrid(html)).toEqual([["RoMa", "MSE ↓"]]);
+  });
+
   it("repeats a cell spanning several rows in each of them", () => {
     const html = `<table><tr><td rowspan="2">Brief</td><td>A</td><td>1</td></tr>
       <tr><td>B</td><td>2</td></tr><tr><td>Edit</td><td>C</td><td>3</td></tr></table>`;

@@ -233,7 +233,7 @@ The real material of an arXiv paper, for explaining it with its own figures inst
 
 ## `video_paper_table_focus`
 
-Render only the part of a paper's table a line talks about: the header row plus the chosen rows, the first column plus the chosen columns, with cited cells highlighted, large on a near-square card that reads in a vertical video. Row and column numbers count from 0 in the rows video_paper_media returns with render_tables (cells split on ' \| '). Returns the still's url for video_download_media.
+Render only the part of a paper's table a line talks about: the header row plus the chosen rows, the first column plus the chosen columns, with cited cells highlighted, filling a 1920x1080 card that reads when a vertical video shows it full width. Row and column numbers count from 0 in the rows video_paper_media returns with render_tables (cells split on ' \| '). Returns the still's url for video_download_media.
 
 | Param | Type | Required | Default | Description |
 |---|---|---|---|---|
