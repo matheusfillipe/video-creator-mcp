@@ -1,5 +1,29 @@
+import { mkdtemp, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseFrameRate, sectionArg, ytdlpFormat } from "../../src/services/media.js";
+import { config } from "../../src/config.js";
+import { loadMeta, parseFrameRate, sectionArg, ytdlpFormat } from "../../src/services/media.js";
+
+describe("loadMeta", () => {
+  it("refreshes the item's age so the cache sweep keeps what is still used", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "vcm-media-test-"));
+    const previous = config.mediaCacheDir;
+    config.mediaCacheDir = dir;
+    try {
+      const meta = join(dir, "abc.meta.json");
+      await writeFile(meta, JSON.stringify({ media_id: "abc" }));
+      const longAgo = new Date(Date.now() - 48 * 3_600_000);
+      await utimes(meta, longAgo, longAgo);
+
+      expect((await loadMeta("abc"))?.media_id).toBe("abc");
+      expect(Date.now() - (await stat(meta)).mtimeMs).toBeLessThan(60_000);
+    } finally {
+      config.mediaCacheDir = previous;
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("parseFrameRate", () => {
   it("parses rational frame rates", () => {

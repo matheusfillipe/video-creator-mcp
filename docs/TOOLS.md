@@ -2,7 +2,7 @@
 
 # Tool reference — video-creator-mcp v0.1.0
 
-The agent drives these 37 MCP tools. Auto-generated from the live server's `tools/list`.
+The agent drives these 38 MCP tools. Auto-generated from the live server's `tools/list`.
 
 ## `video_add_audio`
 
@@ -53,6 +53,16 @@ Profile any video URL for static, structured regions — baked logos, watermarks
 | `url` | string | yes |  | Video URL (any yt-dlp source or direct media link). |
 | `fps` | number | no | `2` | Frames sampled per second for the analysis. |
 | `grid` | integer | no | `4` | Grid resolution (NxN cells). |
+
+## `video_cache_purge`
+
+Remove items from the server's media cache: downloads, generated voices and music, crops and intermediate renders. Name media_ids, or give unused_for_hours, or set all. A purged item is produced again the next time something needs it, so purge to force a fresh voice or download, or to free disk. Returns how many items and bytes were removed. Run it between renders, not during one.
+
+| Param | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `media_ids` | array | no |  | Exact media_ids to remove. |
+| `unused_for_hours` | number | no |  | Remove every item not used for at least this many hours. |
+| `all` | boolean | no | `false` | Remove the whole cache. |
 
 ## `video_caption`
 

@@ -2,7 +2,7 @@ import { mkdtemp, rm, stat, truncate, utimes, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { sweepCacheOnce } from "../../src/services/cache-gc.js";
+import { purgeCache, sweepCacheOnce } from "../../src/services/cache-gc.js";
 
 const HOUR_MS = 3_600_000;
 
@@ -84,5 +84,20 @@ describe("sweepCacheOnce", () => {
     expect(result.items).toBe(0);
     expect(await exists("music.mp4")).toBe(true);
     expect(await exists("clip.mp4")).toBe(true);
+  });
+
+  it("purges named items, items unused for long enough, or everything", async () => {
+    await seedItem("keep", 100, 1);
+    await seedItem("named", 100, 1);
+    await seedItem("idle", 100, 30);
+
+    expect((await purgeCache({ mediaIds: ["named"] }, NOW, dir)).items).toBe(1);
+    expect((await purgeCache({ unusedForMs: 24 * HOUR_MS }, NOW, dir)).items).toBe(1);
+    expect(await exists("keep.mp4")).toBe(true);
+    expect(await exists("named.meta.json")).toBe(false);
+    expect(await exists("idle.mp4")).toBe(false);
+
+    expect((await purgeCache({ all: true }, NOW, dir)).items).toBe(1);
+    expect(await exists("keep.mp4")).toBe(false);
   });
 });

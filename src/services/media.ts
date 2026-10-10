@@ -6,6 +6,7 @@ import {
   rename,
   stat,
   symlink,
+  utimes,
   writeFile,
 } from "node:fs/promises";
 import { basename, extname, join } from "node:path";
@@ -96,9 +97,13 @@ export async function saveMeta(mediaId: string, meta: MediaMeta): Promise<void> 
   await writeFile(metaPath(mediaId), JSON.stringify(meta, null, 2));
 }
 
+// Every read refreshes the item's age, so the cache sweep evicts what has gone unused rather
+// than what was made long ago.
 export async function loadMeta(mediaId: string): Promise<MediaMeta | null> {
   try {
     const raw = await readFile(metaPath(mediaId), "utf-8");
+    const now = new Date();
+    await utimes(metaPath(mediaId), now, now);
     return JSON.parse(raw) as MediaMeta;
   } catch (error) {
     if (isErrnoException(error) && error.code === "ENOENT") {

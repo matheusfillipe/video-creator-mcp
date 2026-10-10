@@ -3,9 +3,9 @@ import { join } from "node:path";
 import { config } from "../config.js";
 
 const SWEEP_INTERVAL_MS = 30 * 60_000;
-// The media cache lives on the pod's emptyDir; without eviction it grows until the pod restarts
-// or the volume fills. Cap it by age and by total size so downloaded footage never accumulates
-// forever. A miss just re-downloads (or re-fetches from a recipe's durable url), so eviction is safe.
+// Without eviction the media cache grows until its volume fills. Cap it by the time since each
+// item was last used and by total size, so footage never accumulates forever. A miss just
+// re-downloads (or re-fetches from a recipe's durable url), so eviction is safe.
 const MAX_AGE_MS = Number(process.env.CACHE_MAX_AGE_HOURS ?? 6) * 3_600_000;
 const MAX_TOTAL_BYTES = Number(process.env.CACHE_MAX_GB ?? 6) * 1024 ** 3;
 // A single generation downloads its media (music first, then clips, TTS, renders)
@@ -82,6 +82,35 @@ export async function sweepCacheOnce(
     freedBytes += item.size;
   }
   return { items: doomed.size, freedBytes };
+}
+
+export interface PurgeRequest {
+  mediaIds?: string[];
+  unusedForMs?: number;
+  all?: boolean;
+}
+
+// Removes cache items on demand: the named media_ids, everything unused for at least the given
+// time, or everything. An item still being produced or rendered is safe to remove only between
+// jobs; a render in flight re-downloads what it misses.
+export async function purgeCache(
+  request: PurgeRequest,
+  now: number,
+  dir: string = config.mediaCacheDir,
+): Promise<{ items: number; freedBytes: number }> {
+  const ids = new Set(request.mediaIds ?? []);
+  const doomed = (await collect(dir)).filter(
+    (item) =>
+      request.all ||
+      ids.has(item.base) ||
+      (request.unusedForMs !== undefined && now - item.mtime >= request.unusedForMs),
+  );
+  let freedBytes = 0;
+  for (const item of doomed) {
+    for (const path of item.paths) await rm(path, { force: true });
+    freedBytes += item.size;
+  }
+  return { items: doomed.length, freedBytes };
 }
 
 export function startCacheGc(): void {
